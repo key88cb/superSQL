@@ -104,8 +104,6 @@ bool API::dropTable(std::string table_name)
 //如果对应属性已经有了索引，抛出index_exist异常
 bool API::createIndex(std::string table_name, std::string index_name, std::string attr_name)
 {
-    IndexManager index(table_name);
-    
 	std::string file_path = "INDEX_FILE_" + attr_name + "_" + table_name;
 	int type;
 
@@ -117,8 +115,9 @@ bool API::createIndex(std::string table_name, std::string index_name, std::strin
 			break;
 		}
 	}
-	index.createIndex(file_path, type);
-	record.createIndex(index , table_name, attr_name);
+	IndexManager* im = record.getIndexManager(table_name);
+	im->createIndex(file_path, type);
+	record.createIndex(*im , table_name, attr_name);
     record.invalidateIndexManager(table_name);
 
 	return true;
@@ -132,8 +131,6 @@ bool API::createIndex(std::string table_name, std::string index_name, std::strin
 //如果对应属性没有索引，抛出index_not_exist异常
 bool API::dropIndex(std::string table_name, std::string index_name)
 {
-    IndexManager index(table_name);
-    
 	std::string attr_name = catalog.IndextoAttr(table_name, index_name);
 	std::string file_path = "INDEX_FILE_" + attr_name + "_" + table_name;
 	int type;
@@ -145,7 +142,8 @@ bool API::dropIndex(std::string table_name, std::string index_name)
 			break;
 		}
 	}
-	index.dropIndex(file_path, type);
+	IndexManager* im = record.getIndexManager(table_name);
+	im->dropIndex(file_path, type);
 	catalog.dropIndex(table_name, index_name);
 	
 	file_path = "./database/index/" + file_path;

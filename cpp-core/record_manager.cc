@@ -428,6 +428,8 @@ void RecordManager::createIndex(IndexManager& index_manager , std::string table_
     for (int i = 0;i < block_num;i++) {
         //获取当前块的句柄
         char* p = buffer_manager.getPage(table_name , i);
+
+
         char* t = p;
         //遍历块中所有记录
         while (*p != '\0' && p < t + PAGESIZE) {
@@ -504,19 +506,22 @@ char* RecordManager::deleteRecord1(char* p) {
 
 //从内存中读取一个tuple
 Tuple RecordManager::readTuple(const char* p , Attribute attr) {
+    int len = getTupleLength((char*)p);
+    const char* tuple_end = p + len;
     Tuple tuple;
     p = p + 9; // skip length(4) and "tuple"(5)
     for (int i = 0;i < attr.num;i++) {
+        if (p >= tuple_end) break;
         p++; // skip the leading space of each field
+
         Data data;
         data.type = attr.type[i];
-        char tmp[100];
-        int j;
-        for (j = 0;*p != ' ' && *p != '\0';j++,p++) {
-            tmp[j] = *p;
+        std::string s = "";
+        for (;*p != ' ' && *p != '\0' && p < tuple_end;p++) {
+            s += *p;
         }
-        tmp[j] = '\0';
-        std::string s(tmp);
+
+        
         switch(data.type) {
             case -1:{
                 std::stringstream stream(s);
@@ -532,8 +537,8 @@ Tuple RecordManager::readTuple(const char* p , Attribute attr) {
         }
         tuple.addData(data);
     }
-    p++; // skip the space before the flag (p[offset] = ' ' at line 452 of insertRecord1)
-    if (*p == '1')
+    if (p < tuple_end) p++; // skip the space before the flag
+    if (p < tuple_end && *p == '1')
         tuple.setDeleted();
     return tuple;
 }
@@ -545,7 +550,13 @@ int RecordManager::getTupleLength(char* p) {
         tmp[i] = p[i];
     tmp[4] = '\0';
     std::string s(tmp);
-    return std::stoi(s);
+    try {
+        int res = std::stoi(s);
+        if (res <= 0) return 1; // Prevent infinite loop
+        return res;
+    } catch (...) {
+        return 1; // Recovery on corruption
+    }
 }
 
 //判断插入的记录是否和其他记录冲突

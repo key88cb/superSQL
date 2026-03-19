@@ -55,9 +55,10 @@ We use a custom testing suite located in `cpp-core/tests/`.
    ./test_pin_count
    ```
 
-### Known Issues
+### Status
 
-- **Memory Management**: The exhaustive stress test currently encounters a `std::bad_alloc` (OOM) error during the post-insertion phase (around 4000 records). We are currently debugging the `selectRecord` and `createIndex` memory footprints.
+- **Memory Management**: ✅ **RESOLVED**. The exhaustive stress test (4000 records) is now passing after architectural refactoring of the `IndexManager`, hardening of `readTuple` parsing, and buffer pool expansion to 512 frames.
+
 
 ## Future Roadmap
 

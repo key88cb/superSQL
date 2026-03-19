@@ -29,6 +29,7 @@ class RecordManager {
     public:
         ~RecordManager();
         void invalidateIndexManager(std::string table_name);
+        IndexManager* getIndexManager(std::string table_name);
         //输入：表名
         //输出：void
         //功能：建立表文件
@@ -75,9 +76,9 @@ class RecordManager {
         void createIndex(IndexManager& index_manager , std::string table_name , std::string target_attr);
     private:
         std::map<std::string, IndexManager*> index_managers;
-        IndexManager* getIndexManager(std::string table_name);
         
         //获取文件大小
+
         int getBlockNum(std::string table_name);
         //insertRecord的辅助函数
         void insertRecord1(char* p , int offset , int len , const std::vector<Data>& v);

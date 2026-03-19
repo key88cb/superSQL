@@ -1130,6 +1130,7 @@ void BPlusTree<T>::writtenbackToDiskAll()
 		memset(p, 0, PAGESIZE);
         
         for (i = 0; i < ntmp->num; i++) {
+            if (offset + 40 > PAGESIZE) break; // Robust safety check for '#' + ' ' + key + ' ' + val + ' ' 
             p[offset++] = '#';
             p[offset++] = ' ';
             

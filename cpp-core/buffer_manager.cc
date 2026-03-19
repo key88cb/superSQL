@@ -109,6 +109,10 @@ char* BufferManager::getPage(std::string file_name , int block_id) {
     int page_id = getPageId(file_name , block_id);
     if (page_id == -1) {
         page_id = getEmptyPageId();
+        if (page_id == -1) {
+             std::cerr << "CRITICAL ERROR: Buffer pool is full and all pages are pinned!" << std::endl;
+             exit(1);
+        }
         loadDiskBlock(page_id , file_name , block_id);
     }
     Frames[page_id].setRef(true);
