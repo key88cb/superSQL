@@ -1,0 +1,109 @@
+        -:    0:Source:basic.h
+        -:    0:Programs:6
+        -:    1://
+        -:    2://  basic.h
+        -:    3://  base
+        -:    4://
+        -:    5://  Created by Sr on 2017/5/25.
+        -:    6://  Copyright © 2017年 Sr. All rights reserved.
+        -:    7://
+        -:    8:
+        -:    9:#ifndef _BASIC_H_
+        -:   10:#define _BASIC_H_ 1
+        -:   11:#include <iostream>
+        -:   12:#include <vector>
+        -:   13:
+        -:   14://用于where的判断 分别为小于，小于等于，等于，大于等于，大于，不等于
+        -:   15:typedef enum{
+        -:   16:    LESS,
+        -:   17:    LESS_OR_EQUAL,
+        -:   18:    EQUAL,
+        -:   19:    GREATER_OR_EQUAL,
+        -:   20:    GREATER,
+        -:   21:    NOT_EQUAL
+        -:   22:} WHERE;
+        -:   23:
+        -:   24://一个struct存放它的一条信息的类型和值
+        -:   25://用一个strunt嵌套一个union实现多种类型的转换
+        -:   26://type的类型：-1：int,0:float,1-255:string(数值为字符串的长度+1),注意使用时对Value的选择！
+        -:   27:struct Data{
+        -:   28:    int type;
+        -:   29:    int datai;
+        -:   30:    float dataf;
+        -:   31:    std::string datas;
+        -:   32:};
+        -:   33:
+        -:   34://Where存放一组判断语句
+        -:   35:struct Where{
+        -:   36:    Data data; //数据
+        -:   37:    WHERE relation_character;   //关系
+        -:   38:};
+        -:   39:
+        -:   40://在确定类型时，慎用str.size()+1来决定str的type的值，一张表最多32个attribute
+        -:   41:struct Attribute{
+        -:   42:    int num;  //存放table的属性数
+        -:   43:    std::string name[32];  //存放每个属性的名字
+        -:   44:    short type[32];  //存放每个属性的类型，-1：int,0:float,1~255:string的长度+1
+        -:   45:    bool unique[32];  //判断每个属性是否unique，是为true
+        -:   46:    short primary_key;  //判断是否存在主键,-1为不存在，其他则为主键的所在位置
+        -:   47:    bool has_index[32]; //判断是否存在索引
+        -:   48:};
+        -:   49:
+        -:   50://索引管理，一张表最多只能有10个index
+        -:   51:struct Index{
+        -:   52:    int num;  //index的总数
+        -:   53:    short location[10];  //每个index在Attribute的name数组中是第几个
+        -:   54:    std::string indexname[10];  //每个index的名字
+        -:   55:};
+        -:   56:
+        -:   57://元组管理，数据只增不减
+        -:   58:class Tuple{
+        -:   59:private:
+        -:   60:    std::vector<Data> data_;  //存储元组里的每个数据的信息
+        -:   61:    bool isDeleted_;
+        -:   62:public:
+    #####:   63:    Tuple() : isDeleted_(false) {};
+------------------
+_ZN5TupleC1Ev:
+------------------
+_ZN5TupleC1Ev:
+------------------
+        -:   64:    Tuple(const Tuple &tuple_in);  //拷贝元组
+        -:   65:    void addData(Data data_in);  //新增元组
+        -:   66:    std::vector<Data> getData() const;  //返回数据
+        -:   67:    int getSize();  //返回元组的数据数量
+        -:   68:    bool isDeleted();
+        -:   69:    void setDeleted();
+        -:   70:    void showTuple();  //显示元组中的所有数据
+        -:   71:};
+        -:   72:
+        -:   73:class Table{
+        -:   74:private:
+        -:   75:    std::string title_;  //表名
+        -:   76:    std::vector<Tuple> tuple_;  //存放所有的元组
+        -:   77:    Index index_;  //表的索引信息
+        -:   78:public:
+        -:   79:    Attribute attr_;  //数据的类型
+        -:   80:    //构造函数
+        -:   81:    Table(){};
+        -:   82:    Table(std::string title,Attribute attr);
+        -:   83:    Table(const Table &table_in);
+        -:   84:
+        -:   85:    // int DataSize();  //每个tuple占的数据大小
+        -:   86:
+        -:   87:    int setIndex(short index,std::string index_name);  //插入索引，输入要建立索引的Attribute的编号，以及索引的名字，成功返回1失败返回0
+        -:   88:    int dropIndex(std::string index_name);  //删除索引，输入建立的索引的名字，成功返回1失败返回0
+        -:   89:
+        -:   90:    //private的输出接口
+        -:   91:    std::string getTitle();
+        -:   92:    Attribute getAttr();
+        -:   93:    std::vector<Tuple>& getTuple();
+        -:   94:    Index getIndex();
+        -:   95:    short gethasKey();
+        -:   96:
+        -:   97:    void showTable(); //显示table的部分数据
+        -:   98:    void showTable(int limit);
+        -:   99:};
+        -:  100:
+        -:  101:
+        -:  102:#endif

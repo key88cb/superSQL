@@ -1,0 +1,2391 @@
+        -:    0:Source:D:/programs/mingw64/lib/gcc/x86_64-w64-mingw32/8.1.0/include/c++/ext/new_allocator.h
+        -:    0:Programs:6
+        -:    1:// Allocator that wraps operator new -*- C++ -*-
+        -:    2:
+        -:    3:// Copyright (C) 2001-2018 Free Software Foundation, Inc.
+        -:    4://
+        -:    5:// This file is part of the GNU ISO C++ Library.  This library is free
+        -:    6:// software; you can redistribute it and/or modify it under the
+        -:    7:// terms of the GNU General Public License as published by the
+        -:    8:// Free Software Foundation; either version 3, or (at your option)
+        -:    9:// any later version.
+        -:   10:
+        -:   11:// This library is distributed in the hope that it will be useful,
+        -:   12:// but WITHOUT ANY WARRANTY; without even the implied warranty of
+        -:   13:// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        -:   14:// GNU General Public License for more details.
+        -:   15:
+        -:   16:// Under Section 7 of GPL version 3, you are granted additional
+        -:   17:// permissions described in the GCC Runtime Library Exception, version
+        -:   18:// 3.1, as published by the Free Software Foundation.
+        -:   19:
+        -:   20:// You should have received a copy of the GNU General Public License and
+        -:   21:// a copy of the GCC Runtime Library Exception along with this program;
+        -:   22:// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+        -:   23:// <http://www.gnu.org/licenses/>.
+        -:   24:
+        -:   25:/** @file ext/new_allocator.h
+        -:   26: *  This file is a GNU extension to the Standard C++ Library.
+        -:   27: */
+        -:   28:
+        -:   29:#ifndef _NEW_ALLOCATOR_H
+        -:   30:#define _NEW_ALLOCATOR_H 1
+        -:   31:
+        -:   32:#include <bits/c++config.h>
+        -:   33:#include <new>
+        -:   34:#include <bits/functexcept.h>
+        -:   35:#include <bits/move.h>
+        -:   36:#if __cplusplus >= 201103L
+        -:   37:#include <type_traits>
+        -:   38:#endif
+        -:   39:
+        -:   40:namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
+        -:   41:{
+        -:   42:_GLIBCXX_BEGIN_NAMESPACE_VERSION
+        -:   43:
+        -:   44:  using std::size_t;
+        -:   45:  using std::ptrdiff_t;
+        -:   46:
+        -:   47:  /**
+        -:   48:   *  @brief  An allocator that uses global new, as per [20.4].
+        -:   49:   *  @ingroup allocators
+        -:   50:   *
+        -:   51:   *  This is precisely the allocator defined in the C++ Standard.
+        -:   52:   *    - all allocation calls operator new
+        -:   53:   *    - all deallocation calls operator delete
+        -:   54:   *
+        -:   55:   *  @tparam  _Tp  Type of allocated object.
+        -:   56:   */
+        -:   57:  template<typename _Tp>
+        -:   58:    class new_allocator
+        -:   59:    {
+        -:   60:    public:
+        -:   61:      typedef size_t     size_type;
+        -:   62:      typedef ptrdiff_t  difference_type;
+        -:   63:      typedef _Tp*       pointer;
+        -:   64:      typedef const _Tp* const_pointer;
+        -:   65:      typedef _Tp&       reference;
+        -:   66:      typedef const _Tp& const_reference;
+        -:   67:      typedef _Tp        value_type;
+        -:   68:
+        -:   69:      template<typename _Tp1>
+        -:   70:	struct rebind
+        -:   71:	{ typedef new_allocator<_Tp1> other; };
+        -:   72:
+        -:   73:#if __cplusplus >= 201103L
+        -:   74:      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:   75:      // 2103. propagate_on_container_move_assignment
+        -:   76:      typedef std::true_type propagate_on_container_move_assignment;
+        -:   77:#endif
+        -:   78:
+      92*:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiEC2Ev:
+        4:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2Ev:
+        3:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2Ev:
+        3:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiEC2Ev:
+        4:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEEC2Ev:
+        3:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleEC2Ev:
+        5:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2Ev:
+    #####:   79:      new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+        -:   80:
+     168*:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2ERKS2_:
+       28:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleEC2ERKS2_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2ERKS2_:
+       28:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2ERKS2_:
+       28:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2ERKS2_:
+       28:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2ERKS2_:
+       28:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataEC2ERKS2_:
+       28:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcEC2ERKS1_:
+    #####:   81:      new_allocator(const new_allocator&) _GLIBCXX_USE_NOEXCEPT { }
+------------------
+        -:   82:
+        -:   83:      template<typename _Tp1>
+        -:   84:	new_allocator(const new_allocator<_Tp1>&) _GLIBCXX_USE_NOEXCEPT { }
+        -:   85:
+      62*:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiED2Ev:
+        4:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiED2Ev:
+        4:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEED2Ev:
+        3:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEED2Ev:
+        3:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIcED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEED2Ev:
+        5:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEED2Ev:
+        3:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfED2Ev:
+    #####:   86:      ~new_allocator() _GLIBCXX_USE_NOEXCEPT { }
+------------------
+        -:   87:
+        -:   88:      pointer
+        -:   89:      address(reference __x) const _GLIBCXX_NOEXCEPT
+        -:   90:      { return std::__addressof(__x); }
+        -:   91:
+        -:   92:      const_pointer
+        -:   93:      address(const_reference __x) const _GLIBCXX_NOEXCEPT
+        -:   94:      { return std::__addressof(__x); }
+        -:   95:
+        -:   96:      // NB: __n is permitted to be 0.  The C++ standard says nothing
+        -:   97:      // about what the return value is when __n == 0.
+        -:   98:      pointer
+     253*:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+     253*:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+     253*:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE8allocateEyPKv:
+       30:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+       30:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+       30:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE8allocateEyPKv:
+        3:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+        3:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+        3:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE8allocateEyPKv:
+       31:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+       31:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+       31:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE8allocateEyPKv:
+        3:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+        3:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+        3:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE8allocateEyPKv:
+       31:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+       31:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+       31:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE8allocateEyPKv:
+       57:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+       57:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+       57:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+        4:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+        4:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+        4:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE8allocateEyPKv:
+       30:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+       30:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+       30:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE8allocateEyPKv:
+        3:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+        3:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+        3:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE8allocateEyPKv:
+       31:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+       31:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+       31:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8allocateEyPKv:
+    #####:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+    #####:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+    #####:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE8allocateEyPKv:
+       30:   99:      allocate(size_type __n, const void* = static_cast<const void*>(0))
+        -:  100:      {
+       30:  101:	if (__n > this->max_size())
+    #####:  102:	  std::__throw_bad_alloc();
+        -:  103:
+        -:  104:#if __cpp_aligned_new
+        -:  105:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  106:	  {
+        -:  107:	    std::align_val_t __al = std::align_val_t(alignof(_Tp));
+        -:  108:	    return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp), __al));
+        -:  109:	  }
+        -:  110:#endif
+       30:  111:	return static_cast<_Tp*>(::operator new(__n * sizeof(_Tp)));
+        -:  112:      }
+------------------
+        -:  113:
+        -:  114:      // __p is not permitted to be a null pointer.
+        -:  115:      void
+     161*:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+     161*:  125:	::operator delete(__p);
+     161*:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE10deallocateEPS9_y:
+       30:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+       30:  125:	::operator delete(__p);
+       30:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE10deallocateEPiy:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE10deallocateEPSE_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE10deallocateEPSE_y:
+        3:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+        3:  125:	::operator delete(__p);
+        3:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE10deallocateEPSE_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE10deallocateEPiy:
+       31:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+       31:  125:	::operator delete(__p);
+       31:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE10deallocateEPS3_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE10deallocateEPfy:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE10deallocateEPS3_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE10deallocateEPS6_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE10deallocateEPS3_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE10deallocateEPiy:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE10deallocateEPSE_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE10deallocateEPSE_y:
+        3:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+        3:  125:	::operator delete(__p);
+        3:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE10deallocateEPSE_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE10deallocateEPiy:
+       31:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+       31:  125:	::operator delete(__p);
+       31:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE10deallocateEPS3_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE10deallocateEPS3_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE10deallocateEPfy:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE10deallocateEPS9_y:
+       30:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+       30:  125:	::operator delete(__p);
+       30:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE10deallocateEPS6_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE10deallocateEPiy:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE10deallocateEPSE_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE10deallocateEPSE_y:
+        3:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+        3:  125:	::operator delete(__p);
+        3:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE10deallocateEPSE_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE10deallocateEPS1_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE10deallocateEPS3_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE10deallocateEPfy:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE10deallocateEPS9_y:
+       30:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+       30:  125:	::operator delete(__p);
+       30:  126:      }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE10deallocateEPS6_y:
+    #####:  116:      deallocate(pointer __p, size_type)
+        -:  117:      {
+        -:  118:#if __cpp_aligned_new
+        -:  119:	if (alignof(_Tp) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+        -:  120:	  {
+        -:  121:	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));
+        -:  122:	    return;
+        -:  123:	  }
+        -:  124:#endif
+    #####:  125:	::operator delete(__p);
+    #####:  126:      }
+------------------
+        -:  127:
+        -:  128:      size_type
+     705*:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+     705*:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE8max_sizeEv:
+       90:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+       90:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeIfEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeIiEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE8max_sizeEv:
+        3:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+        3:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIiE8max_sizeEv:
+       93:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+       93:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI4DataE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIfE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIfE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeIfEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeIiEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE8max_sizeEv:
+        3:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+        3:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIiE8max_sizeEv:
+       93:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+       93:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI4DataE8max_sizeEv:
+      135:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+      135:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+       12:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+       12:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeIfEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI4DataE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI4DataE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI4DataE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI4DataE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE8max_sizeEv:
+       90:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+       90:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIfE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeIiEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE8max_sizeEv:
+        3:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+        3:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIiE8max_sizeEv:
+       93:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+       93:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI5TupleE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorI4DataE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE8max_sizeEv:
+    #####:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+    #####:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+_ZNK9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE8max_sizeEv:
+       90:  129:      max_size() const _GLIBCXX_USE_NOEXCEPT
+       90:  130:      { return size_t(-1) / sizeof(_Tp); }
+------------------
+        -:  131:
+        -:  132:#if __cplusplus >= 201103L
+        -:  133:      template<typename _Up, typename... _Args>
+        -:  134:	void
+    8143*:  135:	construct(_Up* __p, _Args&&... __args)
+    8143*:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE9constructISD_JSD_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE9constructIfJfEEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE9constructIS3_JS3_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE9constructIiJiEEEvPT_DpOT0_:
+      876:  135:	construct(_Up* __p, _Args&&... __args)
+      876:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE9constructIS3_JS3_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE9constructIiJRKiEEEvPT_DpOT0_:
+        1:  135:	construct(_Up* __p, _Args&&... __args)
+        1:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+       39:  135:	construct(_Up* __p, _Args&&... __args)
+       39:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE9constructISD_JSD_EEEvPT_DpOT0_:
+        3:  135:	construct(_Up* __p, _Args&&... __args)
+        3:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE9constructISD_JSD_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE9constructIS9_JS9_EEEvPT_DpOT0_:
+      879:  135:	construct(_Up* __p, _Args&&... __args)
+      879:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE9constructIS6_JS6_EEEvPT_DpOT0_:
+      876:  135:	construct(_Up* __p, _Args&&... __args)
+      876:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE9constructIS9_JS9_EEEvPT_DpOT0_:
+      879:  135:	construct(_Up* __p, _Args&&... __args)
+      879:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE9constructIfJfEEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE9constructIS3_JS3_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE9constructIiJiEEEvPT_DpOT0_:
+      876:  135:	construct(_Up* __p, _Args&&... __args)
+      876:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE9constructIS3_JS3_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE9constructIiJRKiEEEvPT_DpOT0_:
+        1:  135:	construct(_Up* __p, _Args&&... __args)
+        1:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+        4:  135:	construct(_Up* __p, _Args&&... __args)
+        4:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE9constructIS3_JS3_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+       39:  135:	construct(_Up* __p, _Args&&... __args)
+       39:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+       39:  135:	construct(_Up* __p, _Args&&... __args)
+       39:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+       39:  135:	construct(_Up* __p, _Args&&... __args)
+       39:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE9constructISD_JSD_EEEvPT_DpOT0_:
+        3:  135:	construct(_Up* __p, _Args&&... __args)
+        3:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE9constructISD_JSD_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE9constructISD_JSD_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE9constructIS6_JS6_EEEvPT_DpOT0_:
+      876:  135:	construct(_Up* __p, _Args&&... __args)
+      876:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE9constructIS9_JS9_EEEvPT_DpOT0_:
+      879:  135:	construct(_Up* __p, _Args&&... __args)
+      879:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE9constructIfJfEEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+       39:  135:	construct(_Up* __p, _Args&&... __args)
+       39:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE9constructIiJiEEEvPT_DpOT0_:
+      876:  135:	construct(_Up* __p, _Args&&... __args)
+      876:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE9constructIS3_JS3_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE9constructIiJRKiEEEvPT_DpOT0_:
+        1:  135:	construct(_Up* __p, _Args&&... __args)
+        1:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE9constructIS1_JRKS1_EEEvPT_DpOT0_:
+       39:  135:	construct(_Up* __p, _Args&&... __args)
+       39:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE9constructISD_JSD_EEEvPT_DpOT0_:
+        3:  135:	construct(_Up* __p, _Args&&... __args)
+        3:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE9constructISD_JSD_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE9constructISD_JSD_EEEvPT_DpOT0_:
+    #####:  135:	construct(_Up* __p, _Args&&... __args)
+    #####:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE9constructIS6_JS6_EEEvPT_DpOT0_:
+      876:  135:	construct(_Up* __p, _Args&&... __args)
+      876:  136:	{ ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+------------------
+        -:  137:
+        -:  138:      template<typename _Up>
+        -:  139:	void
+       9*:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE7destroyIfEEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE7destroyIiEEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE7destroyISD_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE7destroyISD_EEvPT_:
+        3:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE7destroyISD_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE7destroyIS6_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE7destroyIS9_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE7destroyIS3_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE7destroyIS3_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE7destroyIS3_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE7destroyIiEEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE7destroyISD_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE7destroyISD_EEvPT_:
+        3:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE7destroyISD_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI5TupleE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIiE7destroyIiEEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE7destroyIS6_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE7destroyIS9_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE7destroyIfEEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE7destroyIS3_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIiEE7destroyIS3_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIfEEEE7destroyISD_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIS8_EEEE7destroyISD_EEvPT_:
+        3:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorISt13_Rb_tree_nodeISt4pairIKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEP9BPlusTreeIiEEEE7destroyISD_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorI4DataE7destroyIS1_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEE7destroyIS6_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEE7destroyIS9_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIfE7destroyIfEEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+_ZN9__gnu_cxx13new_allocatorIP8TreeNodeIfEE7destroyIS3_EEvPT_:
+    #####:  140:	destroy(_Up* __p) { __p->~_Up(); }
+------------------
+        -:  141:#else
+        -:  142:      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+        -:  143:      // 402. wrong new expression in [some_] allocator::construct
+        -:  144:      void
+        -:  145:      construct(pointer __p, const _Tp& __val)
+        -:  146:      { ::new((void *)__p) _Tp(__val); }
+        -:  147:
+        -:  148:      void
+        -:  149:      destroy(pointer __p) { __p->~_Tp(); }
+        -:  150:#endif
+        -:  151:    };
+        -:  152:
+        -:  153:  template<typename _Tp>
+        -:  154:    inline bool
+        -:  155:    operator==(const new_allocator<_Tp>&, const new_allocator<_Tp>&)
+        -:  156:    { return true; }
+        -:  157:
+        -:  158:  template<typename _Tp>
+        -:  159:    inline bool
+        -:  160:    operator!=(const new_allocator<_Tp>&, const new_allocator<_Tp>&)
+        -:  161:    { return false; }
+        -:  162:
+        -:  163:_GLIBCXX_END_NAMESPACE_VERSION
+        -:  164:} // namespace
+        -:  165:
+        -:  166:#endif

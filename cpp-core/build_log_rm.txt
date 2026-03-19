@@ -1,0 +1,236 @@
+g++ -o test_record_manager -g -Wall -fprofile-arcs -ftest-coverage tests/test_record_manager.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc basic.cc
+record_manager.cc: In member function 'void RecordManager::insertRecord(std::__cxx11::string, Tuple&)':
+record_manager.cc:46:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::vector<Data>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+     for (int i = 0;i < v.size();i++) {
+                    ~~^~~~~~~~~~
+record_manager.cc:84:18: warning: comparison of integer expressions of different signedness: 'int' and 'std::vector<Data>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+     for (j = 0;j < v.size();j++) {
+                ~~^~~~~~~~~~
+record_manager.cc: In member function 'int RecordManager::deleteRecord(std::__cxx11::string, std::__cxx11::string, Where)':
+record_manager.cc:233:26: warning: comparison of integer expressions of different signedness: 'int' and 'std::vector<int>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+         for (int i = 0;i < block_ids.size();i++) {
+                        ~~^~~~~~~~~~~~~~~~~~
+record_manager.cc: In member function 'Table RecordManager::selectRecord(std::__cxx11::string, std::__cxx11::string, Where, std::__cxx11::string)':
+record_manager.cc:339:27: warning: comparison of integer expressions of different signedness: 'int' and 'std::vector<int>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+         for (int i = 0; i < block_ids.size();i++) {
+                         ~~^~~~~~~~~~~~~~~~~~
+record_manager.cc: In member function 'void RecordManager::insertRecord1(char*, int, int, const std::vector<Data>&)':
+record_manager.cc:435:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::__cxx11::basic_string<char>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+     for (int j = 0;j < s.length();j++,offset++)
+                    ~~^~~~~~~~~~~~
+record_manager.cc:437:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::vector<Data>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+     for (int j = 0;j < v.size();j++) {
+                    ~~^~~~~~~~~~
+In file included from bplustree.h:23,
+                 from index_manager.h:17,
+                 from record_manager.h:18,
+                 from record_manager.cc:8:
+template_function.h: In instantiation of 'void copyString(char*, int&, T) [with T = int]':
+record_manager.cc:443:48:   required from here
+template_function.h:69:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::__cxx11::basic_string<char>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+     for (int i = 0;i < s1.length();i++,offset++)
+                    ~~^~~~~~~~~~~~~
+template_function.h: In instantiation of 'void copyString(char*, int&, T) [with T = float]':
+record_manager.cc:446:48:   required from here
+template_function.h:69:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::__cxx11::basic_string<char>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+template_function.h: In instantiation of 'void copyString(char*, int&, T) [with T = std::__cxx11::basic_string<char>]':
+record_manager.cc:449:48:   required from here
+template_function.h:69:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::__cxx11::basic_string<char>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+In file included from index_manager.h:17,
+                 from index_manager.cc:9:
+bplustree.h: In instantiation of 'void BPlusTree<T>::writtenbackToDiskAll() [with T = int]':
+index_manager.cc:33:49:   required from here
+bplustree.h:1128:23: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+         for (i = 0; i < ntmp->num; i++) {
+                     ~~^~~~~~~~~~~
+bplustree.h: In instantiation of 'void BPlusTree<T>::writtenbackToDiskAll() [with T = std::__cxx11::basic_string<char>]':
+index_manager.cc:39:52:   required from here
+bplustree.h:1128:23: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+bplustree.h: In instantiation of 'void BPlusTree<T>::writtenbackToDiskAll() [with T = float]':
+index_manager.cc:45:51:   required from here
+bplustree.h:1128:23: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+bplustree.h: In instantiation of 'BPlusTree<T>::BPlusTree(std::__cxx11::string, int, int) [with T = int; std::__cxx11::string = std::__cxx11::basic_string<char>]':
+index_manager.cc:59:78:   required from here
+bplustree.h:118:18: warning: 'BPlusTree<int>::node_num' will be initialized after [-Wreorder]
+     unsigned int node_num;
+                  ^~~~~~~~
+bplustree.h:110:10: warning:   'TreeNode<int>* BPlusTree<int>::root' [-Wreorder]
+     Tree root;
+          ^~~~
+bplustree.h:500:1: warning:   when initialized here [-Wreorder]
+ BPlusTree<T>::BPlusTree(std::string in_name, int keysize, int in_degree):
+ ^~~~~~~~~~~~
+bplustree.h: In instantiation of 'BPlusTree<T>::BPlusTree(std::__cxx11::string, int, int) [with T = float; std::__cxx11::string = std::__cxx11::basic_string<char>]':
+index_manager.cc:62:82:   required from here
+bplustree.h:118:18: warning: 'BPlusTree<float>::node_num' will be initialized after [-Wreorder]
+     unsigned int node_num;
+                  ^~~~~~~~
+bplustree.h:110:10: warning:   'TreeNode<float>* BPlusTree<float>::root' [-Wreorder]
+     Tree root;
+          ^~~~
+bplustree.h:500:1: warning:   when initialized here [-Wreorder]
+ BPlusTree<T>::BPlusTree(std::string in_name, int keysize, int in_degree):
+ ^~~~~~~~~~~~
+bplustree.h: In instantiation of 'BPlusTree<T>::BPlusTree(std::__cxx11::string, int, int) [with T = std::__cxx11::basic_string<char>; std::__cxx11::string = std::__cxx11::basic_string<char>]':
+index_manager.cc:65:94:   required from here
+bplustree.h:118:18: warning: 'BPlusTree<std::__cxx11::basic_string<char> >::node_num' will be initialized after [-Wreorder]
+     unsigned int node_num;
+                  ^~~~~~~~
+bplustree.h:110:10: warning:   'TreeNode<std::__cxx11::basic_string<char> >* BPlusTree<std::__cxx11::basic_string<char> >::root' [-Wreorder]
+     Tree root;
+          ^~~~
+bplustree.h:500:1: warning:   when initialized here [-Wreorder]
+ BPlusTree<T>::BPlusTree(std::string in_name, int keysize, int in_degree):
+ ^~~~~~~~~~~~
+bplustree.h: In instantiation of 'bool BPlusTree<T>::insertKey(T&, int) [with T = int]':
+index_manager.cc:149:58:   required from here
+bplustree.h:598:28: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         if (snp.pNode->num == degree) {
+             ~~~~~~~~~~~~~~~^~~~~~~~~
+bplustree.h: In instantiation of 'bool BPlusTree<T>::insertKey(T&, int) [with T = float]':
+index_manager.cc:156:60:   required from here
+bplustree.h:598:28: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+bplustree.h: In instantiation of 'bool BPlusTree<T>::insertKey(T&, int) [with T = std::__cxx11::basic_string<char>]':
+index_manager.cc:163:61:   required from here
+bplustree.h:598:28: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+In file included from bplustree.h:23,
+                 from index_manager.h:17,
+                 from index_manager.cc:9:
+template_function.h: In instantiation of 'void copyString(char*, int&, T) [with T = int]':
+bplustree.h:1132:23:   required from 'void BPlusTree<T>::writtenbackToDiskAll() [with T = int]'
+index_manager.cc:33:49:   required from here
+template_function.h:69:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::__cxx11::basic_string<char>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+     for (int i = 0;i < s1.length();i++,offset++)
+                    ~~^~~~~~~~~~~~~
+template_function.h: In instantiation of 'void copyString(char*, int&, T) [with T = std::__cxx11::basic_string<char>]':
+bplustree.h:1132:23:   required from 'void BPlusTree<T>::writtenbackToDiskAll() [with T = std::__cxx11::basic_string<char>]'
+index_manager.cc:39:52:   required from here
+template_function.h:69:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::__cxx11::basic_string<char>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+template_function.h: In instantiation of 'void copyString(char*, int&, T) [with T = float]':
+bplustree.h:1132:23:   required from 'void BPlusTree<T>::writtenbackToDiskAll() [with T = float]'
+index_manager.cc:45:51:   required from here
+template_function.h:69:22: warning: comparison of integer expressions of different signedness: 'int' and 'std::__cxx11::basic_string<char>::size_type' {aka 'long long unsigned int'} [-Wsign-compare]
+In file included from index_manager.h:17,
+                 from index_manager.cc:9:
+bplustree.h: In instantiation of 'bool BPlusTree<T>::adjustAfterinsert(BPlusTree<T>::Tree) [with T = int; BPlusTree<T>::Tree = TreeNode<int>*]':
+bplustree.h:599:13:   required from 'bool BPlusTree<T>::insertKey(T&, int) [with T = int]'
+index_manager.cc:149:58:   required from here
+bplustree.h:642:24: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         if(parent->num == degree)
+            ~~~~~~~~~~~~^~~~~~~~~
+bplustree.h: In instantiation of 'bool BPlusTree<T>::adjustAfterinsert(BPlusTree<T>::Tree) [with T = float; BPlusTree<T>::Tree = TreeNode<float>*]':
+bplustree.h:599:13:   required from 'bool BPlusTree<T>::insertKey(T&, int) [with T = float]'
+index_manager.cc:156:60:   required from here
+bplustree.h:642:24: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+bplustree.h: In instantiation of 'bool BPlusTree<T>::adjustAfterinsert(BPlusTree<T>::Tree) [with T = std::__cxx11::basic_string<char>; BPlusTree<T>::Tree = TreeNode<std::__cxx11::basic_string<char> >*]':
+bplustree.h:599:13:   required from 'bool BPlusTree<T>::insertKey(T&, int) [with T = std::__cxx11::basic_string<char>]'
+index_manager.cc:163:61:   required from here
+bplustree.h:642:24: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+bplustree.h: In instantiation of 'bool BPlusTree<T>::adjustAfterDelete(BPlusTree<T>::Tree) [with T = int; BPlusTree<T>::Tree = TreeNode<int>*]':
+bplustree.h:691:24:   required from 'bool BPlusTree<T>::deleteKey(T&) [with T = int]'
+index_manager.cc:179:48:   required from here
+bplustree.h:781:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < pNode->num; i++) {
+                                     ~~^~~~~~~~~~~~
+bplustree.h:811:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < brother->num; i++) {
+                                     ~~^~~~~~~~~~~~~~
+bplustree.h:856:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < pNode->num; i++) {
+                                     ~~^~~~~~~~~~~~
+bplustree.h:904:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < brother->num; i++) {
+                                     ~~^~~~~~~~~~~~~~
+bplustree.h: In instantiation of 'bool BPlusTree<T>::adjustAfterDelete(BPlusTree<T>::Tree) [with T = float; BPlusTree<T>::Tree = TreeNode<float>*]':
+bplustree.h:691:24:   required from 'bool BPlusTree<T>::deleteKey(T&) [with T = float]'
+index_manager.cc:186:50:   required from here
+bplustree.h:781:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < pNode->num; i++) {
+                                     ~~^~~~~~~~~~~~
+bplustree.h:811:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < brother->num; i++) {
+                                     ~~^~~~~~~~~~~~~~
+bplustree.h:856:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < pNode->num; i++) {
+                                     ~~^~~~~~~~~~~~
+bplustree.h:904:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < brother->num; i++) {
+                                     ~~^~~~~~~~~~~~~~
+bplustree.h: In instantiation of 'bool BPlusTree<T>::adjustAfterDelete(BPlusTree<T>::Tree) [with T = std::__cxx11::basic_string<char>; BPlusTree<T>::Tree = TreeNode<std::__cxx11::basic_string<char> >*]':
+bplustree.h:691:24:   required from 'bool BPlusTree<T>::deleteKey(T&) [with T = std::__cxx11::basic_string<char>]'
+index_manager.cc:194:42:   required from here
+bplustree.h:781:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < pNode->num; i++) {
+                                     ~~^~~~~~~~~~~~
+bplustree.h:811:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < brother->num; i++) {
+                                     ~~^~~~~~~~~~~~~~
+bplustree.h:856:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < pNode->num; i++) {
+                                     ~~^~~~~~~~~~~~
+bplustree.h:904:39: warning: comparison of integer expressions of different signedness: 'int' and 'unsigned int' [-Wsign-compare]
+                     for (int i = 0; i < brother->num; i++) {
+                                     ~~^~~~~~~~~~~~~~
+bplustree.h: In instantiation of 'TreeNode<T>::TreeNode(int, bool) [with T = int]':
+bplustree.h:531:12:   required from 'void BPlusTree<T>::initTree() [with T = int]'
+bplustree.h:512:5:   required from 'BPlusTree<T>::BPlusTree(std::__cxx11::string, int, int) [with T = int; std::__cxx11::string = std::__cxx11::basic_string<char>]'
+index_manager.cc:59:78:   required from here
+bplustree.h:184:28: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+     for (unsigned i = 0; i < degree+1; i++) {
+                          ~~^~~~~~~~~~
+bplustree.h: In instantiation of 'TreeNode<T>::TreeNode(int, bool) [with T = float]':
+bplustree.h:531:12:   required from 'void BPlusTree<T>::initTree() [with T = float]'
+bplustree.h:512:5:   required from 'BPlusTree<T>::BPlusTree(std::__cxx11::string, int, int) [with T = float; std::__cxx11::string = std::__cxx11::basic_string<char>]'
+index_manager.cc:62:82:   required from here
+bplustree.h:184:28: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+bplustree.h: In instantiation of 'TreeNode<T>::TreeNode(int, bool) [with T = std::__cxx11::basic_string<char>]':
+bplustree.h:531:12:   required from 'void BPlusTree<T>::initTree() [with T = std::__cxx11::basic_string<char>]'
+bplustree.h:512:5:   required from 'BPlusTree<T>::BPlusTree(std::__cxx11::string, int, int) [with T = std::__cxx11::basic_string<char>; std::__cxx11::string = std::__cxx11::basic_string<char>]'
+index_manager.cc:65:94:   required from here
+bplustree.h:184:28: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+bplustree.h: In instantiation of 'TreeNode<T>* TreeNode<T>::splitNode(T&) [with T = int]':
+bplustree.h:613:10:   required from 'bool BPlusTree<T>::adjustAfterinsert(BPlusTree<T>::Tree) [with T = int; BPlusTree<T>::Tree = TreeNode<int>*]'
+bplustree.h:599:13:   required from 'bool BPlusTree<T>::insertKey(T&, int) [with T = int]'
+index_manager.cc:149:58:   required from here
+bplustree.h:298:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree; i++) {
+                                                  ~~^~~~~~~~
+bplustree.h:315:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree+1; i++) {
+                                                  ~~^~~~~~~~~~
+bplustree.h:321:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree; i++) {
+                                                  ~~^~~~~~~~
+bplustree.h: In instantiation of 'TreeNode<T>* TreeNode<T>::splitNode(T&) [with T = float]':
+bplustree.h:613:10:   required from 'bool BPlusTree<T>::adjustAfterinsert(BPlusTree<T>::Tree) [with T = float; BPlusTree<T>::Tree = TreeNode<float>*]'
+bplustree.h:599:13:   required from 'bool BPlusTree<T>::insertKey(T&, int) [with T = float]'
+index_manager.cc:156:60:   required from here
+bplustree.h:298:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree; i++) {
+                                                  ~~^~~~~~~~
+bplustree.h:315:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree+1; i++) {
+                                                  ~~^~~~~~~~~~
+bplustree.h:321:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree; i++) {
+                                                  ~~^~~~~~~~
+bplustree.h: In instantiation of 'TreeNode<T>* TreeNode<T>::splitNode(T&) [with T = std::__cxx11::basic_string<char>]':
+bplustree.h:613:10:   required from 'bool BPlusTree<T>::adjustAfterinsert(BPlusTree<T>::Tree) [with T = std::__cxx11::basic_string<char>; BPlusTree<T>::Tree = TreeNode<std::__cxx11::basic_string<char> >*]'
+bplustree.h:599:13:   required from 'bool BPlusTree<T>::insertKey(T&, int) [with T = std::__cxx11::basic_string<char>]'
+index_manager.cc:163:61:   required from here
+bplustree.h:298:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree; i++) {
+                                                  ~~^~~~~~~~
+bplustree.h:315:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree+1; i++) {
+                                                  ~~^~~~~~~~~~
+bplustree.h:321:52: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'int' [-Wsign-compare]
+         for (unsigned int i = minmumNodeNum + 1; i < degree; i++) {
+                                                  ~~^~~~~~~~
+./test_record_manager
+Running test_record_insert_select...
+Checking tuple 0 data: 1 against 2
+Checking tuple 0 data: 1 against 2
+Running test_record_conflicts...
+Checking tuple 0 data: 100 against 100
+TEST RESULTS: 7/7 PASSED

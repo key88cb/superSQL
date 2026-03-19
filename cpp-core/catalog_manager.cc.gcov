@@ -1,0 +1,595 @@
+        -:    0:Source:catalog_manager.cc
+        -:    0:Programs:6
+        -:    1://
+        -:    2://  catalog.cpp
+        -:    3://  catalog
+        -:    4://
+        -:    5://  Created by Sr on 2017/5/24.
+        -:    6://  Copyright © 2017年 Sr. All rights reserved.
+        -:    7://
+        -:    8:
+        -:    9:#include "catalog_manager.h"
+        -:   10:
+        3:   11:void CatalogManager::createTable(std::string name, Attribute Attr, int primary, Index index){
+        -:   12:    //如果已存在该表，则异常
+        3:   13:    if(hasTable(name)){
+    #####:   14:        throw table_exist();
+        -:   15:    }
+        -:   16:    //确保主键为unique
+        3:   17:    Attr.unique[primary]=true;
+        -:   18:    //记录每条信息的字符数（包括这里的5个）
+        3:   19:    std::string str_tmp="0000 ";
+        -:   20:    //添加name
+        3:   21:    str_tmp+=name;
+        -:   22:    //添加attribute的数量
+        3:   23:    str_tmp=str_tmp+" "+num2str(Attr.num, 2);
+        -:   24:    //添加没个attribute的信息，顺序为类型，名字，是否为唯一
+       12:   25:    for(int i=0;i<Attr.num;i++)
+        9:   26:        str_tmp=str_tmp+" "+num2str(Attr.type[i], 3)+" "+Attr.name[i]+" "+(Attr.unique[i]==true?"1":"0");
+        -:   27:    //添加主键信息
+        3:   28:    str_tmp=str_tmp+" "+num2str(primary, 2);
+        -:   29:    //添加index的数量, ;用来做标记index的开始
+        3:   30:    str_tmp=str_tmp+" ;"+num2str(index.num, 2);
+        -:   31:    //添加index的信息，顺序为相对位置和名字
+        4:   32:    for(int i=0;i<index.num;i++)
+        1:   33:        str_tmp=str_tmp+" "+num2str(index.location[i], 2)+" "+index.indexname[i];
+        -:   34:    //换行后在结尾接上一个#，每个块以#结尾
+        3:   35:    str_tmp=str_tmp+"\n"+"#";
+        -:   36:    //更改每条信息的长度的记录
+        3:   37:    std::string str_len=num2str((int)str_tmp.length()-1, 4);
+        3:   38:    str_tmp=str_len+str_tmp.substr(4,str_tmp.length()-4);
+        -:   39:    //计算块的数量
+        3:   40:    int block_num=getBlockNum(TABLE_MANAGER_PATH)/PAGESIZE;
+        -:   41:    //处理当块的数量为0的特殊情况
+        3:   42:    if(block_num<=0)
+        3:   43:        block_num=1;
+        -:   44:    //遍历所有的块
+       3*:   45:    for(int current_block=0;current_block<block_num;current_block++){
+        3:   46:        char* buffer = buffer_manager.getPage(TABLE_MANAGER_PATH , current_block);
+        3:   47:        int page_id = buffer_manager.getPageId(TABLE_MANAGER_PATH , current_block);
+        -:   48:        //寻找该block的有效长度
+        3:   49:        int length=0;
+       3*:   50:        for(length=0;length<PAGESIZE&&buffer[length]!='\0'&&buffer[length]!='#';length++){}
+        -:   51:        //确保插入新信息后该页长度不会超过PAGESIZE
+        3:   52:        if(length+(int)str_tmp.length()<PAGESIZE){
+        -:   53:            //删除#
+       3*:   54:            if(length&&buffer[length-1]=='#')
+    #####:   55:                buffer[length-1]='\0';
+        3:   56:            else if(buffer[length]=='#')
+        2:   57:                buffer[length]='\0';
+        -:   58:            //字符串拼接
+        3:   59:            strcat(buffer , str_tmp.c_str());
+        -:   60:            //保存并刷新该页后返回
+        3:   61:            buffer_manager.modifyPage(page_id);
+        3:   62:            return;
+        -:   63:        }
+        -:   64:    }
+        -:   65:    //如果之前的块不够用，就新建一块后直接把信息插入
+    #####:   66:    char* buffer = buffer_manager.getPage(TABLE_MANAGER_PATH , block_num);
+    #####:   67:    int page_id = buffer_manager.getPageId(TABLE_MANAGER_PATH , block_num);
+    #####:   68:    strcat(buffer , str_tmp.c_str());
+    #####:   69:    buffer_manager.modifyPage(page_id);
+        -:   70:    
+        -:   71:}
+------------------
+_ZN14CatalogManager11createTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE9Attributei5Index:
+------------------
+_ZN14CatalogManager11createTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE9Attributei5Index:
+------------------
+_ZN14CatalogManager11createTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE9Attributei5Index:
+------------------
+_ZN14CatalogManager11createTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE9Attributei5Index:
+------------------
+        -:   72:
+        3:   73:void CatalogManager::dropTable(std::string name){
+        -:   74:    //如果不存在该表，则异常
+        3:   75:    if(!hasTable(name)){
+    #####:   76:        throw table_not_exist();
+        -:   77:    }
+        -:   78:    //寻找table_name所对应的块号和在该块的位置
+        -:   79:    int suitable_block;
+        3:   80:    int start_index=getTablePlace(name,suitable_block);
+        -:   81:    //得到所对应块的信息
+        3:   82:    char* buffer = buffer_manager.getPage(TABLE_MANAGER_PATH , suitable_block);
+        3:   83:    int page_id = buffer_manager.getPageId(TABLE_MANAGER_PATH , suitable_block);
+        6:   84:    std::string buffer_check(buffer);
+        -:   85:    //求出应删除的块的index的开始和结尾后删除
+        3:   86:    int end_index=start_index+str2num(buffer_check.substr(start_index,4));
+        3:   87:    int index=0,current_index=0;;
+      198:   88:    do{
+      201:   89:        if(index<start_index||index>=end_index)
+    #####:   90:            buffer[current_index++]=buffer[index];
+      201:   91:        index++;
+      201:   92:    }while(buffer[index]!='#');
+        3:   93:    buffer[current_index++]='#';
+        3:   94:    buffer[current_index]='\0';
+        -:   95:    //刷新页面
+        3:   96:    buffer_manager.modifyPage(page_id);
+        3:   97:}
+------------------
+_ZN14CatalogManager9dropTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager9dropTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager9dropTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager9dropTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+        -:   98:
+       20:   99:Attribute CatalogManager::getAttribute(std::string name){
+        -:  100:    //如果不存在该表，则异常
+       20:  101:    if(!hasTable(name)){
+    #####:  102:        throw attribute_not_exist();
+        -:  103:    }
+        -:  104:    //寻找table_name对应的块和在块中的位置
+        -:  105:    int suitable_block;
+       20:  106:    int start_index=getTablePlace(name,suitable_block);
+        -:  107:    //得到所对应的块的信息
+       20:  108:    char* buffer = buffer_manager.getPage(TABLE_MANAGER_PATH , suitable_block);
+       40:  109:    std::string buffer_check(buffer);
+        -:  110:    //end_index记录该行中表的名字的最后一个字符的位置
+       20:  111:    int end_index=0;
+       40:  112:    std::string table_name=getTableName(buffer_check, start_index, end_index);
+       20:  113:    Attribute table_attr;
+       20:  114:    start_index=end_index+1;
+        -:  115:    //得到attribute数量的字符串
+       40:  116:    std::string attr_num=buffer_check.substr(start_index,2);
+       20:  117:    table_attr.num=str2num(attr_num);
+       20:  118:    start_index+=3;
+       80:  119:    for(int index=0;index<table_attr.num;index++){
+        -:  120:        //对所有的attribute的类型和名字
+       60:  121:        if(buffer_check[start_index]=='-'){
+       20:  122:            table_attr.type[index]=-1;
+       20:  123:            start_index+=5;
+       60:  124:            while(buffer_check[start_index]!=' '){
+       40:  125:                table_attr.name[index]+=buffer_check[start_index++];
+        -:  126:            }
+       20:  127:            start_index+=1;
+       20:  128:            table_attr.unique[index]=(buffer_check[start_index]=='1'?true:false);
+        -:  129:        }
+       40:  130:        else if(str2num(buffer_check.substr(start_index,3))==0){
+       20:  131:            table_attr.type[index]=0;
+       20:  132:            start_index+=4;
+      120:  133:            while(buffer_check[start_index]!=' '){
+      100:  134:                table_attr.name[index]+=buffer_check[start_index++];
+        -:  135:            }
+       20:  136:            start_index+=1;
+       20:  137:            table_attr.unique[index]=(buffer_check[start_index]=='1'?true:false);
+        -:  138:        }
+        -:  139:        else{
+       20:  140:            table_attr.type[index]=str2num(buffer_check.substr(start_index,3));
+       20:  141:            start_index+=4;
+      100:  142:            while(buffer_check[start_index]!=' '){
+       80:  143:                table_attr.name[index]+=buffer_check[start_index++];
+        -:  144:            }
+       20:  145:            start_index+=1;
+       20:  146:            table_attr.unique[index]=(buffer_check[start_index]=='1'?true:false);
+        -:  147:        }
+       60:  148:        start_index+=2;
+        -:  149:    }
+        -:  150:    //记录primary_key的信息
+       20:  151:    if(buffer_check[start_index]=='-')
+    #####:  152:        table_attr.primary_key=-1;
+        -:  153:    else
+       20:  154:        table_attr.primary_key=str2num(buffer_check.substr(start_index,2));
+        -:  155:    //设置index的信息
+       40:  156:    Index index_record=getIndex(table_name);
+      660:  157:    for(int i=0;i<32;i++)
+      640:  158:        table_attr.has_index[i]=false;
+       30:  159:    for(int i=0;i<index_record.num;i++)
+       10:  160:        table_attr.has_index[index_record.location[i]]=true;
+        -:  161:    
+       40:  162:    return table_attr;
+        -:  163:}
+------------------
+_ZN14CatalogManager12getAttributeENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager12getAttributeENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager12getAttributeENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager12getAttributeENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+        -:  164:
+        -:  165://判断在所有的attribute中是否存在属性的名字
+        1:  166:bool CatalogManager::hasAttribute(std::string table_name , std::string attr_name){
+        -:  167:    //如果不存在该表，则异常
+        1:  168:    if(!hasTable(table_name)){
+    #####:  169:        throw table_not_exist();
+        -:  170:    }
+        -:  171:    //得到attribute的信息后，遍历所有的名字
+        2:  172:    Attribute find_attr=getAttribute(table_name);
+        2:  173:    for(int index=0;index<find_attr.num;index++){
+        2:  174:        if(attr_name==find_attr.name[index])
+        1:  175:            return true;
+        -:  176:    }
+    #####:  177:    return false;
+        -:  178:}
+------------------
+_ZN14CatalogManager12hasAttributeENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager12hasAttributeENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager12hasAttributeENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager12hasAttributeENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+        -:  179:
+        -:  180://根据index_name返回attr_name
+        1:  181:std::string CatalogManager::IndextoAttr(std::string table_name, std::string index_name){
+        1:  182:    if(!hasTable(table_name))
+    #####:  183:        throw table_not_exist();
+        2:  184:    Index index_record=getIndex(table_name);
+        1:  185:    int hasfind=-1;
+       1*:  186:    for(int i=0;i<index_record.num;i++){
+        1:  187:        if(index_record.indexname[i]==index_name){
+        1:  188:            hasfind=i;
+        1:  189:            break;
+        -:  190:        }
+        -:  191:    }
+        1:  192:    if(hasfind==-1)
+    #####:  193:        throw index_not_exist();
+        2:  194:    Attribute attr_record=getAttribute(table_name);
+        2:  195:    return attr_record.name[index_record.location[hasfind]];
+        -:  196:}
+------------------
+_ZN14CatalogManager11IndextoAttrENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager11IndextoAttrENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager11IndextoAttrENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager11IndextoAttrENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+        -:  197:
+        1:  198:void CatalogManager::createIndex(std::string table_name,std::string attr_name,std::string index_name){
+        -:  199:    //如果不存在该表，则异常
+        1:  200:    if(!hasTable(table_name))
+    #####:  201:        throw table_not_exist();
+        -:  202:    //如果不存在该属性，则异常
+        1:  203:    if(!hasAttribute(table_name, attr_name))
+       1*:  204:        throw attribute_not_exist();
+        -:  205:    //得到该表的index的信息
+        1:  206:    Index index_record=getIndex(table_name);
+        -:  207:    //如果index的数量已经大于等于10，则异常
+        1:  208:    if(index_record.num>=10)
+    #####:  209:        throw index_full();
+        -:  210:    //得到属性的信息
+        1:  211:    Attribute find_attr=getAttribute(table_name);
+        -:  212:    //遍历所有已有的index
+       1*:  213:    for(int i=0;i<index_record.num;i++){
+        -:  214:        //索引名重复错误
+    #####:  215:        if(index_record.indexname[i]==index_name)
+    #####:  216:            throw index_exist();
+        -:  217:        //索引重复
+    #####:  218:        if(find_attr.name[index_record.location[i]]==attr_name)
+    #####:  219:            throw index_exist();
+        -:  220:    }
+        -:  221:    //添加索引
+        -:  222:    //添加索引的名字
+        1:  223:    index_record.indexname[index_record.num]=index_name;
+        -:  224:    //添加索引在attribute的位置
+        2:  225:    for(int index=0;index<find_attr.num;index++){
+        2:  226:        if(attr_name==find_attr.name[index])
+        -:  227:        {
+        1:  228:            index_record.location[index_record.num]=index;
+        1:  229:            break;
+        -:  230:        }
+        -:  231:    }
+        -:  232:    //总数量加一
+        1:  233:    index_record.num++;
+        -:  234:    //在原有表中删除该表后再插入，实现刷新
+        1:  235:    dropTable(table_name);
+        1:  236:    createTable(table_name, find_attr, find_attr.primary_key, index_record);
+        1:  237:}
+------------------
+_ZN14CatalogManager11createIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_S5_:
+------------------
+_ZN14CatalogManager11createIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_S5_:
+------------------
+_ZN14CatalogManager11createIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_S5_:
+------------------
+_ZN14CatalogManager11createIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_S5_:
+------------------
+        -:  238:
+        1:  239:void CatalogManager::dropIndex(std::string table_name,std::string index_name){
+        -:  240:    //如果不存在该索引，则异常
+        1:  241:    if(!hasTable(table_name)){
+    #####:  242:        throw table_not_exist();
+        -:  243:    }
+        -:  244:    //得到该表的index的信息
+        2:  245:    Index index_record=getIndex(table_name);
+        -:  246:    //得到属性的信息
+        1:  247:    Attribute attr_record=getAttribute(table_name);
+        -:  248:    //遍历所有的index，查找是否有对应名字的索引，如果不存在则异常
+        1:  249:    int hasindex=-1;
+       1*:  250:    for(int index=0;index<index_record.num;index++){
+        1:  251:        if(index_record.indexname[index]==index_name){
+        1:  252:            hasindex=index;
+        1:  253:            break;
+        -:  254:        }
+        -:  255:    }
+        1:  256:    if(hasindex==-1){
+    #####:  257:        throw index_not_exist();
+        -:  258:    }
+        -:  259:    //通过将该信息与最后位置的索引替换的方式来删除索引
+        1:  260:    index_record.indexname[hasindex]=index_record.indexname[index_record.num-1];
+        1:  261:    index_record.location[hasindex]=index_record.location[index_record.num-1];
+        1:  262:    index_record.num--;
+        -:  263:    //在原有表中删除该表后再插入，实现刷新
+        1:  264:    dropTable(table_name);
+        1:  265:    createTable(table_name, attr_record, attr_record.primary_key, index_record);
+        -:  266:    
+        1:  267:}
+------------------
+_ZN14CatalogManager9dropIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager9dropIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager9dropIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+_ZN14CatalogManager9dropIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES5_:
+------------------
+        -:  268:
+    #####:  269:void CatalogManager::showTable(std::string table_name){
+        -:  270:    //如果不存在该表，则异常
+    #####:  271:    if(!hasTable(table_name)){
+    #####:  272:        throw table_not_exist();
+        -:  273:    }
+        -:  274:    //打印表的名字
+    #####:  275:    std::cout<<"Table name:"<<table_name<<std::endl;
+    #####:  276:    Attribute attr_record=getAttribute(table_name);
+    #####:  277:    Index index_record=getIndex(table_name);
+        -:  278:    //寻找最长的index_name的信息，在之后的打印表格中会用到
+    #####:  279:    int longest=-1;
+    #####:  280:    for(int index=0;index<attr_record.num;index++){
+    #####:  281:        if((int)attr_record.name[index].length()>longest)
+    #####:  282:            longest=(int)attr_record.name[index].length();
+        -:  283:    }
+        -:  284:    //打印属性
+    #####:  285:    std::string type;
+    #####:  286:    std::cout<<"Attribute:"<<std::endl;
+    #####:  287:    std::cout<<"Num|"<<"Name"<<std::setw(longest+2)<<"|Type"<<type<<std::setw(6)<<"|"<<"Unique|Primary Key"<<std::endl;
+    #####:  288:    for(int index_out=0;index_out<longest+35;index_out++)
+    #####:  289:        std::cout<<"-";
+    #####:  290:    std::cout<<std::endl;
+    #####:  291:    for(int index=0;index<attr_record.num;index++){
+    #####:  292:        switch (attr_record.type[index]) {
+    #####:  293:            case -1:
+    #####:  294:                type="int";
+    #####:  295:                break;
+    #####:  296:            case 0:
+    #####:  297:                type="float";
+    #####:  298:                break;
+    #####:  299:            default:
+    #####:  300:                type="char("+num2str(attr_record.type[index]-1, 3)+")";
+    #####:  301:                break;
+        -:  302:        }
+    #####:  303:        std::cout<<index<<std::setw(3-index/10)<<"|"<<attr_record.name[index]<<std::setw(longest-(int)attr_record.name[index].length()+2)<<"|"<<type<<std::setw(10-(int)type.length())<<"|";
+    #####:  304:        if(attr_record.unique[index])
+    #####:  305:            std::cout<<"unique"<<"|";
+        -:  306:        else
+    #####:  307:            std::cout<<std::setw(7)<<"|";
+    #####:  308:        if(attr_record.primary_key==index)
+    #####:  309:            std::cout<<"primary key";
+    #####:  310:        std::cout<<std::endl;
+        -:  311:    }
+        -:  312:    
+    #####:  313:    for(int index_out=0;index_out<longest+35;index_out++)
+    #####:  314:        std::cout<<"-";
+        -:  315:    
+    #####:  316:    std::cout<<std::endl;
+        -:  317:    
+        -:  318:    //打印索引
+    #####:  319:    std::cout<<"Index:"<<std::endl;
+    #####:  320:    std::cout<<"Num|Location|Name"<<std::endl;
+    #####:  321:    longest=-1;
+    #####:  322:    for(int index_out=0;index_out<index_record.num;index_out++){
+    #####:  323:        if((int)index_record.indexname[index_out].length()>longest)
+    #####:  324:            longest=(int)index_record.indexname[index_out].length();
+        -:  325:    }
+    #####:  326:    for(int index_out=0;index_out<((longest+14)>18?(longest+14):18);index_out++)
+    #####:  327:        std::cout<<"-";
+    #####:  328:    std::cout<<std::endl;
+    #####:  329:    for(int index_out=0;index_out<index_record.num;index_out++){
+    #####:  330:        std::cout<<index_out<<std::setw(3-index_out/10)<<"|"<<index_record.location[index_out]<<std::setw(8-index_record.location[index_out]/10)<<"|"<<index_record.indexname[index_out]<<std::endl;
+        -:  331:    }
+    #####:  332:    for(int index_out=0;index_out<((longest+14)>18?(longest+14):18);index_out++)
+    #####:  333:        std::cout<<"-";
+    #####:  334:    std::cout<<std::endl<<std::endl;
+    #####:  335:}
+------------------
+_ZN14CatalogManager9showTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager9showTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager9showTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager9showTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+        -:  336:
+        -:  337://判断是否已有重名的表格
+       39:  338:bool CatalogManager::hasTable(std::string table_name){
+        -:  339:    //计算块的数量
+       39:  340:    int block_num=getBlockNum(TABLE_MANAGER_PATH)/PAGESIZE;
+       39:  341:    if(block_num<=0)
+       39:  342:        block_num=1;
+        -:  343:    //遍历所有的块
+       42:  344:    for(int current_block=0;current_block<block_num;current_block++){
+       39:  345:        char* buffer = buffer_manager.getPage(TABLE_MANAGER_PATH , current_block);
+       39:  346:        std::string buffer_check(buffer);
+       39:  347:        std::string str_tmp="";
+       39:  348:        int start_index=0,end_index=0;
+    #####:  349:        do{
+        -:  350:            //如果一开始就是#，则检查下一块
+       39:  351:            if(buffer_check[0]=='#')
+        2:  352:                break;
+        -:  353:            //得到table的名字，如果与输入的名字相同，则return true
+       37:  354:            else if(getTableName(buffer, start_index, end_index)==table_name){
+       36:  355:                return true;
+        -:  356:            }
+        -:  357:            else{
+        -:  358:                //通过字符串长度来重新确定下一个table的位置
+        1:  359:                start_index+=str2num(buffer_check.substr(start_index,4));
+        -:  360:                //排除空文档的特殊条件
+        1:  361:                if(!start_index)
+        1:  362:                    break;
+        -:  363:            }
+    #####:  364:        }while(buffer_check[start_index]!='#');  //判断是否到头
+        -:  365:    }
+        3:  366:    return false;
+        -:  367:}
+------------------
+_ZN14CatalogManager8hasTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager8hasTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager8hasTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager8hasTableENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+        -:  368:
+        -:  369://数字转字符串，bit为数字的位数
+       22:  370:std::string CatalogManager::num2str(int num,short bit){
+       22:  371:    std::string str="";
+       22:  372:    if(num<0){
+        3:  373:        num=-num;
+        3:  374:        str+="-";
+        -:  375:    }
+       22:  376:    int divisor=pow(10,bit-1);
+       81:  377:    for(int i=0;i<bit;i++){
+       59:  378:        str+=(num/divisor%10+'0');
+       59:  379:        divisor/=10;
+        -:  380:    }
+       22:  381:    return str;
+        -:  382:}
+------------------
+_ZN14CatalogManager7num2strB5cxx11Eis:
+------------------
+_ZN14CatalogManager7num2strB5cxx11Eis:
+------------------
+_ZN14CatalogManager7num2strB5cxx11Eis:
+------------------
+_ZN14CatalogManager7num2strB5cxx11Eis:
+------------------
+        -:  383:
+        -:  384://字符串转数字
+      139:  385:int CatalogManager::str2num(std::string str){
+      139:  386:    return atoi(str.c_str());
+        -:  387:}
+------------------
+_ZN14CatalogManager7str2numENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager7str2numENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager7str2numENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager7str2numENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+        -:  388:
+        -:  389://得到该行的表的名字
+      103:  390:std::string CatalogManager::getTableName(std::string buffer,int start,int &rear){
+      206:  391:    std::string str_tmp="";
+      103:  392:    rear=0;
+      103:  393:    if(buffer=="")
+        1:  394:        return buffer;
+     1530:  395:    while(buffer[start+rear+5]!=' '){
+     1428:  396:        rear++;
+        -:  397:    }
+      102:  398:    str_tmp=buffer.substr(start+5,rear);
+      102:  399:    rear=start+5+rear;
+      102:  400:    return str_tmp;
+        -:  401:}
+------------------
+_ZN14CatalogManager12getTableNameENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEiRi:
+------------------
+_ZN14CatalogManager12getTableNameENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEiRi:
+------------------
+_ZN14CatalogManager12getTableNameENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEiRi:
+------------------
+_ZN14CatalogManager12getTableNameENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEiRi:
+------------------
+        -:  402:
+        -:  403://得到该表的位置，引用传出该表的所在的块的位置，返回在块中的位置，如果未找到，则返回-1
+       46:  404:int CatalogManager::getTablePlace(std::string name,int &suitable_block){
+       46:  405:    int block_num=getBlockNum(TABLE_MANAGER_PATH);
+       46:  406:    if(block_num<=0)
+    #####:  407:        block_num=1;
+        -:  408:    //遍历所有的块
+      46*:  409:    for(suitable_block=0;suitable_block<block_num;suitable_block++){
+       46:  410:        char* buffer = buffer_manager.getPage(TABLE_MANAGER_PATH , suitable_block);
+       46:  411:        std::string buffer_check(buffer);
+       46:  412:        std::string str_tmp="";
+       46:  413:        int start=0,rear=0;
+    #####:  414:        do{
+        -:  415:            //如果一开始就是#，则检查下一块
+       46:  416:            if(buffer_check[0]=='#')
+    #####:  417:                break;
+       46:  418:            if(getTableName(buffer, start, rear)==name){
+       46:  419:                return start;
+        -:  420:            }
+        -:  421:            else{
+        -:  422:                //通过字符串长度来重新确定start
+    #####:  423:                start+=str2num(buffer_check.substr(start,4));
+    #####:  424:                if(!start)
+    #####:  425:                    break;
+        -:  426:            }
+    #####:  427:        }while(buffer_check[start]!='#');  //判断是否到头
+        -:  428:    }
+    #####:  429:    return -1;
+        -:  430:}
+------------------
+_ZN14CatalogManager13getTablePlaceENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEERi:
+------------------
+_ZN14CatalogManager13getTablePlaceENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEERi:
+------------------
+_ZN14CatalogManager13getTablePlaceENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEERi:
+------------------
+_ZN14CatalogManager13getTablePlaceENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEERi:
+------------------
+        -:  431:
+       23:  432:Index CatalogManager::getIndex(std::string table_name){
+       23:  433:    Index index_record;
+        -:  434:    //得到该表的位置和对应的块
+        -:  435:    int suitable_block;
+       23:  436:    int start_index=getTablePlace(table_name,suitable_block);
+       23:  437:    char* buffer = buffer_manager.getPage(TABLE_MANAGER_PATH , suitable_block);
+        -:  438:    //将start_index对齐索引信息的位置
+       69:  439:    std::string buffer_check(buffer);
+     1380:  440:    while(buffer_check[start_index]!=';')
+     1357:  441:        start_index++;
+       23:  442:    start_index++;
+        -:  443:    //得到索引的数量
+       23:  444:    index_record.num=str2num(buffer_check.substr(start_index,2));
+        -:  445:    //得到索引的所有信息
+       35:  446:    for(int times=0;times<index_record.num;times++){
+       12:  447:        start_index+=3;
+       12:  448:        index_record.location[times]=str2num(buffer_check.substr(start_index,2));
+       12:  449:        start_index+=3;
+      108:  450:        while(buffer_check[start_index]!=' '&&buffer_check[start_index]!='#'&&buffer_check[start_index]!='\n'){
+       96:  451:            index_record.indexname[times]+=buffer_check[start_index++];
+        -:  452:        }
+       12:  453:        start_index-=2;
+        -:  454:    }
+       46:  455:    return index_record;
+        -:  456:}
+------------------
+_ZN14CatalogManager8getIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager8getIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager8getIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+_ZN14CatalogManager8getIndexENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE:
+------------------
+        -:  457:
+        -:  458://获取文件大小
+       88:  459:int CatalogManager::getBlockNum(std::string table_name) {
+        -:  460:    char* p;
+       88:  461:    int block_num = -1;
+       86:  462:    do {
+      174:  463:        p = buffer_manager.getPage(table_name , block_num + 1);
+      174:  464:        block_num++;
+      174:  465:    } while(p[0] != '\0');
+       88:  466:    return block_num;
+        -:  467:}
