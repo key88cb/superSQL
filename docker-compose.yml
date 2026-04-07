@@ -1,0 +1,368 @@
+# =============================================================
+#  SuperSQL — Docker Compose 集群配置
+#
+#  服务拓扑：
+#    ZooKeeper   × 3  (zk1 / zk2 / zk3)
+#    Master      × 3  (master-1:8080 / master-2:8081 / master-3:8082)
+#    RegionServer × 3  (rs-1:9090 / rs-2:9091 / rs-3:9092)
+#    Client      × 1  (交互式调试容器)
+#
+#  启动：docker compose up -d
+#  停止：docker compose down -v
+# =============================================================
+
+networks:
+  supersql-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  zk1-data:
+  zk1-log:
+  zk2-data:
+  zk2-log:
+  zk3-data:
+  zk3-log:
+  master1-data:
+  master2-data:
+  master3-data:
+  rs1-data:
+  rs1-wal:
+  rs2-data:
+  rs2-wal:
+  rs3-data:
+  rs3-wal:
+
+# ─────────────────────────── ZooKeeper ────────────────────────────
+# 使用官方 zookeeper 镜像（国内镜像源覆盖更广）
+# 官方镜像环境变量与 bitnami 不同：ZOO_MY_ID / ZOO_SERVERS 格式
+services:
+
+  zk1:
+    image: zookeeper:3.8
+    container_name: zk1
+    hostname: zk1
+    restart: unless-stopped
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.11
+    ports:
+      - "2181:2181"   # client port（外部可连）
+    volumes:
+      - zk1-data:/data
+      - zk1-log:/datalog
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_SERVERS: server.1=zk1:2888:3888;2181 server.2=zk2:2888:3888;2181 server.3=zk3:2888:3888;2181
+      ZOO_TICK_TIME: ${ZK_TICK_TIME:-2000}
+      ZOO_INIT_LIMIT: ${ZK_INIT_LIMIT:-10}
+      ZOO_SYNC_LIMIT: ${ZK_SYNC_LIMIT:-5}
+      ZOO_MAX_CLIENT_CNXNS: ${ZK_MAX_CLIENT_CNXNS:-60}
+    healthcheck:
+      test: ["CMD-SHELL", "zkServer.sh status 2>/dev/null | grep -qE 'Mode: (leader|follower|standalone)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  zk2:
+    image: zookeeper:3.8
+    container_name: zk2
+    hostname: zk2
+    restart: unless-stopped
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.12
+    ports:
+      - "2182:2181"
+    volumes:
+      - zk2-data:/data
+      - zk2-log:/datalog
+    environment:
+      ZOO_MY_ID: 2
+      ZOO_SERVERS: server.1=zk1:2888:3888;2181 server.2=zk2:2888:3888;2181 server.3=zk3:2888:3888;2181
+      ZOO_TICK_TIME: ${ZK_TICK_TIME:-2000}
+      ZOO_INIT_LIMIT: ${ZK_INIT_LIMIT:-10}
+      ZOO_SYNC_LIMIT: ${ZK_SYNC_LIMIT:-5}
+    healthcheck:
+      test: ["CMD-SHELL", "zkServer.sh status 2>/dev/null | grep -qE 'Mode: (leader|follower|standalone)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  zk3:
+    image: zookeeper:3.8
+    container_name: zk3
+    hostname: zk3
+    restart: unless-stopped
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.13
+    ports:
+      - "2183:2181"
+    volumes:
+      - zk3-data:/data
+      - zk3-log:/datalog
+    environment:
+      ZOO_MY_ID: 3
+      ZOO_SERVERS: server.1=zk1:2888:3888;2181 server.2=zk2:2888:3888;2181 server.3=zk3:2888:3888;2181
+      ZOO_TICK_TIME: ${ZK_TICK_TIME:-2000}
+      ZOO_INIT_LIMIT: ${ZK_INIT_LIMIT:-10}
+      ZOO_SYNC_LIMIT: ${ZK_SYNC_LIMIT:-5}
+    healthcheck:
+      test: ["CMD-SHELL", "zkServer.sh status 2>/dev/null | grep -qE 'Mode: (leader|follower|standalone)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+# ─────────────────────────── Master ───────────────────────────────
+
+  master-1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.master
+    container_name: master-1
+    hostname: master-1
+    restart: unless-stopped
+    depends_on:
+      zk1: { condition: service_healthy }
+      zk2: { condition: service_healthy }
+      zk3: { condition: service_healthy }
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.21
+    ports:
+      - "8080:8080"   # Thrift RPC
+      - "8880:8880"   # HTTP 管理接口（可选）
+    volumes:
+      - master1-data:/data
+    environment:
+      - MASTER_ID=master-1
+      - MASTER_HOST=master-1
+      - MASTER_THRIFT_PORT=8080
+      - MASTER_HTTP_PORT=8880
+      - ZK_CONNECT=${ZK_CONNECT:-zk1:2181,zk2:2181,zk3:2181}
+      - MASTER_HEARTBEAT_INTERVAL_MS=${MASTER_HEARTBEAT_INTERVAL_MS:-5000}
+      - MASTER_HEARTBEAT_TIMEOUT_MS=${MASTER_HEARTBEAT_TIMEOUT_MS:-15000}
+      - MASTER_REBALANCE_INTERVAL_MS=${MASTER_REBALANCE_INTERVAL_MS:-30000}
+      - MASTER_REBALANCE_RATIO=${MASTER_REBALANCE_RATIO:-1.5}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8880/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  master-2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.master
+    container_name: master-2
+    hostname: master-2
+    restart: unless-stopped
+    depends_on:
+      zk1: { condition: service_healthy }
+      zk2: { condition: service_healthy }
+      zk3: { condition: service_healthy }
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.22
+    ports:
+      - "8081:8080"
+      - "8881:8880"
+    volumes:
+      - master2-data:/data
+    environment:
+      - MASTER_ID=master-2
+      - MASTER_HOST=master-2
+      - MASTER_THRIFT_PORT=8080
+      - MASTER_HTTP_PORT=8880
+      - ZK_CONNECT=${ZK_CONNECT:-zk1:2181,zk2:2181,zk3:2181}
+      - MASTER_HEARTBEAT_INTERVAL_MS=${MASTER_HEARTBEAT_INTERVAL_MS:-5000}
+      - MASTER_HEARTBEAT_TIMEOUT_MS=${MASTER_HEARTBEAT_TIMEOUT_MS:-15000}
+      - MASTER_REBALANCE_INTERVAL_MS=${MASTER_REBALANCE_INTERVAL_MS:-30000}
+      - MASTER_REBALANCE_RATIO=${MASTER_REBALANCE_RATIO:-1.5}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8880/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  master-3:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.master
+    container_name: master-3
+    hostname: master-3
+    restart: unless-stopped
+    depends_on:
+      zk1: { condition: service_healthy }
+      zk2: { condition: service_healthy }
+      zk3: { condition: service_healthy }
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.23
+    ports:
+      - "8082:8080"
+      - "8882:8880"
+    volumes:
+      - master3-data:/data
+    environment:
+      - MASTER_ID=master-3
+      - MASTER_HOST=master-3
+      - MASTER_THRIFT_PORT=8080
+      - MASTER_HTTP_PORT=8880
+      - ZK_CONNECT=${ZK_CONNECT:-zk1:2181,zk2:2181,zk3:2181}
+      - MASTER_HEARTBEAT_INTERVAL_MS=${MASTER_HEARTBEAT_INTERVAL_MS:-5000}
+      - MASTER_HEARTBEAT_TIMEOUT_MS=${MASTER_HEARTBEAT_TIMEOUT_MS:-15000}
+      - MASTER_REBALANCE_INTERVAL_MS=${MASTER_REBALANCE_INTERVAL_MS:-30000}
+      - MASTER_REBALANCE_RATIO=${MASTER_REBALANCE_RATIO:-1.5}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8880/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+# ──────────────────────── RegionServer ────────────────────────────
+
+  rs-1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.regionserver
+    container_name: rs-1
+    hostname: rs-1
+    restart: unless-stopped
+    depends_on:
+      master-1: { condition: service_healthy }
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.31
+    ports:
+      - "9090:9090"   # Thrift RPC（客户端直连）
+    volumes:
+      - rs1-data:/data/db
+      - rs1-wal:/data/wal
+    environment:
+      - RS_ID=rs-1
+      - RS_HOST=rs-1
+      - RS_THRIFT_PORT=9090
+      - RS_HTTP_PORT=9190
+      - ZK_CONNECT=${ZK_CONNECT:-zk1:2181,zk2:2181,zk3:2181}
+      - RS_WAL_DIR=/data/wal
+      - RS_DATA_DIR=/data/db
+      - RS_HEARTBEAT_INTERVAL_MS=${RS_HEARTBEAT_INTERVAL_MS:-10000}
+      - RS_REPLICA_SYNC_TIMEOUT_MS=${RS_REPLICA_SYNC_TIMEOUT_MS:-3000}
+      - MINISQL_BIN=/opt/minisql/main
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9190/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  rs-2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.regionserver
+    container_name: rs-2
+    hostname: rs-2
+    restart: unless-stopped
+    depends_on:
+      master-1: { condition: service_healthy }
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.32
+    ports:
+      - "9091:9090"
+    volumes:
+      - rs2-data:/data/db
+      - rs2-wal:/data/wal
+    environment:
+      - RS_ID=rs-2
+      - RS_HOST=rs-2
+      - RS_THRIFT_PORT=9090
+      - RS_HTTP_PORT=9190
+      - ZK_CONNECT=${ZK_CONNECT:-zk1:2181,zk2:2181,zk3:2181}
+      - RS_WAL_DIR=/data/wal
+      - RS_DATA_DIR=/data/db
+      - RS_HEARTBEAT_INTERVAL_MS=${RS_HEARTBEAT_INTERVAL_MS:-10000}
+      - RS_REPLICA_SYNC_TIMEOUT_MS=${RS_REPLICA_SYNC_TIMEOUT_MS:-3000}
+      - MINISQL_BIN=/opt/minisql/main
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9190/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  rs-3:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.regionserver
+    container_name: rs-3
+    hostname: rs-3
+    restart: unless-stopped
+    depends_on:
+      master-1: { condition: service_healthy }
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.33
+    ports:
+      - "9092:9090"
+    volumes:
+      - rs3-data:/data/db
+      - rs3-wal:/data/wal
+    environment:
+      - RS_ID=rs-3
+      - RS_HOST=rs-3
+      - RS_THRIFT_PORT=9090
+      - RS_HTTP_PORT=9190
+      - ZK_CONNECT=${ZK_CONNECT:-zk1:2181,zk2:2181,zk3:2181}
+      - RS_WAL_DIR=/data/wal
+      - RS_DATA_DIR=/data/db
+      - RS_HEARTBEAT_INTERVAL_MS=${RS_HEARTBEAT_INTERVAL_MS:-10000}
+      - RS_REPLICA_SYNC_TIMEOUT_MS=${RS_REPLICA_SYNC_TIMEOUT_MS:-3000}
+      - MINISQL_BIN=/opt/minisql/main
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9190/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+# ──────────────────────────── Client ──────────────────────────────
+
+  client:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.client
+    container_name: client
+    hostname: client
+    stdin_open: true
+    tty: true
+    depends_on:
+      rs-1: { condition: service_healthy }
+      rs-2: { condition: service_healthy }
+      rs-3: { condition: service_healthy }
+    networks:
+      supersql-net:
+        ipv4_address: 172.28.0.40
+    environment:
+      - ZK_CONNECT=${ZK_CONNECT:-zk1:2181,zk2:2181,zk3:2181}
+      - CLIENT_CACHE_TTL_MS=${CLIENT_CACHE_TTL_MS:-30000}
+      - CLIENT_MASTER_RPC_TIMEOUT_MS=${CLIENT_MASTER_RPC_TIMEOUT_MS:-5000}
+      - CLIENT_RS_RPC_TIMEOUT_MS=${CLIENT_RS_RPC_TIMEOUT_MS:-10000}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JAVA_OPTS=${JAVA_OPTS:--Xms128m -Xmx256m}

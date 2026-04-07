@@ -1,0 +1,80 @@
+# ================================================================
+#  Dockerfile.regionserver  —  SuperSQL RegionServer 节点镜像
+# ================================================================
+
+# -------- Stage 1: 编译 miniSQL C++ 引擎 -------------------------
+FROM gcc:12-bookworm AS minisql-builder
+
+WORKDIR /minisql
+COPY minisql/cpp-core/ .
+
+RUN g++ -O2 -std=c++17 -o main \
+    main.cc api.cc record_manager.cc index_manager.cc \
+    catalog_manager.cc buffer_manager.cc basic.cc interpreter.cc \
+    && strip main
+
+# -------- Stage 2: 生成 Thrift Java stubs -----------------------
+FROM eclipse-temurin:17-jdk-jammy AS thrift-gen
+
+RUN apt-get update && apt-get install -y thrift-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /gen
+COPY rpc-proto/supersql.thrift .
+RUN mkdir -p src/main/java \
+    && thrift --gen java -out src/main/java supersql.thrift
+
+# -------- Stage 3: Maven 构建 -----------------------------------
+FROM eclipse-temurin:17-jdk-jammy AS java-builder
+
+WORKDIR /build
+RUN apt-get update && apt-get install -y maven \
+    && rm -rf /var/lib/apt/lists/*
+
+# 父 pom + 所有子模块 pom
+COPY pom.xml ./
+COPY rpc-proto/pom.xml rpc-proto/pom.xml
+COPY rpc-proto/supersql.thrift rpc-proto/supersql.thrift
+COPY java-master/pom.xml java-master/pom.xml
+COPY java-regionserver/pom.xml java-regionserver/pom.xml
+COPY java-client/pom.xml java-client/pom.xml
+
+COPY --from=thrift-gen /gen/src/main/java/ rpc-proto/src/main/java/
+
+RUN mvn -N install -DskipTests -B --no-transfer-progress
+
+RUN mvn -pl rpc-proto install -DskipTests -B --no-transfer-progress
+
+RUN mvn -pl java-regionserver dependency:go-offline -B --no-transfer-progress 2>/dev/null || true
+
+COPY java-regionserver/src java-regionserver/src
+RUN mvn -pl java-regionserver package -DskipTests -B --no-transfer-progress
+
+# -------- Stage 4: 运行时镜像 ------------------------------------
+FROM eclipse-temurin:17-jre-jammy
+
+LABEL maintainer="superSQL Team <zju>"
+LABEL component="regionserver"
+
+RUN apt-get update && apt-get install -y libstdc++6 curl dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r supersql && useradd -r -g supersql supersql
+
+RUN mkdir -p /opt/minisql /data/db /data/wal /app \
+    && chown -R supersql:supersql /opt/minisql /data /app
+
+COPY --from=minisql-builder /minisql/main /opt/minisql/main
+RUN chmod +x /opt/minisql/main
+
+COPY --from=java-builder /build/java-regionserver/target/java-regionserver.jar /app/regionserver.jar
+
+EXPOSE 9090 9190
+
+USER supersql
+
+ENTRYPOINT ["java", \
+    "-XX:+UseContainerSupport", \
+    "-XX:MaxRAMPercentage=75.0", \
+    "-Djava.net.preferIPv4Stack=true", \
+    "-jar", "/app/regionserver.jar"]

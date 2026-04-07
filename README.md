@@ -1,66 +1,374 @@
-# superSQL
+# SuperSQL — 分布式关系型数据库
 
-从 miniSQL 演进而来的分布式 SQL 数据库系统。
+> A distributed relational database system built on top of MiniSQL, featuring table-level data distribution, 3-replica strong-consistency writes, multi-Master high availability, ZooKeeper-based cluster coordination, and Apache Thrift RPC communication.
+>
+> 基于 MiniSQL 演进的分布式关系型数据库，实现表级数据分布、3 副本强一致写、多 Master 高可用、ZooKeeper 集群协调与 Apache Thrift 跨语言 RPC 通信。
 
-## 项目结构
+**浙江大学《大规模信息系统构建技术导论》课程大作业**
 
-- `cpp-core/`: C++ 存储引擎及核心 SQL 处理逻辑。
-- `java-master/`: (计划中) 集群管理与协调服务。
-- `java-client/`: (计划中) superSQL Java 客户端 SDK。
-- `rpc-proto/`: 组件间的 RPC 协议定义。
+---
 
-## C++ 核心引擎 (`cpp-core`)
+## 目录
 
-核心引擎负责缓冲池管理 (Buffer Management)、B+ 树索引 (B+ Tree Indexing) 以及记录管理 (Record Management)。
+- [项目简介](#项目简介)
+- [系统架构](#系统架构)
+- [核心功能](#核心功能)
+- [技术栈与设计决策](#技术栈与设计决策)
+- [快速启动](#快速启动)
+- [项目结构](#项目结构)
+- [ZooKeeper 目录结构](#zookeeper-目录结构)
+- [RPC 接口总览](#rpc-接口总览)
+- [开发分工](#开发分工)
+- [迭代路线图](#迭代路线图)
+
+---
+
+## 项目简介
+
+### 中文
+
+SuperSQL 在单机版 MiniSQL（C++ 实现，含 B+ 树索引、缓冲池、堆文件存储）的基础上，构建完整的分布式层。仿照 HBase 思想，以**整张表（Table）**为 Region 粒度，支持多 Region Server 横向扩展。分布式层全部使用 **Java 17 + Maven** 编写，Region Server 通过 `ProcessBuilder` 管理本地 MiniSQL 进程，实现 C++ 存储引擎与 Java 分布式框架的无缝整合。
+
+### English
+
+SuperSQL extends the single-node MiniSQL engine (C++, B+ tree + buffer pool + heap files) with a full distributed layer written in Java 17. Inspired by HBase, it distributes data at the **table** granularity across Region Servers. The Java layer manages MiniSQL processes via `ProcessBuilder`, seamlessly bridging the C++ storage engine and the Java distributed framework.
+
+---
+
+## 系统架构
+
+```mermaid
+flowchart TD
+    subgraph Applications
+        APP1[Application 1]
+        APP2[Application 2]
+    end
+
+    subgraph Client["Client Layer (Java)"]
+        C1[SuperSQL Client\nThrift + ZK Cache]
+    end
+
+    subgraph ZK["ZooKeeper Cluster (3 nodes)"]
+        ZK1[zk1:2181]
+        ZK2[zk2:2181]
+        ZK3[zk2:2181]
+    end
+
+    subgraph Masters["Master Cluster (Multi-Master HA)"]
+        M1[Master-1\n:8080\nActive]
+        M2[Master-2\n:8081\nStandby]
+        M3[Master-3\n:8082\nStandby]
+    end
+
+    subgraph RS["Region Servers"]
+        subgraph RS1["rs-1 :9090"]
+            P1[Java RegionServer]
+            SQL1[MiniSQL Process\nC++ Engine]
+        end
+        subgraph RS2["rs-2 :9091"]
+            P2[Java RegionServer]
+            SQL2[MiniSQL Process\nC++ Engine]
+        end
+        subgraph RS3["rs-3 :9092"]
+            P3[Java RegionServer]
+            SQL3[MiniSQL Process\nC++ Engine]
+        end
+    end
+
+    APP1 & APP2 --> C1
+    C1 -- "1. 查表位置 / 读路由缓存" --> ZK
+    C1 -- "2. 回退查询 Active Master" --> M1
+    C1 -- "3. 直连主副本执行 SQL" --> RS1
+    ZK -- "领导者选举\n节点感知 Watcher" --> Masters
+    M1 -- "心跳 / 副本分配 / 迁移指令" --> RS
+    P1 -- "WAL 同步 ReplicaSyncService" --> P2
+    P1 -- "WAL 同步 ReplicaSyncService" --> P3
+
+    style M1 fill:#e8f5e9,stroke:#388e3c
+    style M2 fill:#fff8e1,stroke:#f9a825
+    style M3 fill:#fff8e1,stroke:#f9a825
+    style ZK fill:#e3f2fd,stroke:#1976d2
+```
+
+### 数据流：写操作（INSERT / DELETE）
+
+```mermaid
+sequenceDiagram
+    participant C  as Client
+    participant ZK as ZooKeeper
+    participant M  as Active Master
+    participant P  as rs-1 (Primary)
+    participant S1 as rs-2 (Replica)
+    participant S2 as rs-3 (Replica)
+
+    C->>ZK: 读路由缓存（TableLocation）
+    ZK-->>C: primaryRS = rs-1:9090
+    C->>P: RegionService.execute(tableName, sql)
+    P->>P: 写 WAL (LSN=N, status=PREPARE)
+    par 并行同步
+        P->>S1: ReplicaSyncService.syncLog(entry)
+        P->>S2: ReplicaSyncService.syncLog(entry)
+    end
+    S1-->>P: ACK
+    P->>P: WAL status=COMMITTED
+    P->>P: 调用 miniSQL 执行 SQL
+    P-->>C: QueryResult(OK)
+    S2-->>P: ACK (异步，不阻塞客户端)
+```
+
+### 容灾流程：Region Server 宕机
+
+```mermaid
+sequenceDiagram
+    participant ZK as ZooKeeper
+    participant M  as Active Master
+    participant S1 as rs-2 (Survivor)
+    participant S2 as rs-3 (Survivor)
+
+    ZK-->>M: Watcher 触发：/region_servers/rs-1 消失
+    M->>M: 确认 rs-1 宕机，查找其负责的表列表
+    loop 对每张受影响的表
+        M->>S1: RegionAdminService.copyTableData(tableName)
+        S1->>S2: 从 rs-2 复制数据（或从 WAL 重放）
+        M->>ZK: 更新 /assignments/tableName → [rs-2, rs-3, rs-new]
+        M->>ZK: 更新 /meta/tables/tableName → primaryRS=rs-2
+        M->>S1: invalidateClientCache(tableName)
+    end
+```
+
+---
+
+## 核心功能
+
+| 功能模块 | 描述 |
+|---|---|
+| **表级数据分布** | 以整张表为 Region 单位分配到 Region Server，无需行级切分 |
+| **3 副本强一致写** | 主副本写 WAL PREPARE → 并行同步 ≥1 从副本 → COMMIT → 返回客户端 |
+| **WAL 日志机制** | Append-only 二进制日志，支持 Crash Recovery 和副本追赶 |
+| **多 Master 高可用** | ZooKeeper 临时顺序节点领导者选举，防脑裂 epoch 机制 |
+| **负载均衡** | 建表时静态分配（选最空闲节点）+ 每 30s 动态重均衡（1.5× 阈值触发迁移） |
+| **Region 迁移** | MOVING 状态锁写 → RPC 流式传输 → 更新路由 → 广播缓存失效 |
+| **容错容灾** | ZooKeeper Watcher 感知宕机 → 10s 内触发副本恢复 → 维持 3 副本 |
+| **客户端缓存** | `ConcurrentHashMap<TableName, CachedTableLocation>`，TTL=30s，版本号失效 |
+| **分布式查询** | 客户端读 ZK 路由缓存 → 直连 Region Server → 结果直接返回 |
+| **集群动态管理** | 节点加入/退出全自动感知，无需停机维护 |
+| **Thrift RPC** | 4 套 IDL 接口（MasterService / RegionService / RegionAdminService / ReplicaSyncService） |
+| **跨平台容器化** | Docker Compose 一键启动 3 ZK + 3 Master + 3 RS + 1 Client |
+
+---
+
+## 技术栈与设计决策
+
+### 为什么选表级分布而非行级？
+
+行级分区（如真实 HBase）需要实现 RowKey 设计、Region Split/Merge、跨 Region 查询归并，工程量极大。本项目以表为 Region 单位，**保留了分布式核心机制**（副本、容灾、负载均衡、缓存）的同时，将实现复杂度降低到可在 7 周内完成的范围。
+
+### 为什么选 ZooKeeper 临时节点 + Watcher？
+
+- **临时节点**：节点宕机后 Session 超时，ZK 自动删除该节点，触发 Watcher，无需额外心跳超时检测逻辑。
+- **Watcher**：单次触发语义，Master 在回调中重新注册，实现持续监听。
+- **顺序节点**：`/masters/master-` 顺序节点天然提供领导者选举，序号最小者为 Active。
+
+### 为什么使用半同步复制（≥1 从副本 ACK）而非全同步？
+
+全同步（3/3 副本确认）写延迟过高，且单个慢节点会阻塞整个集群。半同步（主 + 1 从 = 2/3 确认）在**确保多数派一致**的同时，将写延迟控制在单次网络 RTT 内。剩余从副本异步追赶。
+
+### 为什么用 Thrift 而非 gRPC？
+
+课程要求。Thrift 同样支持跨语言（Java/C++/Python），IDL 定义清晰，适合多模块协作开发。
+
+### CAP 权衡
+
+本系统优先保证 **CP（一致性 + 分区容错）**，在分区发生时允许短暂不可用，以确保数据正确性，适用于金融账务等对数据错误零容忍的场景。
+
+---
+
+## 快速启动
 
 ### 前置条件
 
-- **Windows**: MinGW-w64 (g++) 和 Make。
-- **Linux/Unix**: g++ 和 Make。
-
-### 编译指南
-
-进入 `cpp-core` 目录：
-
 ```bash
-cd cpp-core
-make clear_data  # 清理旧的数据库文件
-# 编译主解析器 (Interpreter):
-g++ -o main main.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc basic.cc interpreter.cc
+# 确认版本
+docker --version          # >= 24.0
+docker compose version    # >= 2.20
 ```
 
-### 测试说明
+### 一键启动
 
-我们提供了一套完整的测试套件，位于 `cpp-core/tests/` 目录下。
+```bash
+# 1. 克隆仓库
+git clone https://github.com/key88cb/superSQL.git
+cd superSQL
 
-#### 运行测试
+# 2. 复制环境变量文件
+cp .env .env.local        # 按需修改参数
 
-1. **基础功能测试**:
-   ```bash
-   g++ -o test_basic tests/test_basic.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc basic.cc
-   ./test_basic
-   ```
+# 3. 启动完整集群（首次构建约 3-5 分钟）
+docker compose up -d --build
 
-2. **详尽压力测试 (4000+ 记录)**:
-   该测试验证系统在高负载下的稳定性，特别是针对内存泄漏和缓冲池耗尽的检查。
-   ```bash
-   g++ -o test_exhaustive tests/test_exhaustive.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc basic.cc
-   ./test_exhaustive
-   ```
+# 4. 查看启动状态（等待所有服务 healthy）
+docker compose ps
+watch -n 2 'docker compose ps'
+```
 
-3. **缓冲池 Pin 诊断**:
-   用于调试缓冲池管理器 (Buffer Manager) 的 pin 泄漏问题。
-   ```bash
-   g++ -o test_pin_count tests/test_pin_count.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc basic.cc
-   ./test_pin_count
-   ```
+### 验证集群健康
 
-### 当前状态
+```bash
+# 查看 ZooKeeper 选举状态
+docker exec zk1 zkServer.sh status
 
-- **内存管理**: ✅ **已解决**。详尽压力测试 (4000条记录) 已通过验证。我们通过重构 `IndexManager` 架构、强化 `readTuple` 解析边界检查以及将缓冲池扩展至 512 帧，彻底解决了之前的 `std::bad_alloc` (OOM) 崩溃问题。
+# 查看 Active Master
+docker exec zk1 zkCli.sh get /masters/active-heartbeat
 
-## 未来路线图
+# 查看已注册的 RegionServer
+docker exec zk1 zkCli.sh ls /region_servers
 
-- [ ] 实现基于 gRPC 的通信层。
-- [ ] 集成 Zookeeper 进行主节点选举。
-- [ ] 实现分布式查询路由。
+# 查看表路由元数据
+docker exec zk1 zkCli.sh ls /meta/tables
+```
+
+### 进入客户端 REPL
+
+```bash
+# 进入交互式 SQL 客户端
+docker exec -it client java -jar /app/client.jar
+
+# 示例操作
+SuperSQL> create table users(id int, name char(32), age int, primary key(id));
+SuperSQL> insert into users values(1, 'Alice', 25);
+SuperSQL> select * from users where age > 20;
+SuperSQL> exit;
+```
+
+### 调试与运维
+
+```bash
+# 查看 Master 日志
+docker logs -f master-1
+
+# 查看 RegionServer 日志
+docker logs -f rs-1
+
+# 进入容器 shell 调试
+docker exec -it rs-1 bash
+
+# 手动触发负载均衡（HTTP 管理接口）
+curl http://localhost:8880/admin/rebalance
+
+# 查看 RS 负载指标
+curl http://localhost:9190/metrics
+
+# 模拟节点宕机（容灾测试）
+docker stop rs-1
+# 等待 ~10 秒，观察副本恢复
+docker logs -f master-1 | grep -i recovery
+
+# 模拟 Active Master 切换
+docker stop master-1
+docker logs -f master-2 | grep -i "became active"
+
+# 清理全部数据重新开始
+docker compose down -v && docker compose up -d --build
+```
+
+---
+
+## 项目结构
+
+```
+superSQL/
+├── docker-compose.yml          # 完整集群编排
+├── .env                        # 环境变量模板
+├── docker/
+│   ├── Dockerfile.master       # Master 镜像（Java）
+│   ├── Dockerfile.regionserver # RS 镜像（Java + C++ miniSQL）
+│   └── Dockerfile.client       # Client 镜像（Java REPL）
+├── rpc-proto/
+│   └── supersql.thrift         # 全部 RPC 接口定义（4 套 service）
+├── java-master/                # Master 服务（领导选举/负载均衡/元数据）
+│   └── src/main/java/edu/zju/supersql/master/
+│       ├── MasterServer.java           # Thrift 服务端主入口
+│       ├── election/LeaderElector.java # ZK 领导者选举（Curator）
+│       ├── meta/MetaManager.java       # 表元数据管理
+│       ├── balance/LoadBalancer.java   # 静态分配 + 动态重均衡
+│       └── migration/RegionMigrator.java # Region 迁移流程编排
+├── java-regionserver/          # RegionServer（miniSQL 管理/WAL/副本）
+│   └── src/main/java/edu/zju/supersql/regionserver/
+│       ├── RegionServerMain.java       # 主入口
+│       ├── minisql/MiniSqlProcess.java # ProcessBuilder 管理 C++ 进程
+│       ├── wal/WalManager.java         # WAL 写入/Crash Recovery
+│       ├── replica/ReplicaManager.java # 副本同步协调
+│       └── rpc/RegionServiceImpl.java  # Thrift RegionService 实现
+├── java-client/                # Client SDK + REPL
+│   └── src/main/java/edu/zju/supersql/client/
+│       ├── SqlClient.java              # REPL 主入口
+│       ├── cache/RouteCache.java       # ConcurrentHashMap 路由缓存
+│       └── rpc/MasterRpcClient.java    # Thrift 客户端封装
+└── minisql/                    # 原有 C++ 单机引擎（不修改）
+    └── cpp-core/
+        ├── main.cc / api.cc / interpreter.cc ...
+        └── tests/
+```
+
+---
+
+## ZooKeeper 目录结构
+
+```
+/
+├── masters/
+│   ├── master-0000000001        # 临时顺序节点（content: master-1:8080）
+│   ├── master-0000000002        # 临时顺序节点（content: master-2:8080）
+│   └── master-0000000003        # 临时顺序节点（content: master-3:8080）
+├── active-master                # 持久节点（content: {epoch:5, masterId:master-1}）
+├── region_servers/
+│   ├── rs-1                     # 临时节点（content: {host,port,tableCount,...}）
+│   ├── rs-2
+│   └── rs-3
+├── meta/
+│   └── tables/
+│       ├── users                # 持久节点（content: {primaryRS:rs-1:9090, version:3}）
+│       ├── products
+│       └── orders
+└── assignments/
+    ├── users                    # 持久节点（content: ["rs-1:9090","rs-2:9090","rs-3:9090"]）
+    ├── products
+    └── orders
+```
+
+---
+
+## RPC 接口总览
+
+| 服务 | 调用方向 | 关键方法 |
+|---|---|---|
+| `MasterService` | Client → Master | `getTableLocation`, `createTable`, `dropTable`, `getActiveMaster` |
+| `RegionService` | Client → RS | `execute`, `executeBatch`, `createIndex`, `dropIndex`, `ping` |
+| `RegionAdminService` | Master → RS | `pauseTableWrite`, `transferTable`, `copyTableData`, `deleteLocalTable`, `heartbeat` |
+| `ReplicaSyncService` | RS → RS (Primary→Replica) | `syncLog`, `pullLog`, `getMaxLsn`, `commitLog` |
+
+完整 IDL 见 [`rpc-proto/supersql.thrift`](rpc-proto/supersql.thrift)。
+
+---
+
+## 开发分工
+
+| 成员 | 负责模块 | 核心文件 |
+|---|---|---|
+| 师东祺 | 分布式通信 + RegionServer 框架 | `RegionServiceImpl`, `RegionAdminServiceImpl`, `MiniSqlProcess` |
+| 周子安 | 分布式通信 + RegionServer 框架 | `ReplicaSyncServiceImpl`, `WalManager`, `RegionServerMain` |
+| 徐浩然 | 一致性协议 + 容灾 | `ReplicaManager`, `CrashRecovery`, 容灾测试 |
+| 李浩博 | 一致性协议 + 容灾 | WAL 格式设计、副本追赶协议、混沌测试 |
+| 李业 | Master 高可用 + 负载均衡 | `LeaderElector`, `MetaManager`, `LoadBalancer`, `RegionMigrator` |
+
+---
+
+## 迭代路线图
+
+- [x] W1 (4/29~5/5)：Docker 环境 + Thrift IDL 定义 + ZooKeeper 集群验证
+- [ ] W2 (5/6~5/12)：miniSQL 进程管理 + WAL 基础实现 + 单机功能验证
+- [ ] W3 (5/13~5/19)：Master 领导者选举 + RegionServer 注册/心跳
+- [ ] W4 (5/20~5/26)：表分配 + 3 副本强一致写 + 副本同步协议
+- [ ] W5 (5/27~6/2)：Client 路由缓存 + 分布式查询 + 负载均衡
+- [ ] W6 (6/3~6/9)：容灾测试 + Region 迁移 + 性能调优
+- [ ] W7 (6/10~6/16)：文档定稿 + 演示视频 + 混沌测试报告
