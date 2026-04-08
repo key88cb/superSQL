@@ -66,8 +66,18 @@ public class RegionServerMain {
             log.warn("ZooKeeper connection failed at startup — proceeding without ZK: {}", e.getMessage());
         }
 
-        // TODO Sprint 2: MiniSqlProcess.start(miniSqlBin, dataDir)
-        // TODO Sprint 2: WalManager.init(walDir)
+        // ── Engine Startup & Recovery ──────────────────────────────────────────
+        WalManager walManager = new WalManager(walDir);
+        walManager.init();
+
+        MiniSqlProcess miniSql = new MiniSqlProcess(miniSqlBin, dataDir);
+        try {
+            miniSql.start();
+            log.info("RegionServer engine recovery sequence completed.");
+        } catch (Exception e) {
+            log.error("CRITICAL: Failed to start MiniSql engine during recovery: {}", e.getMessage());
+            System.exit(1);
+        }
 
         // ── HTTP health server ─────────────────────────────────────────────────
         HttpServer healthServer = HttpServer.create(new InetSocketAddress(httpPort), 0);
