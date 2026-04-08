@@ -6,7 +6,8 @@ target/
 
 # ── C++ build artifacts (Linux/macOS/Windows) ─────────────────────────
 # Executables
-main
+/minisql/cpp-core/main
+/minisql/cpp-core/test_*
 *.exe
 *.out
 *.app
