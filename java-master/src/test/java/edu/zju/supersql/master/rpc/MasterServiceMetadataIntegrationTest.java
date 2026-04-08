@@ -105,6 +105,20 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertEquals("master-2:8081", response.getRedirectTo());
     }
 
+    @Test
+    void listMethodsShouldReturnEmptyWhenNoData() throws Exception {
+        List<TableLocation> tables = service.listTables();
+        Assertions.assertTrue(tables.isEmpty());
+
+        Assertions.assertTrue(service.listRegionServers().isEmpty());
+    }
+
+    @Test
+    void createTableShouldReturnRsNotFoundWithoutRegionServer() throws Exception {
+        Response response = service.createTable("create table t_no_rs(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.RS_NOT_FOUND, response.getCode());
+    }
+
     private void createPathIfMissing(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);

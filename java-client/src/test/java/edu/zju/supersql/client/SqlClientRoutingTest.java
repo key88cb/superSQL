@@ -2,12 +2,46 @@ package edu.zju.supersql.client;
 
 import edu.zju.supersql.rpc.RegionServerInfo;
 import edu.zju.supersql.rpc.TableLocation;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.curator.test.TestingServer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 
 class SqlClientRoutingTest {
+
+    private TestingServer server;
+    private CuratorFramework zkClient;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        server = new TestingServer(true);
+        zkClient = CuratorFrameworkFactory.builder()
+                .connectString(server.getConnectString())
+                .retryPolicy(new ExponentialBackoffRetry(200, 3))
+                .sessionTimeoutMs(10_000)
+                .connectionTimeoutMs(5_000)
+                .namespace("supersql")
+                .build();
+        zkClient.start();
+        zkClient.blockUntilConnected();
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (zkClient != null) {
+            zkClient.close();
+        }
+        if (server != null) {
+            server.close();
+        }
+    }
 
     @Test
     void classifySqlShouldDetectDdlAndDml() {
@@ -47,5 +81,21 @@ class SqlClientRoutingTest {
         Thread.sleep(20);
 
         Assertions.assertNull(cache.get("t_expire"));
+    }
+
+    @Test
+    void readActiveMasterShouldReturnAddressWhenPresent() throws Exception {
+        zkClient.create().creatingParentsIfNeeded().forPath(
+                "/active-master",
+                "{\"masterId\":\"master-1\",\"address\":\"master-1:8080\"}".getBytes(StandardCharsets.UTF_8));
+
+        String master = SqlClient.readActiveMaster(zkClient, "fallback:8080");
+        Assertions.assertEquals("master-1:8080", master);
+    }
+
+    @Test
+    void readActiveMasterShouldFallbackWhenNodeMissing() {
+        String master = SqlClient.readActiveMaster(zkClient, "fallback:8080");
+        Assertions.assertEquals("fallback:8080", master);
     }
 }
