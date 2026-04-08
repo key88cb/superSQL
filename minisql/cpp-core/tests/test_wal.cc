@@ -73,7 +73,7 @@ int main() {
     FILE* log_f = fopen("super_sql.log", "r");
     ASSERT_TRUE(log_f != NULL);
     char log_buffer[256];
-    fgets(log_buffer, 255, log_f);
+    ASSERT_TRUE(fgets(log_buffer, 255, log_f) != NULL);
     fclose(log_f);
     
     std::string log_str(log_buffer);

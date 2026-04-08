@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <cstdlib>
 #include "../buffer_manager.h"
 #include "../record_manager.h"
 #include "../catalog_manager.h"
@@ -13,17 +14,25 @@ int passed_tests = 0;
 
 BufferManager* buffer_manager_ptr = new BufferManager(); // Initialize the global pointer
 
+static void run_cmd_or_fail(const char* cmd) {
+    int rc = system(cmd);
+    if (rc == -1) {
+        std::cerr << "Failed to run command: " << cmd << std::endl;
+        std::exit(1);
+    }
+}
+
 void prepare_env() {
 #ifdef _WIN32
-    system("if not exist database\\data mkdir database\\data");
-    system("if not exist database\\catalog mkdir database\\catalog");
-    system("if not exist database\\index mkdir database\\index");
-    system("del /q database\\data\\* 2>nul");
-    system("del /q database\\index\\* 2>nul");
-    system("del /q database\\catalog\\* 2>nul");
+    run_cmd_or_fail("if not exist database\\data mkdir database\\data");
+    run_cmd_or_fail("if not exist database\\catalog mkdir database\\catalog");
+    run_cmd_or_fail("if not exist database\\index mkdir database\\index");
+    run_cmd_or_fail("del /q database\\data\\* 2>nul");
+    run_cmd_or_fail("del /q database\\index\\* 2>nul");
+    run_cmd_or_fail("del /q database\\catalog\\* 2>nul");
 #else
-    system("mkdir -p database/data database/catalog database/index");
-    system("rm -f database/data/* database/index/* database/catalog/*");
+    run_cmd_or_fail("mkdir -p database/data database/catalog database/index");
+    run_cmd_or_fail("rm -f database/data/* database/index/* database/catalog/*");
 #endif
     remove("super_sql.log");
     
@@ -91,7 +100,8 @@ int main() {
     FILE* db_check = fopen(("./database/data/" + table_name).c_str(), "r");
     char db_buf[PAGESIZE] = {0};
     if (db_check) {
-        fread(db_buf, PAGESIZE, 1, db_check);
+        size_t read_count = fread(db_buf, PAGESIZE, 1, db_check);
+        ASSERT_TRUE(read_count == 1);
         fclose(db_check);
     }
     ASSERT_TRUE(db_buf[0] == '\0'); // The DB file MUST be empty!
