@@ -20,6 +20,9 @@ test_record_manager
 test_exhaustive
 test_wal
 test_wal_crash_recovery
+/minisql/cpp-core/bm_test_file
+/minisql/cpp-core/pin_test
+/minisql/cpp-core/repl_test
 
 # Objects and Libraries
 *.o
