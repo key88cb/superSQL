@@ -28,15 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for i in 1 2 3; do
-            mvn -B -ntp -DskipTests package && break
-            if [ "$i" -eq 3 ]; then
-              echo "Maven build failed after retries"
-              exit 1
-            fi
-            echo "Retrying Maven build ($i/3)..."
-            sleep 10
-          done
+          mvn -B -ntp -DskipTests package
 
   cpp-build:
     name: MiniSQL C++ Build
