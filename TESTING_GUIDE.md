@@ -138,6 +138,7 @@ mvn -pl java-client -Dtest=SqlClientRoutingTest test
 | 测试类 | 覆盖目标 |
 | :--- | :--- |
 | `MasterServiceMetadataIntegrationTest` | create/get/list/drop 元数据链路、NOT_LEADER 重定向、无 RS 分支 |
+| `MasterHeartbeatIntegrationTest` | Active Master 心跳写入 `/masters/active-heartbeat` 及非主不覆盖行为 |
 | `MasterServerHttpPayloadTest` | Master `/health` `/status` JSON 载荷字段与角色信息 |
 | `RegionServerRegistrarIntegrationTest` | RS 注册、心跳更新、节点丢失后的重注册 |
 | `ReplicaSyncServiceImplTest` | syncLog/pullLog/getMaxLsn/commitLog 路径及边界 |

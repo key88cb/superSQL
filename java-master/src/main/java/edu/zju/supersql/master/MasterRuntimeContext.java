@@ -108,6 +108,35 @@ public final class MasterRuntimeContext {
         }
     }
 
+    public static void updateActiveHeartbeat() {
+        if (!isReady()) {
+            return;
+        }
+        if (!isActiveMaster()) {
+            return;
+        }
+
+        try {
+            byte[] payload = buildActiveHeartbeatPayload();
+            String path = "/masters/active-heartbeat";
+            if (zkClient.checkExists().forPath(path) == null) {
+                zkClient.create().creatingParentsIfNeeded().forPath(path, payload);
+            } else {
+                zkClient.setData().forPath(path, payload);
+            }
+        } catch (Exception e) {
+            log.warn("Update active heartbeat failed: {}", e.getMessage());
+        }
+    }
+
+    static byte[] buildActiveHeartbeatPayload() throws Exception {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("masterId", masterId);
+        payload.put("address", masterAddress);
+        payload.put("ts", System.currentTimeMillis());
+        return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
+    }
+
     private static void writeActiveMaster(long epoch) throws Exception {
         Map<String, Object> payload = new HashMap<>();
         payload.put("epoch", epoch);

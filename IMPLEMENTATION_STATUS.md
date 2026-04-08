@@ -12,6 +12,7 @@
 已落地能力：
 - 启动时初始化 Master 运行上下文（含本机 masterId、address、zkClient）。
 - 启动时尝试引导 active-master 节点。
+- Active Master 心跳：每 5 秒更新 `/masters/active-heartbeat`（仅 ACTIVE 节点写入）。
 - HTTP 管理端点：`GET /health` 与 `GET /status` 返回 JSON（含角色信息）。
 - getTableLocation 基于 ZooKeeper 元数据返回表路由。
 - createTable 支持：DDL 提取表名、按 tableCount 选择副本、写入 /meta/tables 与 /assignments。
@@ -57,9 +58,10 @@
 ## 4. 已落地测试（新增与扩展）
 
 Master：
+- java-master/src/test/java/edu/zju/supersql/master/MasterHeartbeatIntegrationTest.java
+- java-master/src/test/java/edu/zju/supersql/master/MasterServerHttpPayloadTest.java
 - java-master/src/test/java/edu/zju/supersql/master/rpc/MasterServiceImplTest.java
 - java-master/src/test/java/edu/zju/supersql/master/rpc/MasterServiceMetadataIntegrationTest.java
-- java-master/src/test/java/edu/zju/supersql/master/MasterServerHttpPayloadTest.java
 
 RegionServer：
 - java-regionserver/src/test/java/edu/zju/supersql/regionserver/rpc/ReplicaSyncServiceImplTest.java

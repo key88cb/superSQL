@@ -20,6 +20,9 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Master server entry point.
@@ -32,6 +35,20 @@ public class MasterServer {
 
     private static final Logger log = LoggerFactory.getLogger(MasterServer.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    static ScheduledExecutorService startActiveHeartbeatScheduler() {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "Master-Active-Heartbeat");
+            t.setDaemon(true);
+            return t;
+        });
+        scheduler.scheduleAtFixedRate(
+                MasterRuntimeContext::updateActiveHeartbeat,
+                0,
+                5,
+                TimeUnit.SECONDS);
+        return scheduler;
+    }
 
     static String resolveRole() {
         return MasterRuntimeContext.isActiveMaster() ? "ACTIVE" : "STANDBY";
@@ -91,7 +108,7 @@ public class MasterServer {
             log.info("ZooKeeper client started (connecting to {})", zkConnect);
 
             // S0-06: 创建 ZK 基础目录（namespace="supersql"，实际路径为 /supersql/masters 等）
-            String[] basePaths = {"/masters", "/region_servers", "/meta/tables", "/assignments", "/active-master"};
+            String[] basePaths = {"/masters", "/masters/active-heartbeat", "/region_servers", "/meta/tables", "/assignments", "/active-master"};
             for (String path : basePaths) {
                 if (zkClient.checkExists().forPath(path) == null) {
                     zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
@@ -102,6 +119,8 @@ public class MasterServer {
 
             MasterRuntimeContext.initialize(zkClient, masterId, thriftPort);
             MasterRuntimeContext.tryBootstrapActiveMaster();
+            startActiveHeartbeatScheduler();
+            log.info("Active heartbeat scheduler started (interval=5s)");
 
             // TODO Sprint 1: LeaderElector.start(zkClient, masterId)
             // TODO Sprint 1: MetaManager.init(zkClient)
