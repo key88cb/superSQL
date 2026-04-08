@@ -231,7 +231,7 @@ public QueryResult execute(String tableName, String sql) {
 
 ---
 
-## Sprint 4：副本维护（3 副本强一致写）+ WAL（W4: 5/20 ~ 5/26）
+## Sprint 4：副本维护（3 副本多数派提交/半同步）+ WAL（W4: 5/20 ~ 5/26）
 
 **里程碑**：INSERT/DELETE 写操作完成 WAL 记录 + 副本同步，3 副本数据一致性验证通过，RS 重启后通过 WAL 完成 Crash Recovery。
 

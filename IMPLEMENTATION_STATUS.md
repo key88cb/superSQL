@@ -26,7 +26,7 @@
 
 当前限制：
 - 还没有与 RegionAdminService 联动执行真正的远端建表/删表。
-- Master 选主与脑裂防护目前仍是基础骨架，尚未完整实现 LeaderLatch 流程。
+- 当前选主与脑裂防护已基于 LeaderLatch + epoch CAS 跑通基础路径，尚未补全网络分区/抖动场景下的混沌验证。
 
 ## 2. RegionServer 侧已实现内容
 

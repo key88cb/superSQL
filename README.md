@@ -1,8 +1,8 @@
 # SuperSQL — 分布式关系型数据库
 
-> A distributed relational database system built on top of MiniSQL, featuring table-level data distribution, 3-replica strong-consistency writes, multi-Master high availability, ZooKeeper-based cluster coordination, and Apache Thrift RPC communication.
+> A distributed relational database system built on top of MiniSQL, featuring table-level data distribution, 3-replica majority-ack writes, multi-Master high availability, ZooKeeper-based cluster coordination, and Apache Thrift RPC communication.
 >
-> 基于 MiniSQL 演进的分布式关系型数据库，实现表级数据分布、3 副本强一致写、多 Master 高可用、ZooKeeper 集群协调与 Apache Thrift 跨语言 RPC 通信。
+> 基于 MiniSQL 演进的分布式关系型数据库，实现表级数据分布、3 副本多数派提交（半同步）、多 Master 高可用、ZooKeeper 集群协调与 Apache Thrift 跨语言 RPC 通信。
 
 **浙江大学《大规模信息系统构建技术导论》课程大作业**
 
@@ -144,7 +144,7 @@ sequenceDiagram
 | 功能模块 | 描述 |
 |---|---|
 | **表级数据分布** | 以整张表为 Region 单位分配到 Region Server，无需行级切分 |
-| **3 副本强一致写** | 主副本写 WAL PREPARE → 并行同步 ≥1 从副本 → COMMIT → 返回客户端 |
+| **3 副本多数派提交（半同步）** | 主副本写 WAL PREPARE → 并行同步 ≥1 从副本 → COMMIT → 返回客户端 |
 | **WAL 日志机制** | Append-only 二进制日志，支持 Crash Recovery 和副本追赶 |
 | **多 Master 高可用** | ZooKeeper 临时顺序节点领导者选举，防脑裂 epoch 机制 |
 | **负载均衡** | 建表时静态分配（选最空闲节点）+ 每 30s 动态重均衡（1.5× 阈值触发迁移） |
@@ -299,25 +299,21 @@ superSQL/
 │   └── Dockerfile.client       # Client 镜像（Java REPL）
 ├── rpc-proto/
 │   └── supersql.thrift         # 全部 RPC 接口定义（4 套 service）
-├── java-master/                # Master 服务（领导选举/负载均衡/元数据）
+├── java-master/                # Master 服务（已实现 Sprint1 核心能力）
 │   └── src/main/java/edu/zju/supersql/master/
 │       ├── MasterServer.java           # Thrift 服务端主入口
+│       ├── MasterRuntimeContext.java   # 运行时上下文（active-master/heartbeat）
 │       ├── election/LeaderElector.java # ZK 领导者选举（Curator）
-│       ├── meta/MetaManager.java       # 表元数据管理
-│       ├── balance/LoadBalancer.java   # 静态分配 + 动态重均衡
-│       └── migration/RegionMigrator.java # Region 迁移流程编排
-├── java-regionserver/          # RegionServer（miniSQL 管理/WAL/副本）
+│       └── rpc/MasterServiceImpl.java  # MasterService 基础实现
+├── java-regionserver/          # RegionServer（已实现注册/心跳与副本同步基础路径）
 │   └── src/main/java/edu/zju/supersql/regionserver/
 │       ├── RegionServerMain.java       # 主入口
-│       ├── minisql/MiniSqlProcess.java # ProcessBuilder 管理 C++ 进程
-│       ├── wal/WalManager.java         # WAL 写入/Crash Recovery
-│       ├── replica/ReplicaManager.java # 副本同步协调
-│       └── rpc/RegionServiceImpl.java  # Thrift RegionService 实现
-├── java-client/                # Client SDK + REPL
+│       ├── RegionServerRegistrar.java  # ZK 注册 + 心跳上报
+│       └── rpc/ReplicaSyncServiceImpl.java # 副本同步基础实现
+├── java-client/                # Client 路由骨架 + 缓存
 │   └── src/main/java/edu/zju/supersql/client/
 │       ├── SqlClient.java              # REPL 主入口
-│       ├── cache/RouteCache.java       # ConcurrentHashMap 路由缓存
-│       └── rpc/MasterRpcClient.java    # Thrift 客户端封装
+│       └── RouteCache.java             # ConcurrentHashMap 路由缓存
 └── minisql/                    # 原有 C++ 单机引擎（不修改）
     └── cpp-core/
         ├── main.cc / api.cc / interpreter.cc ...

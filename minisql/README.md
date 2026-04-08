@@ -5,8 +5,9 @@
 ## 项目结构
 
 - `cpp-core/`: C++ 存储引擎及核心 SQL 处理逻辑。
-- `java-master/`: (计划中) 集群管理与协调服务。
-- `java-client/`: (计划中) superSQL Java 客户端 SDK。
+- `java-master/`: 已落地 Sprint1 核心能力（选主、心跳、健康检查、MasterService 基础实现）。
+- `java-regionserver/`: 已落地注册/心跳与 ReplicaSyncService 基础能力。
+- `java-client/`: 已落地路由与缓存骨架（后续继续补全真实 RPC 执行链路）。
 - `rpc-proto/`: 组件间的 RPC 协议定义。
 
 ## C++ 核心引擎 (`cpp-core`)
@@ -61,6 +62,6 @@ g++ -o main main.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc
 
 ## 未来路线图
 
-- [ ] 实现基于 gRPC 的通信层。
-- [ ] 集成 Zookeeper 进行主节点选举。
-- [ ] 实现分布式查询路由。
+- [ ] 完善基于 Thrift 的端到端通信链路（Client → Master/RegionServer）。
+- [ ] 补齐 WAL 持久化与 Crash Recovery。
+- [ ] 完成动态负载均衡、迁移与容灾闭环。

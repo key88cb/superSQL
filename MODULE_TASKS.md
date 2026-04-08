@@ -3,6 +3,8 @@
 > 本文档是对 `DEVELOPMENT_PLAN.md` 的补充，**聚焦于每个必须实现模块的具体代码任务**，
 > 说明需要创建哪些类、实现哪些方法、如何验证。
 >
+> 说明：本文档主要作为实现清单与验收基线，代码实时进展请以 `IMPLEMENTATION_STATUS.md` 为准。
+>
 > 必须实现：数据分布 · 集群管理 · 分布式查询 · 副本管理 · 容错容灾 · 负载均衡 · 缓存机制 · 日志机制
 > Bonus：复杂查询（Join 等）· Table 切分
 
@@ -21,13 +23,13 @@
 | Maven 多模块目录结构 | ✅ 目录已创建 | `java-master/` `java-regionserver/` `java-client/` |
 | 环境变量模板 | ✅ | `.env` |
 
-### 待实现（全部为空目录，需要写代码）
+### 当前状态（基础骨架已落地，以下模块仍需按任务继续补全）
 
 | 模块 | 目录 |
 |---|---|
-| java-master | `java-master/src/main/java/`（空） |
-| java-regionserver | `java-regionserver/src/main/java/`（空） |
-| java-client | `java-client/src/main/java/`（空） |
+| java-master | `java-master/src/main/java/`（已有 Sprint1 主干实现） |
+| java-regionserver | `java-regionserver/src/main/java/`（已有注册/心跳/副本同步基础实现） |
+| java-client | `java-client/src/main/java/`（已有路由与缓存骨架实现） |
 
 ### miniSQL 输出格式（Java 解析必须对齐）
 
