@@ -10,7 +10,7 @@ COPY minisql/cpp-core/ .
 
 RUN g++ -O2 -std=c++17 -o main \
     main.cc api.cc record_manager.cc index_manager.cc \
-    catalog_manager.cc buffer_manager.cc basic.cc interpreter.cc \
+    catalog_manager.cc buffer_manager.cc basic.cc interpreter.cc log_manager.cc \
     && strip main
 
 # -------- Stage 2: 生成 Thrift Java stubs -----------------------
