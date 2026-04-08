@@ -1,5 +1,7 @@
 package edu.zju.supersql.client;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.zju.supersql.rpc.TableLocation;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -8,7 +10,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Scanner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SuperSQL interactive REPL client.
@@ -23,13 +29,81 @@ import java.util.Scanner;
 public class SqlClient {
 
     private static final Logger log = LoggerFactory.getLogger(SqlClient.class);
+    private static final Pattern TABLE_NAME_PATTERN =
+            Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    enum SqlKind {
+        DDL,
+        DML,
+        UNKNOWN
+    }
+
+    static SqlKind classifySql(String sql) {
+        if (sql == null || sql.isBlank()) {
+            return SqlKind.UNKNOWN;
+        }
+        String normalized = sql.trim().toLowerCase();
+        if (normalized.startsWith("create")
+                || normalized.startsWith("drop")
+                || normalized.startsWith("alter")
+                || normalized.startsWith("truncate")) {
+            return SqlKind.DDL;
+        }
+        if (normalized.startsWith("select")
+                || normalized.startsWith("insert")
+                || normalized.startsWith("update")
+                || normalized.startsWith("delete")) {
+            return SqlKind.DML;
+        }
+        return SqlKind.UNKNOWN;
+    }
+
+    static String extractTableName(String sql) {
+        if (sql == null) {
+            return null;
+        }
+        Matcher matcher = TABLE_NAME_PATTERN.matcher(sql.trim());
+        if (matcher.find()) {
+            return matcher.group(2);
+        }
+        return null;
+    }
+
+    static String readActiveMaster(CuratorFramework zkClient, String fallback) {
+        if (zkClient == null) {
+            return fallback;
+        }
+        try {
+            if (zkClient.checkExists().forPath("/active-master") == null) {
+                return fallback;
+            }
+            byte[] bytes = zkClient.getData().forPath("/active-master");
+            if (bytes == null || bytes.length == 0) {
+                return fallback;
+            }
+            Map<?, ?> node = MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
+            Object address = node.get("address");
+            if (address != null && !String.valueOf(address).isBlank()) {
+                return String.valueOf(address);
+            }
+            Object id = node.get("masterId");
+            return id == null ? fallback : String.valueOf(id);
+        } catch (Exception e) {
+            log.warn("Failed to read /active-master: {}", e.getMessage());
+            return fallback;
+        }
+    }
 
     public static void main(String[] args) throws IOException {
         String zkConnect = System.getenv().getOrDefault("ZK_CONNECT", "zk1:2181,zk2:2181,zk3:2181");
+        String masterFallback = System.getenv().getOrDefault("MASTER_ADDR", "master-1:8080");
         log.info("SuperSQL Client starting, ZK={}", zkConnect);
 
         // ── ZooKeeper connection ───────────────────────────────────────────────
         CuratorFramework zkClient = null;
+        RouteCache routeCache = new RouteCache(30_000);
+        String activeMaster = masterFallback;
         try {
             RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
             zkClient = CuratorFrameworkFactory.builder()
@@ -46,8 +120,8 @@ public class SqlClient {
             } else {
                 log.warn("ZooKeeper connection timed out — some features may be unavailable");
             }
-            // TODO Sprint 3: read /active-master node, build MasterRpcClient
-            // TODO Sprint 3: initialize RouteCache(ttlMs=30_000)
+            activeMaster = readActiveMaster(zkClient, masterFallback);
+            log.info("Discovered active master: {}", activeMaster);
         } catch (Exception e) {
             log.warn("ZooKeeper init failed: {} — running in offline mode", e.getMessage());
         }
@@ -80,8 +154,30 @@ public class SqlClient {
                     System.out.println("Bye.");
                     break;
                 }
-                // TODO Sprint 3: route SQL to Master or RegionServer
-                System.out.println("[stub] SQL not yet routed: " + line);
+
+                SqlKind kind = classifySql(line);
+                String tableName = extractTableName(line);
+
+                if (kind == SqlKind.DDL) {
+                    System.out.println("[route] DDL -> Master " + activeMaster + " (not yet executed)");
+                } else if (kind == SqlKind.DML) {
+                    if (tableName == null) {
+                        System.out.println("[route] DML -> unable to infer table name");
+                    } else {
+                        TableLocation loc = routeCache.get(tableName);
+                        if (loc == null) {
+                            System.out.println("[route] cache miss for table '" + tableName + "', query Master "
+                                    + activeMaster + " (not yet executed)");
+                        } else {
+                            System.out.println("[route] cache hit table '" + tableName + "' -> "
+                                    + loc.getPrimaryRS().getHost() + ":" + loc.getPrimaryRS().getPort()
+                                    + " (not yet executed)");
+                        }
+                    }
+                } else {
+                    System.out.println("[route] unknown SQL kind: " + line);
+                }
+
                 System.out.print("SuperSQL> ");
                 System.out.flush();
             }

@@ -20,6 +20,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -50,6 +52,8 @@ public class RegionServerMain {
 
         // ── ZooKeeper connection ───────────────────────────────────────────────
         CuratorFramework zkClient = null;
+        RegionServerRegistrar registrar = null;
+        ScheduledExecutorService heartbeatExecutor = null;
         try {
             RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
             zkClient = CuratorFrameworkFactory.builder()
@@ -61,8 +65,22 @@ public class RegionServerMain {
                     .build();
             zkClient.start();
             log.info("ZooKeeper client started (connecting to {})", zkConnect);
-            // TODO Sprint 2: RegionServerRegistrar.register(zkClient, rsId, rsHost, thriftPort)
-            // TODO Sprint 2: start heartbeat thread (every 10s)
+
+            registrar = new RegionServerRegistrar(zkClient, rsId);
+            registrar.register(rsHost, thriftPort);
+
+            RegionServerRegistrar finalRegistrar = registrar;
+            heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "RS-Heartbeat");
+                t.setDaemon(true);
+                return t;
+            });
+            heartbeatExecutor.scheduleAtFixedRate(() ->
+                            finalRegistrar.heartbeat(rsHost, thriftPort, 0, 0.0, 0.0, 0.0),
+                    10,
+                    10,
+                    TimeUnit.SECONDS);
+            log.info("RegionServer heartbeat scheduler started (interval=10s)");
         } catch (Exception e) {
             log.warn("ZooKeeper connection failed at startup — proceeding without ZK: {}", e.getMessage());
         }

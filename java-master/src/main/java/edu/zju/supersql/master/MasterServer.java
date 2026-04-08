@@ -62,6 +62,9 @@ public class MasterServer {
             }
             log.info("ZK base directories initialized");
 
+            MasterRuntimeContext.initialize(zkClient, masterId, thriftPort);
+            MasterRuntimeContext.tryBootstrapActiveMaster();
+
             // TODO Sprint 1: LeaderElector.start(zkClient, masterId)
             // TODO Sprint 1: MetaManager.init(zkClient)
         } catch (Exception e) {
