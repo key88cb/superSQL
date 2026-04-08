@@ -5,27 +5,34 @@
 # -------- Stage 1: 编译 miniSQL C++ 引擎 -------------------------
 FROM gcc:12-bookworm AS minisql-builder
 
-WORKDIR /minisql
-COPY minisql/cpp-core/ .
+ARG MINISQL_TARGET=main
 
-RUN g++ -O2 -std=c++17 -o main \
-    main.cc api.cc record_manager.cc index_manager.cc \
-    catalog_manager.cc buffer_manager.cc basic.cc interpreter.cc log_manager.cc \
-    && strip main
+WORKDIR /minisql/cpp-core
+COPY minisql/cpp-core/ ./
+
+RUN rm -f *.o *.obj *.exe main test_* \
+    && make DEBUG=0 ${MINISQL_TARGET} \
+    && strip ${MINISQL_TARGET}
 
 # -------- Stage 2: 生成 Thrift Java stubs -----------------------
 FROM eclipse-temurin:17-jdk-jammy AS thrift-gen
+
+ARG THRIFT_IDL=supersql.thrift
 
 RUN apt-get update && apt-get install -y thrift-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /gen
-COPY rpc-proto/supersql.thrift .
+COPY rpc-proto/ ./
 RUN mkdir -p src/main/java \
-    && thrift --gen java -out src/main/java supersql.thrift
+    && thrift --gen java -out src/main/java ${THRIFT_IDL}
 
 # -------- Stage 3: Maven 构建 -----------------------------------
 FROM eclipse-temurin:17-jdk-jammy AS java-builder
+
+ARG THRIFT_IDL=supersql.thrift
+ARG MODULE_NAME=java-regionserver
+ARG MODULE_JAR=java-regionserver.jar
 
 WORKDIR /build
 RUN apt-get update && apt-get install -y maven \
@@ -34,7 +41,7 @@ RUN apt-get update && apt-get install -y maven \
 # 父 pom + 所有子模块 pom
 COPY pom.xml ./
 COPY rpc-proto/pom.xml rpc-proto/pom.xml
-COPY rpc-proto/supersql.thrift rpc-proto/supersql.thrift
+COPY rpc-proto/${THRIFT_IDL} rpc-proto/${THRIFT_IDL}
 COPY java-master/pom.xml java-master/pom.xml
 COPY java-regionserver/pom.xml java-regionserver/pom.xml
 COPY java-client/pom.xml java-client/pom.xml
@@ -45,13 +52,17 @@ RUN mvn -N install -DskipTests -B --no-transfer-progress
 
 RUN mvn -pl rpc-proto install -DskipTests -B --no-transfer-progress
 
-RUN mvn -pl java-regionserver dependency:go-offline -B --no-transfer-progress 2>/dev/null || true
+RUN mvn -pl ${MODULE_NAME} dependency:go-offline -B --no-transfer-progress 2>/dev/null || true
 
-COPY java-regionserver/src java-regionserver/src
-RUN mvn -pl java-regionserver package -DskipTests -B --no-transfer-progress
+COPY ${MODULE_NAME}/src ${MODULE_NAME}/src
+RUN mvn -pl ${MODULE_NAME} package -DskipTests -B --no-transfer-progress
 
 # -------- Stage 4: 运行时镜像 ------------------------------------
 FROM eclipse-temurin:17-jre-jammy
+
+ARG MINISQL_TARGET=main
+ARG MODULE_NAME=java-regionserver
+ARG MODULE_JAR=java-regionserver.jar
 
 LABEL maintainer="superSQL Team <zju>"
 LABEL component="regionserver"
@@ -64,10 +75,10 @@ RUN groupadd -r supersql && useradd -r -g supersql supersql
 RUN mkdir -p /opt/minisql /data/db /data/wal /app \
     && chown -R supersql:supersql /opt/minisql /data /app
 
-COPY --from=minisql-builder /minisql/main /opt/minisql/main
+COPY --from=minisql-builder /minisql/cpp-core/${MINISQL_TARGET} /opt/minisql/main
 RUN chmod +x /opt/minisql/main
 
-COPY --from=java-builder /build/java-regionserver/target/java-regionserver.jar /app/regionserver.jar
+COPY --from=java-builder /build/${MODULE_NAME}/target/${MODULE_JAR} /app/app.jar
 
 EXPOSE 9090 9190
 
@@ -77,4 +88,4 @@ ENTRYPOINT ["java", \
     "-XX:+UseContainerSupport", \
     "-XX:MaxRAMPercentage=75.0", \
     "-Djava.net.preferIPv4Stack=true", \
-    "-jar", "/app/regionserver.jar"]
+    "-jar", "/app/app.jar"]

@@ -5,16 +5,22 @@
 # -------- Stage 1: 生成 Thrift Java stubs -----------------------
 FROM eclipse-temurin:17-jdk-jammy AS thrift-gen
 
+ARG THRIFT_IDL=supersql.thrift
+
 RUN apt-get update && apt-get install -y thrift-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /gen
-COPY rpc-proto/supersql.thrift .
+COPY rpc-proto/ ./
 RUN mkdir -p src/main/java \
-    && thrift --gen java -out src/main/java supersql.thrift
+    && thrift --gen java -out src/main/java ${THRIFT_IDL}
 
 # -------- Stage 2: Maven 构建 -----------------------------------
 FROM eclipse-temurin:17-jdk-jammy AS builder
+
+ARG THRIFT_IDL=supersql.thrift
+ARG MODULE_NAME=java-master
+ARG MODULE_JAR=java-master.jar
 
 WORKDIR /build
 RUN apt-get update && apt-get install -y maven \
@@ -23,7 +29,7 @@ RUN apt-get update && apt-get install -y maven \
 # 父 pom + 所有子模块 pom（Maven 要求父 pom 中声明的模块目录必须存在）
 COPY pom.xml ./
 COPY rpc-proto/pom.xml rpc-proto/pom.xml
-COPY rpc-proto/supersql.thrift rpc-proto/supersql.thrift
+COPY rpc-proto/${THRIFT_IDL} rpc-proto/${THRIFT_IDL}
 COPY java-master/pom.xml java-master/pom.xml
 COPY java-regionserver/pom.xml java-regionserver/pom.xml
 COPY java-client/pom.xml java-client/pom.xml
@@ -38,14 +44,17 @@ RUN mvn -N install -DskipTests -B --no-transfer-progress
 RUN mvn -pl rpc-proto install -DskipTests -B --no-transfer-progress
 
 # java-master 依赖下载（利用 layer cache）
-RUN mvn -pl java-master dependency:go-offline -B --no-transfer-progress 2>/dev/null || true
+RUN mvn -pl ${MODULE_NAME} dependency:go-offline -B --no-transfer-progress 2>/dev/null || true
 
 # 编译打包
-COPY java-master/src java-master/src
-RUN mvn -pl java-master package -DskipTests -B --no-transfer-progress
+COPY ${MODULE_NAME}/src ${MODULE_NAME}/src
+RUN mvn -pl ${MODULE_NAME} package -DskipTests -B --no-transfer-progress
 
 # -------- Stage 3: 运行时镜像 ------------------------------------
 FROM eclipse-temurin:17-jre-jammy
+
+ARG MODULE_NAME=java-master
+ARG MODULE_JAR=java-master.jar
 
 LABEL maintainer="superSQL Team <zju>"
 LABEL component="master"
@@ -57,7 +66,7 @@ RUN groupadd -r supersql && useradd -r -g supersql supersql
 WORKDIR /app
 RUN mkdir -p /data && chown supersql:supersql /data /app
 
-COPY --from=builder /build/java-master/target/java-master.jar /app/master.jar
+COPY --from=builder /build/${MODULE_NAME}/target/${MODULE_JAR} /app/app.jar
 
 EXPOSE 8080 8880
 
@@ -67,4 +76,4 @@ ENTRYPOINT ["java", \
     "-XX:+UseContainerSupport", \
     "-XX:MaxRAMPercentage=75.0", \
     "-Djava.net.preferIPv4Stack=true", \
-    "-jar", "/app/master.jar"]
+    "-jar", "/app/app.jar"]

@@ -1,4 +1,19 @@
 CXX = g++
+TEST_DIR ?= tests
+
+CORE_SRCS = interpreter.cc api.cc record_manager.cc buffer_manager.cc catalog_manager.cc index_manager.cc basic.cc log_manager.cc
+CORE_OBJS = $(CORE_SRCS:.cc=.o)
+MAIN_SRC = main.cc
+
+TEST_BASIC_SRCS = $(TEST_DIR)/test_basic.cc basic.cc
+TEST_BUFFER_MANAGER_SRCS = $(TEST_DIR)/test_buffer_manager.cc buffer_manager.cc log_manager.cc
+TEST_CATALOG_MANAGER_SRCS = $(TEST_DIR)/test_catalog_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+TEST_INDEX_MANAGER_SRCS = $(TEST_DIR)/test_index_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+TEST_RECORD_MANAGER_SRCS = $(TEST_DIR)/test_record_manager.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+TEST_API_SRCS = $(TEST_DIR)/test_api.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+TEST_EXHAUSTIVE_SRCS = $(TEST_DIR)/test_exhaustive.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+TEST_WAL_SRCS = $(TEST_DIR)/test_wal.cc log_manager.cc buffer_manager.cc
+TEST_WAL_CRASH_RECOVERY_SRCS = $(TEST_DIR)/test_wal_crash_recovery.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
 
 # 调试模式开关，默认为 0 (Release)
 # 使用方式: make DEBUG=1 或者 make debug
@@ -16,8 +31,6 @@ endif
 
 COVERAGE_FLAGS = -fprofile-arcs -ftest-coverage
 
-OBJS = interpreter.o api.o record_manager.o buffer_manager.o catalog_manager.o index_manager.o basic.o log_manager.o
-
 .PHONY: all debug release clear clear_coverage clear_data test
 
 all: main
@@ -28,71 +41,71 @@ debug:
 release:
 	$(MAKE) DEBUG=0
 
-main: main.o $(OBJS)
-	$(CXX) -o main $(CXXFLAGS) main.o $(OBJS)
+main: main.o $(CORE_OBJS)
+	$(CXX) -o $@ $(CXXFLAGS) main.o $(CORE_OBJS)
 
 main.o: main.cc interpreter.h catalog_manager.h basic.h buffer_manager.h exception.h const.h
-	$(CXX) -c $(CXXFLAGS) main.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 interpreter.o: interpreter.cc interpreter.h catalog_manager.h basic.h buffer_manager.h exception.h const.h
-	$(CXX) -c $(CXXFLAGS) interpreter.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 api.o: api.cc api.h buffer_manager.h record_manager.h const.h basic.h catalog_manager.h buffer_manager.h exception.h catalog_manager.h template_function.h
-	$(CXX) -c $(CXXFLAGS) api.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 record_manager.o: record_manager.cc record_manager.h index_manager.h catalog_manager.h buffer_manager.h bplustree.h exception.h basic.h const.h template_function.h
-	$(CXX) -c $(CXXFLAGS) record_manager.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 buffer_manager.o: buffer_manager.cc buffer_manager.h const.h log_manager.h
-	$(CXX) -c $(CXXFLAGS) buffer_manager.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 log_manager.o: log_manager.cc log_manager.h const.h
-	$(CXX) -c $(CXXFLAGS) log_manager.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 catalog_manager.o: catalog_manager.cc catalog_manager.h buffer_manager.h basic.h exception.h const.h
-	$(CXX) -c $(CXXFLAGS) catalog_manager.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 index_manager.o: index_manager.cc index_manager.h basic.h buffer_manager.h bplustree.h const.h
-	$(CXX) -c $(CXXFLAGS) index_manager.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 basic.o: basic.cc basic.h
-	$(CXX) -c $(CXXFLAGS) basic.cc
+	$(CXX) -c $(CXXFLAGS) $<
 
 # Testing
-test_basic: tests/test_basic.cc basic.cc basic.h tests/test_macros.h
-	$(CXX) -o test_basic $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_basic.cc basic.cc
+test_basic: $(TEST_DIR)/test_basic.cc basic.cc basic.h $(TEST_DIR)/test_macros.h
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_BASIC_SRCS)
 	./test_basic
 
-test_buffer_manager: tests/test_buffer_manager.cc buffer_manager.cc buffer_manager.h log_manager.cc tests/test_macros.h
-	$(CXX) -o test_buffer_manager $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_buffer_manager.cc buffer_manager.cc log_manager.cc
+test_buffer_manager: $(TEST_DIR)/test_buffer_manager.cc buffer_manager.cc buffer_manager.h log_manager.cc $(TEST_DIR)/test_macros.h
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_BUFFER_MANAGER_SRCS)
 	./test_buffer_manager
 
-test_catalog_manager: tests/test_catalog_manager.cc catalog_manager.cc catalog_manager.h buffer_manager.cc buffer_manager.h log_manager.cc tests/test_macros.h basic.cc
-	$(CXX) -o test_catalog_manager $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_catalog_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+test_catalog_manager: $(TEST_DIR)/test_catalog_manager.cc catalog_manager.cc catalog_manager.h buffer_manager.cc buffer_manager.h log_manager.cc $(TEST_DIR)/test_macros.h basic.cc
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_CATALOG_MANAGER_SRCS)
 	./test_catalog_manager
 
-test_index_manager: tests/test_index_manager.cc index_manager.cc index_manager.h catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc tests/test_macros.h
-	$(CXX) -o test_index_manager $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_index_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+test_index_manager: $(TEST_DIR)/test_index_manager.cc index_manager.cc index_manager.h catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc $(TEST_DIR)/test_macros.h
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_INDEX_MANAGER_SRCS)
 	./test_index_manager
 
-test_record_manager: tests/test_record_manager.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc tests/test_macros.h
-	$(CXX) -o test_record_manager $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_record_manager.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+test_record_manager: $(TEST_DIR)/test_record_manager.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc $(TEST_DIR)/test_macros.h
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_RECORD_MANAGER_SRCS)
 	./test_record_manager
 
-test_api: tests/test_api.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc tests/test_macros.h
-	$(CXX) -o test_api $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_api.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+test_api: $(TEST_DIR)/test_api.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc $(TEST_DIR)/test_macros.h
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_API_SRCS)
 	./test_api
 
-test_exhaustive: tests/test_exhaustive.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc tests/test_macros.h
-	$(CXX) -o test_exhaustive $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_exhaustive.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+test_exhaustive: $(TEST_DIR)/test_exhaustive.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc $(TEST_DIR)/test_macros.h
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_EXHAUSTIVE_SRCS)
 	./test_exhaustive
 
-test_wal: tests/test_wal.cc log_manager.cc log_manager.h buffer_manager.cc buffer_manager.h tests/test_macros.h
-	$(CXX) -o test_wal $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_wal.cc log_manager.cc buffer_manager.cc
+test_wal: $(TEST_DIR)/test_wal.cc log_manager.cc log_manager.h buffer_manager.cc buffer_manager.h $(TEST_DIR)/test_macros.h
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_WAL_SRCS)
 	./test_wal
 
-test_wal_crash_recovery: tests/test_wal_crash_recovery.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc tests/test_macros.h
-	$(CXX) -o test_wal_crash_recovery $(CXXFLAGS) $(COVERAGE_FLAGS) tests/test_wal_crash_recovery.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc
+test_wal_crash_recovery: $(TEST_DIR)/test_wal_crash_recovery.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc $(TEST_DIR)/test_macros.h
+	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_WAL_CRASH_RECOVERY_SRCS)
 	./test_wal_crash_recovery
 
 test: test_basic test_buffer_manager test_catalog_manager test_index_manager test_record_manager test_api test_exhaustive test_wal test_wal_crash_recovery
