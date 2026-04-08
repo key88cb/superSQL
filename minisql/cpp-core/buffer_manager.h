@@ -93,6 +93,11 @@ class BufferManager {
         LogManager* log_manager_;//指向日志管理器的指针
 };
 
+// Global access to BufferManager
+class BufferManager;
+extern BufferManager* buffer_manager_ptr;
+#define buffer_manager (*buffer_manager_ptr)
+
 #endif
 
 // 如何使用?

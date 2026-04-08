@@ -22,7 +22,7 @@
 #define TABLE_MANAGER_PATH "./database/catalog/catalog_file"
 #endif
 
-extern BufferManager buffer_manager;
+
 
 class CatalogManager{
 public:

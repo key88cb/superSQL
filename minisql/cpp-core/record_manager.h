@@ -23,7 +23,7 @@
 #include "const.h"
 #include "template_function.h"
 
-extern BufferManager buffer_manager;
+
 
 class RecordManager {
     public:

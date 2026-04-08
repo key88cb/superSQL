@@ -22,7 +22,6 @@
 #include "buffer_manager.h"
 #include "template_function.h"
 
-extern BufferManager buffer_manager;
 
 //模板类TreeNode，用于存放B+树的结点数据以及进行相关的操作
 //使用模板类保证直接适配int，float, string三种类型数据
