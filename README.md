@@ -13,6 +13,7 @@
 - [项目简介](#项目简介)
 - [系统架构](#系统架构)
 - [核心功能](#核心功能)
+- [当前实现状态](#当前实现状态)
 - [技术栈与设计决策](#技术栈与设计决策)
 - [快速启动](#快速启动)
 - [项目结构](#项目结构)
@@ -154,6 +155,19 @@ sequenceDiagram
 | **集群动态管理** | 节点加入/退出全自动感知，无需停机维护 |
 | **Thrift RPC** | 4 套 IDL 接口（MasterService / RegionService / RegionAdminService / ReplicaSyncService） |
 | **跨平台容器化** | Docker Compose 一键启动 3 ZK + 3 Master + 3 RS + 1 Client |
+
+---
+
+## 当前实现状态
+
+为避免“设计文档已规划但代码尚未完全落地”的理解偏差，当前代码实现进展与已通过测试的能力请参考：
+
+- [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)
+
+该文档会按模块列出：
+- 已实现能力
+- 当前限制
+- 已落地测试与执行方式
 
 ---
 

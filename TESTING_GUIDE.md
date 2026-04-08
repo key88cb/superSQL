@@ -100,9 +100,49 @@ mkdir exh_db; $env:MINISQL_DATA_DIR="exh_db"; ./test_exh
 
 ## 5. Java 侧集成测试 (Integration)
 
-在分布式环境中，可以使用 Maven 运行 Java 侧的验证逻辑：
+在分布式环境中，可以使用 Maven 运行 Java 侧的验证逻辑。
 
-### 指令：
+### 推荐执行顺序（仓库根目录）
+
+```powershell
+# 全模块测试（推荐）
+mvn test -DskipTests=false
+```
+
+```powershell
+# 只跑 Master 测试
+mvn -pl java-master test
+
+# 只跑 RegionServer 测试
+mvn -pl java-regionserver test
+
+# 只跑 Client 测试
+mvn -pl java-client test
+```
+
+### 可按类定向执行
+
+```powershell
+# Master 元数据集成测试（内嵌 ZooKeeper）
+mvn -pl java-master -Dtest=MasterServiceMetadataIntegrationTest test
+
+# RegionServer 注册器集成测试（内嵌 ZooKeeper）
+mvn -pl java-regionserver -Dtest=RegionServerRegistrarIntegrationTest test
+
+# Client 路由与 active-master 解析测试
+mvn -pl java-client -Dtest=SqlClientRoutingTest test
+```
+
+### 当前 Java 侧重点用例
+
+| 测试类 | 覆盖目标 |
+| :--- | :--- |
+| `MasterServiceMetadataIntegrationTest` | create/get/list/drop 元数据链路、NOT_LEADER 重定向、无 RS 分支 |
+| `RegionServerRegistrarIntegrationTest` | RS 注册、心跳更新、节点丢失后的重注册 |
+| `ReplicaSyncServiceImplTest` | syncLog/pullLog/getMaxLsn/commitLog 路径及边界 |
+| `SqlClientRoutingTest` | SQL 分类、表名提取、TTL 过期、active-master 解析回退 |
+
+### 旧示例（仍可用）：
 ```powershell
 cd java-regionserver
 mvn test
