@@ -45,4 +45,25 @@ class ReplicaSyncServiceImplTest {
         Response response = service.commitLog("missing_table", 1L);
         Assertions.assertEquals(StatusCode.TABLE_NOT_FOUND, response.getCode());
     }
+
+    @Test
+    void pullLogShouldRespectStartLsnAndOrdering() throws Exception {
+        ReplicaSyncServiceImpl service = new ReplicaSyncServiceImpl();
+
+        service.syncLog(new WalEntry(8L, 1L, "t_order", WalOpType.INSERT, System.currentTimeMillis()));
+        service.syncLog(new WalEntry(2L, 2L, "t_order", WalOpType.UPDATE, System.currentTimeMillis()));
+        service.syncLog(new WalEntry(5L, 3L, "t_order", WalOpType.DELETE, System.currentTimeMillis()));
+
+        List<WalEntry> entries = service.pullLog("t_order", 3L);
+        Assertions.assertEquals(2, entries.size());
+        Assertions.assertEquals(5L, entries.get(0).getLsn());
+        Assertions.assertEquals(8L, entries.get(1).getLsn());
+    }
+
+    @Test
+    void syncInvalidEntryShouldReturnError() throws Exception {
+        ReplicaSyncServiceImpl service = new ReplicaSyncServiceImpl();
+        Response response = service.syncLog(new WalEntry());
+        Assertions.assertEquals(StatusCode.ERROR, response.getCode());
+    }
 }

@@ -20,6 +20,7 @@ class SqlClientRoutingTest {
     void extractTableNameShouldWorkForInsertAndSelect() {
         Assertions.assertEquals("t_order", SqlClient.extractTableName("insert into t_order values (1);"));
         Assertions.assertEquals("t_order", SqlClient.extractTableName("select * from t_order where id = 1;"));
+        Assertions.assertEquals("t_order", SqlClient.extractTableName("update t_order set id = 2 where id = 1;"));
     }
 
     @Test
@@ -34,5 +35,17 @@ class SqlClientRoutingTest {
 
         cache.invalidateIfVersionMismatch("t_order", 2L);
         Assertions.assertNull(cache.get("t_order"));
+    }
+
+    @Test
+    void routeCacheShouldExpireByTtl() throws InterruptedException {
+        RouteCache cache = new RouteCache(10);
+        RegionServerInfo primary = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        TableLocation location = new TableLocation("t_expire", primary, Collections.singletonList(primary));
+
+        cache.put("t_expire", location);
+        Thread.sleep(20);
+
+        Assertions.assertNull(cache.get("t_expire"));
     }
 }
