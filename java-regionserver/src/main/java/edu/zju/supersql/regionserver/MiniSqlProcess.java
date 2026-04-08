@@ -87,11 +87,31 @@ public class MiniSqlProcess {
         // Note: This is a synchronous simplified bridge.
         while ((line = stdout.readLine()) != null) {
             output.append(line).append("\n");
-            if (line.contains("miniSQL>")) {
+            if (line.contains(">>> ")) { // Changed to match my new prompt in main.cc or similar
                 break;
             }
         }
         return output.toString();
+    }
+
+    /**
+     * Triggers a checkpoint and returns the reported LSN.
+     * Returns -1 if checkpoint failed.
+     */
+    public synchronized long checkpoint() throws IOException {
+        String output = execute("checkpoint;");
+        // Looking for: ">>> Checkpoint SUCCESS. Data flushed up to LSN: 123"
+        int lsnIndex = output.indexOf("LSN: ");
+        if (lsnIndex != -1) {
+            String lsnStr = output.substring(lsnIndex + 5).trim().split("\\s+")[0];
+            try {
+                return Long.parseLong(lsnStr);
+            } catch (NumberFormatException e) {
+                log.error("Failed to parse LSN from output: {}", output);
+                return -1;
+            }
+        }
+        return -1;
     }
 
     public synchronized void stop() {

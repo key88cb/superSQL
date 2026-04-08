@@ -35,4 +35,25 @@ public class WalManager {
     public String getWalDir() {
         return walDir;
     }
+
+    /**
+     * Performs a WAL checkpoint.
+     * 1. Tells C++ engine to flush all dirty pages.
+     * 2. Clears the WAL log file since all data is persisted.
+     */
+    public void performCheckpoint(MiniSqlProcess process) {
+        log.info("Starting WAL checkpoint...");
+        try {
+            long lsn = process.checkpoint();
+            if (lsn >= 0) {
+                log.info("C++ engine checkpointed at LSN: {}. Clearing WAL logs...", lsn);
+                process.execute("clear log;");
+                log.info("WAL checkpoint completed successfully.");
+            } else {
+                log.error("C++ engine failed to perform checkpoint.");
+            }
+        } catch (Exception e) {
+            log.error("Error during WAL checkpoint: ", e);
+        }
+    }
 }
