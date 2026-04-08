@@ -200,8 +200,8 @@ docker compose version    # >= 2.20
 git clone https://github.com/key88cb/superSQL.git
 cd superSQL
 
-# 2. 复制环境变量文件
-cp .env .env.local        # 按需修改参数
+# 2. 复制环境变量模板
+cp .env.example .env.local        # 按需修改参数
 
 # 3. 启动完整集群（首次构建约 3-5 分钟）
 docker compose up -d --build
@@ -278,7 +278,7 @@ docker compose down -v && docker compose up -d --build
 ```
 superSQL/
 ├── docker-compose.yml          # 完整集群编排
-├── .env                        # 环境变量模板
+├── .env.example                # 环境变量模板
 ├── docker/
 │   ├── Dockerfile.master       # Master 镜像（Java）
 │   ├── Dockerfile.regionserver # RS 镜像（Java + C++ miniSQL）
