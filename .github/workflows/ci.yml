@@ -36,7 +36,7 @@ jobs:
   cpp-build:
     name: MiniSQL C++ Build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: minisql/cpp-core
@@ -47,3 +47,6 @@ jobs:
 
       - name: Build MiniSQL main binary
         run: make main
+
+      - name: Run MiniSQL C++ tests
+        run: make test

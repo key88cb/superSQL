@@ -108,19 +108,34 @@ test_wal_crash_recovery: $(TEST_DIR)/test_wal_crash_recovery.cc record_manager.c
 	$(CXX) -o $@ $(CXXFLAGS) $(COVERAGE_FLAGS) $(TEST_WAL_CRASH_RECOVERY_SRCS)
 	./test_wal_crash_recovery
 
-test: test_basic test_buffer_manager test_catalog_manager test_index_manager test_record_manager test_api test_exhaustive test_wal test_wal_crash_recovery
+test: clear_coverage test_basic test_buffer_manager test_catalog_manager test_index_manager test_record_manager test_api test_exhaustive test_wal test_wal_crash_recovery
 
 coverage: clear_coverage test
 	gcov basic.cc buffer_manager.cc catalog_manager.cc index_manager.cc record_manager.cc api.cc
 
 # 清理编译产生的临时文件和可执行文件
 clear:
+
+ifeq ($(OS),Windows_NT)
 	-del /f /q *.o main.exe test_basic.exe test_buffer_manager.exe test_catalog_manager.exe test_index_manager.exe test_record_manager.exe test_api.exe test_basic test_buffer_manager test_catalog_manager test_index_manager test_record_manager test_api 2>nul
+else
+	-rm -f *.o main test_basic test_buffer_manager test_catalog_manager test_index_manager test_record_manager test_api test_exhaustive test_wal test_wal_crash_recovery
+endif
 
 # 清理覆盖率数据文件，防止 Data file mismatch 错误
 clear_coverage:
+
+ifeq ($(OS),Windows_NT)
 	-del /f /q *.gcda *.gcno 2>nul
+else
+	-rm -f *.gcda *.gcno
+endif
 
 # 清理数据库数据文件
 clear_data:
+
+ifeq ($(OS),Windows_NT)
 	-del /f /q database\data\* database\index\* database\catalog\* 2>nul
+else
+	-rm -f database/data/* database/index/* database/catalog/*
+endif

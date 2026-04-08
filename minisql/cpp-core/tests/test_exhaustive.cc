@@ -14,10 +14,17 @@ int passed_tests = 0;
 BufferManager* buffer_manager_ptr = new BufferManager(); // Initialize the global pointer
 
 void setup_env() {
-    // Portably clear directories
+#ifdef _WIN32
+    system("if not exist database\\data mkdir database\\data");
+    system("if not exist database\\index mkdir database\\index");
+    system("if not exist database\\catalog mkdir database\\catalog");
     system("del /q database\\data\\* 2>nul");
     system("del /q database\\index\\* 2>nul");
     system("del /q database\\catalog\\* 2>nul");
+#else
+    system("mkdir -p database/data database/index database/catalog");
+    system("rm -f database/data/* database/index/* database/catalog/*");
+#endif
     // Clear buffer manager cache
     buffer_manager.clear();
     

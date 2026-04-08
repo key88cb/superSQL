@@ -14,12 +14,17 @@ int passed_tests = 0;
 BufferManager* buffer_manager_ptr = new BufferManager(); // Initialize the global pointer
 
 void prepare_env() {
-    system("mkdir database\\data 2>nul");
-    system("mkdir database\\catalog 2>nul");
-    system("mkdir database\\index 2>nul");
+#ifdef _WIN32
+    system("if not exist database\\data mkdir database\\data");
+    system("if not exist database\\catalog mkdir database\\catalog");
+    system("if not exist database\\index mkdir database\\index");
     system("del /q database\\data\\* 2>nul");
     system("del /q database\\index\\* 2>nul");
     system("del /q database\\catalog\\* 2>nul");
+#else
+    system("mkdir -p database/data database/catalog database/index");
+    system("rm -f database/data/* database/index/* database/catalog/*");
+#endif
     remove("super_sql.log");
     
     std::string cat_path = "./database/catalog/catalog_file";
