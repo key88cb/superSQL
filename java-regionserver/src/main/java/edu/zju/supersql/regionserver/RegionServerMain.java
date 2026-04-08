@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.util.concurrent.TimeUnit;
 
 /**
  * RegionServer entry point.
@@ -107,6 +108,26 @@ public class RegionServerMain {
 
         TThreadPoolServer server = new TThreadPoolServer(serverArgs);
         log.info("RegionServer {} (Thrift) listening on :{}", rsId, thriftPort);
+
+        // ── Periodic Checkpoint Thread ─────────────────────────────────────────
+        Thread checkpointThread = new Thread(() -> {
+            log.info("Starting background WAL checkpoint thread...");
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    // Checkpoint every 5 minutes (default)
+                    Thread.sleep(TimeUnit.MINUTES.toMillis(5));
+                    if (miniSql.isAlive()) {
+                        walManager.performCheckpoint(miniSql);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    log.error("Error in background checkpoint thread: ", e);
+                }
+            }
+        }, "CheckpointThread");
+        checkpointThread.setDaemon(true);
+        checkpointThread.start();
 
         server.serve();
     }
