@@ -11,8 +11,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  java-build:
-    name: Java Maven Build
+  java-build-and-test:
+    name: Java Maven Build & Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -26,6 +26,35 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: maven
+
+      - name: Run Java tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -ntp test
+
+      - name: Upload Java surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-surefire-reports
+          path: |
+            **/target/surefire-reports/*.xml
+            **/target/surefire-reports/*.txt
+          if-no-files-found: warn
+
+      - name: Publish Java test summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_count=$(find . -type f -path "*/target/surefire-reports/TEST-*.xml" | wc -l | tr -d ' ')
+          {
+            echo "## Java Test Summary"
+            echo ""
+            echo "- Surefire report files: ${report_count}"
+            echo "- Full reports are available in artifact: java-surefire-reports"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build Java modules
         shell: bash
