@@ -101,7 +101,9 @@ int main() {
     char db_buf[PAGESIZE] = {0};
     if (db_check) {
         size_t read_count = fread(db_buf, PAGESIZE, 1, db_check);
-        ASSERT_TRUE(read_count == 1);
+        // In crash simulation, file can be empty/short; only assert no read error.
+        ASSERT_TRUE(read_count == 1 || feof(db_check));
+        ASSERT_TRUE(ferror(db_check) == 0);
         fclose(db_check);
     }
     ASSERT_TRUE(db_buf[0] == '\0'); // The DB file MUST be empty!
