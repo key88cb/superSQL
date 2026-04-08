@@ -75,6 +75,8 @@ class BufferManager {
         int flushPage(int page_id , std::string file_name , int block_id);
         // 获取对应文件的对应块在内存中的页号，没有找到返回-1
         int getPageId(std::string file_name , int block_id);
+        // 将所有脏页写入磁盘
+        void flushAllDirtyPages();
         // 清除所有页的信息
         void clear();
         // 诊断：返回当前 pin_count > 0 的页的数量

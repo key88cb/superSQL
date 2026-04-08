@@ -147,10 +147,13 @@ bool API::dropIndex(std::string table_name, std::string index_name)
 	catalog.dropIndex(table_name, index_name);
 	
 	file_path = "./database/index/" + file_path;
-    remove(file_path.c_str());
-    record.invalidateIndexManager(table_name);
-
 	return true;
+}
+
+int API::checkpoint()
+{
+    buffer_manager.flushAllDirtyPages();
+    return buffer_manager.getLogManager()->getCurrentLsn();
 }
 
 //私有函数，用于多条件查询时的or条件合并

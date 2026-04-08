@@ -264,6 +264,17 @@ int BufferManager::getEmptyPageId() {
     }
 }
 
+void BufferManager::flushAllDirtyPages() {
+    for (int i = 0; i < frame_size_; i++) {
+        if (!Frames[i].getAvaliable() && Frames[i].getDirty()) {
+            std::string file_name = Frames[i].getFileName();
+            int block_id = Frames[i].getBlockId();
+            flushPage(i, file_name, block_id);
+            Frames[i].setDirty(false); // 重置脏标记
+        }
+    }
+}
+
 void BufferManager::clear() {
     for (int i = 0; i < frame_size_; i++) {
         Frames[i].initialize();

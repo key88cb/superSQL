@@ -74,6 +74,8 @@ public:
 	//如果表不存在，抛出table_not_exist异常
 	//如果对应属性不存在，抛出attribute_not_exist异常
     //如果对应属性没有索引，抛出index_not_exist异常
+    // Checkpoint: flush all dirty pages and return the current LSN
+    int checkpoint();
 	bool dropIndex(std::string table_name, std::string index_name);
 private:
 	//私有函数，用于多条件查询时的and条件合并
