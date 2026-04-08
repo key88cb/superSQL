@@ -60,6 +60,17 @@ class LeaderElectorTest {
             waitUntil(Duration.ofSeconds(5), () -> e1.isLeader() || e2.isLeader());
             Assertions.assertFalse(e1.isLeader() && e2.isLeader());
 
+            // LeaderLatch state and /active-master write are asynchronous; wait for payload convergence.
+            waitUntil(Duration.ofSeconds(5), () -> {
+                try {
+                    Map<?, ?> active = readActiveMaster(zk1);
+                    Object id = active.get("masterId");
+                    return "master-1".equals(String.valueOf(id)) || "master-2".equals(String.valueOf(id));
+                } catch (Exception ignored) {
+                    return false;
+                }
+            });
+
             Map<?, ?> active = readActiveMaster(zk1);
             String id = String.valueOf(active.get("masterId"));
             Assertions.assertTrue("master-1".equals(id) || "master-2".equals(id));
