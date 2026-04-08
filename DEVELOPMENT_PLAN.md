@@ -113,6 +113,18 @@ writeActiveMaster(new ActiveMasterInfo(current.epoch + 1, myId));
 | Curator LeaderLatch 在 ZK 会话超时时行为不稳定 | 改用手写临时顺序节点 + Watcher，逻辑更透明，便于调试 |
 | epoch 写入与 ZK 节点消失存在竞态 | 使用 `ZooKeeper.setData` + `version` CAS 操作，失败则重试 |
 
+### Sprint 1 收尾状态（2026-04-09）
+
+| 任务 | 状态 | 说明 |
+|---|---|---|
+| S1-01 | ✅ 完成 | 已实现 `LeaderElector`（LeaderLatch 选主），并接入 Master 启动流程。 |
+| S1-02 | ✅ 完成 | 已实现 Active Master 心跳线程，每 5 秒刷新 `/masters/active-heartbeat`。 |
+| S1-03 | ✅ 完成 | 已实现 `/masters` 监听（Watcher），并覆盖主挂后接管测试。 |
+| S1-04 | ✅ 完成 | 已实现 epoch 递增与 CAS 更新，降低并发覆盖风险。 |
+| S1-05 | ✅ 完成 | Master Thrift `TThreadPoolServer` 框架已稳定运行。 |
+| S1-06 | ✅ 完成 | `/health` 与 `/status` 已返回 JSON 载荷。 |
+| S1-07 | ✅ 完成 | `LeaderElectorTest` 已覆盖选主、接管与 epoch 延续场景。 |
+
 ---
 
 ## Sprint 2：RegionServer 注册/心跳 + miniSQL 进程管理（W3: 5/13 ~ 5/19）

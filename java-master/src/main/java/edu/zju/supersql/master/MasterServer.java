@@ -129,7 +129,7 @@ public class MasterServer {
             LeaderElector finalLeaderElector = leaderElector;
             Runtime.getRuntime().addShutdownHook(new Thread(finalLeaderElector::close));
 
-            // TODO Sprint 1: MetaManager.init(zkClient)
+            // TODO Sprint 3: MetaManager.init(zkClient)
         } catch (Exception e) {
             log.warn("ZooKeeper connection failed at startup — proceeding without ZK: {}", e.getMessage());
         }
@@ -155,7 +155,7 @@ public class MasterServer {
         TMultiplexedProcessor processor = new TMultiplexedProcessor();
         processor.registerProcessor("MasterService",
                 new MasterService.Processor<>(new MasterServiceImpl()));
-        // TODO Sprint 1: add more processors if needed
+        // TODO Sprint 3+: add more processors if needed
 
         TServerSocket serverTransport = new TServerSocket(thriftPort);
         TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(serverTransport)

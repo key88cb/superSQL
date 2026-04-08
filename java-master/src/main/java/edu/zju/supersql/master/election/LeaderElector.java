@@ -2,7 +2,8 @@ package edu.zju.supersql.master.election;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.recipes.cache.PathChildrenCache;
+import org.apache.curator.framework.recipes.cache.CuratorCache;
+import org.apache.curator.framework.recipes.cache.CuratorCacheListener;
 import org.apache.curator.framework.recipes.leader.LeaderLatch;
 import org.apache.curator.framework.recipes.leader.LeaderLatchListener;
 import org.apache.zookeeper.data.Stat;
@@ -26,7 +27,7 @@ public class LeaderElector implements AutoCloseable {
     private final String masterAddress;
 
     private LeaderLatch leaderLatch;
-    private PathChildrenCache mastersWatcher;
+    private CuratorCache mastersWatcher;
 
     public LeaderElector(CuratorFramework zkClient, String masterId, String masterAddress) {
         this.zkClient = zkClient;
@@ -55,13 +56,14 @@ public class LeaderElector implements AutoCloseable {
             }
         });
 
-        mastersWatcher = new PathChildrenCache(zkClient, "/masters", true);
-        mastersWatcher.getListenable().addListener((client, event) -> {
-            int onlineMasters = mastersWatcher.getCurrentData().size();
-            log.info("/masters watcher event={} onlineMasters={}", event.getType(), onlineMasters);
-        });
-
-        mastersWatcher.start(PathChildrenCache.StartMode.POST_INITIALIZED_EVENT);
+        mastersWatcher = CuratorCache.build(zkClient, "/masters");
+        mastersWatcher.listenable().addListener(CuratorCacheListener.builder()
+                .forCreates(node -> log.info("/masters watcher event=CHILD_ADDED onlineMasters={}", countOnlineMasters()))
+                .forDeletes(node -> log.info("/masters watcher event=CHILD_REMOVED onlineMasters={}", countOnlineMasters()))
+                .forChanges((oldNode, newNode) -> log.info("/masters watcher event=CHILD_UPDATED onlineMasters={}", countOnlineMasters()))
+                .build());
+        mastersWatcher.start();
+        log.info("/masters watcher initialized onlineMasters={}", countOnlineMasters());
         leaderLatch.start();
         log.info("LeaderElector started for {}", masterAddress);
     }
@@ -153,6 +155,14 @@ public class LeaderElector implements AutoCloseable {
     private void ensurePath(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
+        }
+    }
+
+    private int countOnlineMasters() {
+        try {
+            return zkClient.getChildren().forPath("/masters").size();
+        } catch (Exception e) {
+            return 0;
         }
     }
 }
