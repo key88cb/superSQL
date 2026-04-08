@@ -57,13 +57,13 @@
 
 | # | 任务 | 优先级 | 负责人 | 验收标准 |
 |---|---|---|---|---|
-| S1-01 | 实现 `LeaderElector`：Curator `LeaderLatch` 或手动临时顺序节点选举 | P0 | 李业 | 3 个 Master 进程中只有 1 个输出 "I am Active" |
-| S1-02 | 实现 Active Master 心跳写入（每 5s 更新 `/masters/active-heartbeat`） | P0 | 李业 | `zkCli.sh get /masters/active-heartbeat` 时间戳每 5s 变化 |
-| S1-03 | 实现 Standby 监听逻辑（Watcher 监听 `/masters`，active 节点消失后重新选举） | P0 | 李业 | `docker stop master-1` 后，master-2 在 15s 内成为 Active |
-| S1-04 | 实现防脑裂 epoch 机制（`/active-master` 持久节点，格式 `{epoch, masterId}`） | P1 | 李业 | 旧 Master 恢复后读到更大 epoch，自动降为 Standby |
-| S1-05 | 实现 `MasterService` Thrift 服务端框架（`TThreadPoolServer`，端口 8080） | P0 | 李业 | `thrift` 客户端工具可连接 8080 并调用 `getActiveMaster()` |
-| S1-06 | 实现 Master HTTP 健康检查端点（`GET /health` → 200，`GET /status` → JSON） | P1 | 李业 | `curl http://localhost:8880/health` 返回 `{"status":"ok","role":"ACTIVE"}` |
-| S1-07 | 单元测试：`LeaderElectorTest`（使用 Curator TestingServer 模拟 ZK） | P1 | 李业 | 测试覆盖：正常选举、Active 宕机后重选、脑裂 epoch 防护 |
+| S1-01 | 实现 `LeaderElector`：Curator `LeaderLatch` 或手动临时顺序节点选举 | P0 | 徐浩然 | 3 个 Master 进程中只有 1 个输出 "I am Active" |
+| S1-02 | 实现 Active Master 心跳写入（每 5s 更新 `/masters/active-heartbeat`） | P0 | 徐浩然 | `zkCli.sh get /masters/active-heartbeat` 时间戳每 5s 变化 |
+| S1-03 | 实现 Standby 监听逻辑（Watcher 监听 `/masters`，active 节点消失后重新选举） | P0 | 徐浩然 | `docker stop master-1` 后，master-2 在 15s 内成为 Active |
+| S1-04 | 实现防脑裂 epoch 机制（`/active-master` 持久节点，格式 `{epoch, masterId}`） | P1 | 徐浩然 | 旧 Master 恢复后读到更大 epoch，自动降为 Standby |
+| S1-05 | 实现 `MasterService` Thrift 服务端框架（`TThreadPoolServer`，端口 8080） | P0 | 徐浩然 | `thrift` 客户端工具可连接 8080 并调用 `getActiveMaster()` |
+| S1-06 | 实现 Master HTTP 健康检查端点（`GET /health` → 200，`GET /status` → JSON） | P1 | 徐浩然 | `curl http://localhost:8880/health` 返回 `{"status":"ok","role":"ACTIVE"}` |
+| S1-07 | 单元测试：`LeaderElectorTest`（使用 Curator TestingServer 模拟 ZK） | P1 | 徐浩然 | 测试覆盖：正常选举、Active 宕机后重选、脑裂 epoch 防护 |
 
 ### ZooKeeper 目录设计
 
