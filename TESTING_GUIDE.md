@@ -102,6 +102,16 @@ mkdir exh_db; $env:MINISQL_DATA_DIR="exh_db"; ./test_exh
 
 在分布式环境中，可以使用 Maven 运行 Java 侧的验证逻辑。
 
+### 5.1 测试框架统一约定（必须遵循）
+
+- 所有需要内嵌 ZooKeeper 的 Java 测试，必须通过共享工具类创建实例：
+	- `test-common/src/main/java/edu/zju/supersql/testutil/EmbeddedZkServerFactory.java`
+- 禁止在测试里直接写 `new TestingServer(true)`。
+- 原因：共享工厂已统一设置 `maxCnxns` 与 `maxClientCnxns`，用于消除 CI 常见告警：
+	- `[zkservermainrunner] WARN  o.a.z.server.ServerCnxnFactory - maxCnxns is not configured, using default value 0.`
+- 依赖关系要求：
+	- `java-master` / `java-regionserver` / `java-client` 的测试依赖 `test-common`，不要在各模块重复实现同名工厂类。
+
 ### 推荐执行顺序（仓库根目录）
 
 ```powershell

@@ -299,6 +299,9 @@ superSQL/
 │   └── Dockerfile.client       # Client 镜像（Java REPL）
 ├── rpc-proto/
 │   └── supersql.thrift         # 全部 RPC 接口定义（4 套 service）
+├── test-common/                # Java 测试共享工具模块（含 EmbeddedZkServerFactory）
+│   └── src/main/java/edu/zju/supersql/testutil/
+│       └── EmbeddedZkServerFactory.java
 ├── java-master/                # Master 服务（已实现 Sprint1 核心能力）
 │   └── src/main/java/edu/zju/supersql/master/
 │       ├── MasterServer.java           # Thrift 服务端主入口

@@ -97,6 +97,16 @@ All storage access goes through the shared `BufferManager` — there is no direc
 
 ## Distributed Layer (Java)
 
+### Java testing convention (important)
+
+- Use the shared test utility in `test-common/src/main/java/edu/zju/supersql/testutil/EmbeddedZkServerFactory.java` for embedded ZooKeeper in all Java tests.
+- Do not instantiate `new TestingServer(true)` directly in module tests; this can reintroduce CI warning noise.
+- `EmbeddedZkServerFactory` already sets both `maxCnxns` and `maxClientCnxns` to avoid the recurring warning:
+  - `[zkservermainrunner] WARN  o.a.z.server.ServerCnxnFactory - maxCnxns is not configured, using default value 0.`
+- For Java test changes, keep this dependency direction:
+  - `java-master` / `java-regionserver` / `java-client` test scope depends on `test-common`.
+  - Do not duplicate `EmbeddedZkServerFactory` under module-local test packages.
+
 ### Cluster startup
 ```bash
 docker compose up -d --build   # start full cluster (3 ZK + 3 Master + 3 RS + 1 Client)
