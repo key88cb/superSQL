@@ -85,6 +85,12 @@ public:
     //输入：execfile 文件路径
     //功能：根据文件路径读取文件信息，并用于数据库的操作
     void EXEC_FILE();
+    //输入：checkpoint;
+    //功能：强制将所有脏页写入磁盘并返回最新 LSN
+    void EXEC_CHECKPOINT();
+    //输入：clear log;
+    //功能：清空日志文件
+    void EXEC_CLEAR_LOG();
     
 private:
     //字符串规范化函数

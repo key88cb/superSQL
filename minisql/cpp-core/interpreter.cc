@@ -97,6 +97,16 @@ void Interpreter::EXEC(){
         else if(query.substr(0,8)=="execfile"){
             EXEC_FILE();
         }
+        else if(query.substr(0,10)=="checkpoint"){
+            EXEC_CHECKPOINT();
+        }
+        else if(query.substr(0,5)=="clear"){
+            query = getLower(query, 6);
+            if(query.substr(6,3)=="log")
+                EXEC_CLEAR_LOG();
+            else
+                throw input_format_error();
+        }
         //如果所有指令都不能对应，则抛出输入格式错误
         else{
             throw input_format_error();
@@ -846,4 +856,15 @@ int Interpreter::getBits(float num){
         integer_part/=10;
     }
     return bit+3;//为了保留小数点的后几位
+}
+
+void Interpreter::EXEC_CHECKPOINT(){
+    API API;
+    int lsn = API.checkpoint();
+    std::cout<<">>> Checkpoint SUCCESS. Data flushed up to LSN: "<<lsn<<std::endl;
+}
+
+void Interpreter::EXEC_CLEAR_LOG(){
+    buffer_manager.getLogManager()->clear();
+    std::cout<<">>> Log cleared."<<std::endl;
 }
