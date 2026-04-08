@@ -1,8 +1,32 @@
 CXX = g++
-CXXFLAGS = -g -Wall
+
+# 调试模式开关，默认为 0 (Release)
+# 使用方式: make DEBUG=1 或者 make debug
+DEBUG ?= 0
+
+CXXFLAGS = -Wall
+
+ifeq ($(DEBUG), 1)
+    CXXFLAGS += -g -O0 -DDEBUG
+    $(info >>> Compiling in DEBUG mode...)
+else
+    CXXFLAGS += -O2
+    $(info >>> Compiling in RELEASE mode...)
+endif
+
 COVERAGE_FLAGS = -fprofile-arcs -ftest-coverage
 
 OBJS = interpreter.o api.o record_manager.o buffer_manager.o catalog_manager.o index_manager.o basic.o log_manager.o
+
+.PHONY: all debug release clear clear_coverage clear_data test
+
+all: main
+
+debug:
+	$(MAKE) DEBUG=1
+
+release:
+	$(MAKE) DEBUG=0
 
 main: main.o $(OBJS)
 	$(CXX) -o main $(CXXFLAGS) main.o $(OBJS)
