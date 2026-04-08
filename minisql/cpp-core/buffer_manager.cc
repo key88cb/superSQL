@@ -166,9 +166,18 @@ void BufferManager::setPageLsn(int page_id, int lsn) {
 int BufferManager::loadDiskBlock(int page_id , std::string file_name , int block_id) {
     // 初始化一个页
     Frames[page_id].initialize();
+    
+    // Set metadata BEFORE opening, so it's registered in the pool even on failure
+    Frames[page_id].setFileName(file_name);
+    Frames[page_id].setBlockId(block_id);
+    Frames[page_id].setPinCount(1);
+    Frames[page_id].setDirty(false);
+    Frames[page_id].setRef(true);
+    Frames[page_id].setAvaliable(false);
+
     // 打开磁盘文件
     FILE* f = fopen(file_name.c_str() , "r");
-    // 打开失败返回-1
+    // 打开失败返回-1，但页已经登记，此后可以通过 getPageId 找到它
     if (f == NULL)
         return -1;
     // 将文件指针定位到对应位置
@@ -179,13 +188,7 @@ int BufferManager::loadDiskBlock(int page_id , std::string file_name , int block
     fread(buffer , PAGESIZE , 1 , f);
     // 关闭文件
     fclose(f);
-    // 对新载入的页进行相应设置
-    Frames[page_id].setFileName(file_name);
-    Frames[page_id].setBlockId(block_id);
-    Frames[page_id].setPinCount(1);
-    Frames[page_id].setDirty(false);
-    Frames[page_id].setRef(true);
-    Frames[page_id].setAvaliable(false);
+    
     return 0;
 }
 

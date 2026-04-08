@@ -38,12 +38,23 @@ int main(int argc, const char * argv[]) {
     // 1. Handle Data Directory
     const char* data_dir = std::getenv("MINISQL_DATA_DIR");
     if (data_dir) {
+#ifdef _WIN32
+        _mkdir(data_dir);
+#endif
         if (chdir(data_dir) == 0) {
             std::cout << ">>> Working directory changed to: " << data_dir << std::endl;
         } else {
             std::cerr << ">>> Warning: Failed to change directory to: " << data_dir << std::endl;
         }
     }
+
+    // Ensure MiniSQL subdirectory structure exists
+#ifdef _WIN32
+    _mkdir("database");
+    _mkdir("database/catalog");
+    _mkdir("database/data");
+    _mkdir("database/index");
+#endif
 
     // 2. Register cleanup
     std::atexit(cleanup_engine);

@@ -37,7 +37,7 @@ void CatalogManager::createTable(std::string name, Attribute Attr, int primary, 
     std::string str_len=num2str((int)str_tmp.length()-1, 4);
     str_tmp=str_len+str_tmp.substr(4,str_tmp.length()-4);
     //计算块的数量
-    int block_num=getBlockNum(TABLE_MANAGER_PATH)/PAGESIZE;
+    int block_num=getBlockNum(TABLE_MANAGER_PATH);
     //处理当块的数量为0的特殊情况
     if(block_num<=0)
         block_num=1;
@@ -341,32 +341,40 @@ void CatalogManager::showTable(std::string table_name){
 //判断是否已有重名的表格
 bool CatalogManager::hasTable(std::string table_name){
     //计算块的数量
-    int block_num=getBlockNum(TABLE_MANAGER_PATH)/PAGESIZE;
+    int block_num=getBlockNum(TABLE_MANAGER_PATH);
     if(block_num<=0)
         block_num=1;
+
     //遍历所有的块
     for(int current_block=0;current_block<block_num;current_block++){
         char* buffer = buffer_manager.getPage(TABLE_MANAGER_PATH , current_block);
         std::string buffer_check(buffer);
-        std::string str_tmp="";
         int start_index=0,end_index=0;
+        
+        // If the buffer is empty, it means no tables are in this block yet
+        if (buffer[0] == '\0') {
+            buffer_manager.unpinPage(TABLE_MANAGER_PATH, current_block);
+            continue;
+        }
+
         do{
             //如果一开始就是#，则检查下一块
-            if(buffer_check[0]=='#')
+            if(buffer_check[start_index]=='#')
                 break;
             //得到table的名字，如果与输入的名字相同，则return true
-            else if(getTableName(buffer, start_index, end_index)==table_name){
+            if(getTableName(buffer, start_index, end_index) == table_name){
                 buffer_manager.unpinPage(TABLE_MANAGER_PATH, current_block);
                 return true;
             }
             else{
                 //通过字符串长度来重新确定下一个table的位置
-                start_index+=str2num(buffer_check.substr(start_index,4));
-                //排除空文档的特殊条件
-                if(!start_index)
+                int len = str2num(buffer_check.substr(start_index,4));
+                if (len <= 0) break;
+                start_index += len;
+                if(start_index >= PAGESIZE)
                     break;
             }
-        }while(buffer_check[start_index]!='#');  //判断是否到头
+        }while(start_index < PAGESIZE && buffer[start_index]!='\0' && buffer[start_index]!='#'); 
         buffer_manager.unpinPage(TABLE_MANAGER_PATH, current_block);
     }
     return false;
