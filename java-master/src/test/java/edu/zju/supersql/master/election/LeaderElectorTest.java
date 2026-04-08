@@ -93,6 +93,24 @@ class LeaderElectorTest {
         }
     }
 
+    @Test
+    void shouldCarryForwardExistingEpochWhenElected() throws Exception {
+        writeActiveMaster(zk1, 9L, "old-master", "old-master:8080");
+
+        LeaderElector e1 = new LeaderElector(zk1, "master-1", "master-1:8080");
+        try {
+            e1.start();
+            waitUntil(Duration.ofSeconds(5), e1::isLeader);
+
+            Map<?, ?> active = readActiveMaster(zk1);
+            long epoch = ((Number) active.get("epoch")).longValue();
+            Assertions.assertEquals(10L, epoch);
+            Assertions.assertEquals("master-1", active.get("masterId"));
+        } finally {
+            e1.close();
+        }
+    }
+
     private CuratorFramework buildClient() {
         CuratorFramework client = CuratorFrameworkFactory.builder()
                 .connectString(server.getConnectString())

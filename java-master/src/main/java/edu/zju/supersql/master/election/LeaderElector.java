@@ -5,6 +5,7 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.recipes.cache.PathChildrenCache;
 import org.apache.curator.framework.recipes.leader.LeaderLatch;
 import org.apache.curator.framework.recipes.leader.LeaderLatchListener;
+import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,18 +93,37 @@ public class LeaderElector implements AutoCloseable {
 
     private void onElectedLeader() {
         try {
-            long nextEpoch = readCurrentEpoch() + 1;
-            byte[] payload = buildActiveMasterPayload(nextEpoch);
-            zkClient.setData().forPath("/active-master", payload);
+            long nextEpoch = writeActiveMasterWithCas();
             log.info("Master {} became ACTIVE (epoch={})", masterAddress, nextEpoch);
         } catch (Exception e) {
             log.error("Failed to promote {} as active master", masterAddress, e);
         }
     }
 
-    private long readCurrentEpoch() {
+    private long writeActiveMasterWithCas() throws Exception {
+        int retries = 6;
+        while (retries-- > 0) {
+            Stat stat = new Stat();
+            byte[] bytes = zkClient.getData().storingStatIn(stat).forPath("/active-master");
+            long currentEpoch = parseEpoch(bytes);
+            long nextEpoch = currentEpoch + 1;
+
+            try {
+                byte[] payload = buildActiveMasterPayload(nextEpoch);
+                zkClient.setData().withVersion(stat.getVersion()).forPath("/active-master", payload);
+                return nextEpoch;
+            } catch (Exception e) {
+                if (retries <= 0) {
+                    throw e;
+                }
+                log.warn("CAS conflict when writing active-master, retrying: {}", e.getMessage());
+            }
+        }
+        throw new IllegalStateException("Failed to write active-master by CAS");
+    }
+
+    private long parseEpoch(byte[] bytes) {
         try {
-            byte[] bytes = zkClient.getData().forPath("/active-master");
             if (bytes == null || bytes.length == 0) {
                 return 0L;
             }
@@ -116,7 +136,7 @@ public class LeaderElector implements AutoCloseable {
                 return Long.parseLong(String.valueOf(epoch));
             }
         } catch (Exception e) {
-            log.warn("Read current epoch failed: {}", e.getMessage());
+            log.warn("Parse active-master epoch failed: {}", e.getMessage());
         }
         return 0L;
     }

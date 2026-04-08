@@ -16,6 +16,7 @@
 - Active Master 心跳：每 5 秒更新 `/masters/active-heartbeat`（仅 ACTIVE 节点写入）。
 - LeaderLatch 选主：Master 启动后参与 `/masters` 选主并在当选时更新 `/active-master`。
 - `/masters` Watcher：监听在线 Master 节点变化并记录事件日志。
+- epoch 防脑裂：当选后使用 `/active-master` 的 version-CAS 递增 epoch，避免并发覆盖。
 - HTTP 管理端点：`GET /health` 与 `GET /status` 返回 JSON（含角色信息）。
 - getTableLocation 基于 ZooKeeper 元数据返回表路由。
 - createTable 支持：DDL 提取表名、按 tableCount 选择副本、写入 /meta/tables 与 /assignments。
