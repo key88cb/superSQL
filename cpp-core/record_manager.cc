@@ -133,8 +133,8 @@ void RecordManager::insertRecord(std::string table_name , Tuple& tuple) {
         insertRecord1(p , i , len , v);
         //写回表文件
         int page_id = buffer_manager.getPageId(table_name , block_num - 1);
-        // buffer_manager.flushPage(page_id , table_name , block_num - 1);
-        // 改为
+        int lsn = buffer_manager.getLogManager()->appendLog(LOG_INSERT, table_name, block_num - 1, i, len, nullptr, p + i);
+        buffer_manager.setPageLsn(page_id, lsn);
         buffer_manager.modifyPage(page_id);
         buffer_manager.unpinPage(page_id);
     }
@@ -148,8 +148,8 @@ void RecordManager::insertRecord(std::string table_name , Tuple& tuple) {
         insertRecord1(p , 0 , len , v);
         //写回表文件
         int page_id = buffer_manager.getPageId(table_name , block_num);
-        // buffer_manager.flushPage(page_id , table_name , block_num);
-        // 改为
+        int lsn = buffer_manager.getLogManager()->appendLog(LOG_INSERT, table_name, block_num, 0, len, nullptr, p);
+        buffer_manager.setPageLsn(page_id, lsn);
         buffer_manager.modifyPage(page_id);
         buffer_manager.unpinPage(page_id);
     }
@@ -211,9 +211,11 @@ int RecordManager::deleteRecord(std::string table_name) {
         }
         //将块写回表文件
         int page_id = buffer_manager.getPageId(table_name , i);
-        // buffer_manager.flushPage(page_id , table_name , i);
-        // 改为
-        buffer_manager.modifyPage(page_id);
+        if (count > 0) {
+            int lsn = buffer_manager.getLogManager()->appendLog(LOG_DELETE, table_name, i, 0, 0, nullptr, nullptr);
+            buffer_manager.setPageLsn(page_id, lsn);
+            buffer_manager.modifyPage(page_id);
+        }
         buffer_manager.unpinPage(page_id);
     }
     return count;
@@ -642,6 +644,8 @@ int RecordManager::conditionDeleteInBlock(std::string table_name , int block_id 
                     //将记录删除
                     int page_id = buffer_manager.getPageId(table_name , block_id);
                     p = deleteRecord1(p);
+                    int lsn = buffer_manager.getLogManager()->appendLog(LOG_DELETE, table_name, block_id, 0, 0, nullptr, nullptr);
+                    buffer_manager.setPageLsn(page_id, lsn);
                     buffer_manager.modifyPage(page_id);
                     count++;
                 }
@@ -657,6 +661,8 @@ int RecordManager::conditionDeleteInBlock(std::string table_name , int block_id 
                     //将记录删除
                     int page_id = buffer_manager.getPageId(table_name , block_id);
                     p = deleteRecord1(p);
+                    int lsn = buffer_manager.getLogManager()->appendLog(LOG_DELETE, table_name, block_id, 0, 0, nullptr, nullptr);
+                    buffer_manager.setPageLsn(page_id, lsn);
                     buffer_manager.modifyPage(page_id);
                     count++;
                 }
@@ -671,6 +677,8 @@ int RecordManager::conditionDeleteInBlock(std::string table_name , int block_id 
                     //将记录删除
                     int page_id = buffer_manager.getPageId(table_name , block_id);
                     p = deleteRecord1(p);
+                    int lsn = buffer_manager.getLogManager()->appendLog(LOG_DELETE, table_name, block_id, 0, 0, nullptr, nullptr);
+                    buffer_manager.setPageLsn(page_id, lsn);
                     buffer_manager.modifyPage(page_id);
                     count++;
                 }
@@ -683,9 +691,10 @@ int RecordManager::conditionDeleteInBlock(std::string table_name , int block_id 
     }
     //将当前块写回文件
     int page_id = buffer_manager.getPageId(table_name , block_id);
-    // buffer_manager.flushPage(page_id , table_name , block_id);
-    // 改为
-    buffer_manager.modifyPage(page_id);
+    if (count > 0) {
+        // Logging was done inline above, but let's just make sure we only unpin if needed
+        // wait, we already set LSN above inside the loop
+    }
     buffer_manager.unpinPage(page_id);
     return count;
 }

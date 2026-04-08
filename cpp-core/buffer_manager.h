@@ -33,6 +33,8 @@ class Page {
         void setAvaliable(bool avaliable);
         bool getAvaliable();
         char* getBuffer();
+        void setPageLsn(int lsn);
+        int getPageLsn();
     private:
         char buffer_[PAGESIZE];//每一页都是一个大小为PAGESIZE字节的数组
         std::string file_name_;//页所对应的文件名
@@ -41,7 +43,10 @@ class Page {
         bool dirty_;//dirty记录页是否被修改
         bool ref_;//ref变量用于时钟替换策略
         bool avaliable_;//avaliable标示页是否可以被使用(即将磁盘块load进该页)
+        int page_lsn_;//该页最后一次修改对应的 LSN
 };
+
+#include "log_manager.h"
 
 // BufferManager类。对外提供操作缓冲区的接口。
 class BufferManager {
@@ -51,6 +56,7 @@ class BufferManager {
         BufferManager(int frame_size);
         // 析构函数
         ~BufferManager();
+        void initialize(int frame_size);//实际初始化函数
         // 通过页号得到页的句柄(一个页的头地址)
         char* getPage(std::string file_name , int block_id);
         // 标记page_id所对应的页已经被修改
@@ -61,6 +67,10 @@ class BufferManager {
         // 如果对应页的pin_count_为0，则返回-1
         int unpinPage(int page_id);
         int unpinPage(std::string file_name, int block_id);
+        
+        // 设置某一页对应的日志序号(LSN)
+        void setPageLsn(int page_id, int lsn);
+        
         // 将对应内存页写入对应文件的对应块。这里的返回值为int，但感觉其实没什么用，可以设为void
         int flushPage(int page_id , std::string file_name , int block_id);
         // 获取对应文件的对应块在内存中的页号，没有找到返回-1
@@ -69,15 +79,18 @@ class BufferManager {
         void clear();
         // 诊断：返回当前 pin_count > 0 的页的数量
         int getPinnedCount();
+        
+        LogManager* getLogManager() { return log_manager_; }
     private:
         Page* Frames;//缓冲池，实际上就是一个元素为Page的数组，实际内存空间将分配在堆上
         int frame_size_;//记录总页数
         int current_position_;//时钟替换策略需要用到的变量
-        void initialize(int frame_size);//实际初始化函数
         // 获取一个闲置的页的页号(内部封装了时钟替换策略，但使用者不需要知道这些)
         int getEmptyPageId();
         // 讲对应文件的对应块载入对应内存页，对于文件不存在返回-1，否则返回0
         int loadDiskBlock(int page_id , std::string file_name , int block_id);
+        
+        LogManager* log_manager_;//指向日志管理器的指针
 };
 
 #endif

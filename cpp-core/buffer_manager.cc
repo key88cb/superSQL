@@ -19,6 +19,7 @@ void Page::initialize() {
     dirty_ = false;
     ref_ = false;
     avaliable_ = true;
+    page_lsn_ = 0;
     for (int i = 0;i < PAGESIZE;i++) 
         buffer_[i] = '\0';
 }
@@ -76,6 +77,14 @@ inline char* Page::getBuffer() {
     return buffer_;
 }
 
+inline void Page::setPageLsn(int lsn) {
+    page_lsn_ = lsn;
+}
+
+inline int Page::getPageLsn() {
+    return page_lsn_;
+}
+
 // BufferManager类的实现
 // 构造函数均调用实际初始化函数完成初始化
 BufferManager::BufferManager() {
@@ -93,8 +102,12 @@ BufferManager::~BufferManager() {
         int block_id;
         file_name = Frames[i].getFileName();
         block_id = Frames[i].getBlockId();
-        flushPage(i , file_name , block_id);
+        if (Frames[i].getDirty()) {
+            flushPage(i , file_name , block_id);
+        }
     }
+    delete[] Frames;
+    delete log_manager_;
 }
 
 // 实际初始化函数
@@ -102,6 +115,8 @@ void BufferManager::initialize(int frame_size) {
     Frames = new Page[frame_size];//在堆上分配内存
     frame_size_ = frame_size;
     current_position_ = 0;
+    log_manager_ = new LogManager();
+    log_manager_->recoverRedo();
 }
 
 // 下面几个函数较为简单，也不赘述了
@@ -143,6 +158,9 @@ int BufferManager::unpinPage(std::string file_name, int block_id) {
     return unpinPage(page_id);
 }
 
+void BufferManager::setPageLsn(int page_id, int lsn) {
+    Frames[page_id].setPageLsn(lsn);
+}
 
 // 核心函数之一。内存和磁盘交互的接口。
 int BufferManager::loadDiskBlock(int page_id , std::string file_name , int block_id) {
@@ -182,6 +200,12 @@ int BufferManager::flushPage(int page_id , std::string file_name , int block_id)
     fseek(f , PAGESIZE * block_id , SEEK_SET);
     // 获取页的句柄
     char* buffer = Frames[page_id].getBuffer();
+    
+    // Write-Ahead Logging (WAL): Force logs to disk before data page
+    if (log_manager_ != NULL) {
+        log_manager_->flush(Frames[page_id].getPageLsn());
+    }
+    
     // 将内存页的内容写入磁盘块
     fwrite(buffer , PAGESIZE , 1 , f);
     // 关闭文件
