@@ -9,7 +9,7 @@
 int total_tests = 0;
 int passed_tests = 0;
 
-BufferManager buffer_manager; // Define the extern variable
+BufferManager* buffer_manager_ptr = new BufferManager(); // Initialize the global pointer
 
 void setup_catalog_file() {
     std::string path = "./database/catalog/catalog_file";

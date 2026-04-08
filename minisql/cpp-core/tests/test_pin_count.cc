@@ -10,7 +10,7 @@
 
 int total_tests = 0;
 int passed_tests = 0;
-BufferManager buffer_manager;
+BufferManager* buffer_manager_ptr = new BufferManager(); // Initialize the global pointer
 
 void setup_env() {
     system("del /q database\\data\\* 2>nul");
