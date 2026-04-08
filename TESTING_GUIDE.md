@@ -137,6 +137,7 @@ mvn -pl java-client -Dtest=SqlClientRoutingTest test
 
 | 测试类 | 覆盖目标 |
 | :--- | :--- |
+| `LeaderElectorTest` | LeaderLatch 选主唯一性、主节点退出后的自动接管、epoch 递增 |
 | `MasterServiceMetadataIntegrationTest` | create/get/list/drop 元数据链路、NOT_LEADER 重定向、无 RS 分支 |
 | `MasterHeartbeatIntegrationTest` | Active Master 心跳写入 `/masters/active-heartbeat` 及非主不覆盖行为 |
 | `MasterServerHttpPayloadTest` | Master `/health` `/status` JSON 载荷字段与角色信息 |

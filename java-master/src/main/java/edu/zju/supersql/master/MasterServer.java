@@ -2,6 +2,7 @@ package edu.zju.supersql.master;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
+import edu.zju.supersql.master.election.LeaderElector;
 import edu.zju.supersql.master.rpc.MasterServiceImpl;
 import edu.zju.supersql.rpc.MasterService;
 import org.apache.curator.RetryPolicy;
@@ -94,6 +95,7 @@ public class MasterServer {
 
         // ── ZooKeeper connection (best-effort at startup) ──────────────────────
         CuratorFramework zkClient = null;
+        LeaderElector leaderElector = null;
         try {
             RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
             zkClient = CuratorFrameworkFactory.builder()
@@ -122,7 +124,11 @@ public class MasterServer {
             startActiveHeartbeatScheduler();
             log.info("Active heartbeat scheduler started (interval=5s)");
 
-            // TODO Sprint 1: LeaderElector.start(zkClient, masterId)
+            leaderElector = new LeaderElector(zkClient, masterId, masterId + ":" + thriftPort);
+            leaderElector.start();
+            LeaderElector finalLeaderElector = leaderElector;
+            Runtime.getRuntime().addShutdownHook(new Thread(finalLeaderElector::close));
+
             // TODO Sprint 1: MetaManager.init(zkClient)
         } catch (Exception e) {
             log.warn("ZooKeeper connection failed at startup — proceeding without ZK: {}", e.getMessage());
