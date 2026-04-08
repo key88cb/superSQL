@@ -3,11 +3,12 @@
 # ================================================================
 
 # -------- Stage 1: 生成 Thrift Java stubs -----------------------
-FROM eclipse-temurin:17-jdk-jammy AS thrift-gen
+FROM eclipse-temurin:17-jdk-noble AS thrift-gen
 
 ARG THRIFT_IDL=supersql.thrift
 
-RUN apt-get update && apt-get install -y thrift-compiler \
+RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.ustc.edu.cn/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update && apt-get install -y thrift-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /gen
@@ -16,14 +17,15 @@ RUN mkdir -p src/main/java \
     && thrift --gen java -out src/main/java ${THRIFT_IDL}
 
 # -------- Stage 2: Maven 构建 -----------------------------------
-FROM eclipse-temurin:17-jdk-jammy AS builder
+FROM eclipse-temurin:17-jdk-noble AS builder
 
 ARG THRIFT_IDL=supersql.thrift
 ARG MODULE_NAME=java-client
 ARG MODULE_JAR=java-client.jar
 
 WORKDIR /build
-RUN apt-get update && apt-get install -y maven \
+RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.ustc.edu.cn/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update && apt-get install -y maven \
     && rm -rf /var/lib/apt/lists/*
 
 # 父 pom + 所有子模块 pom
@@ -46,7 +48,7 @@ COPY ${MODULE_NAME}/src ${MODULE_NAME}/src
 RUN mvn -pl ${MODULE_NAME} package -DskipTests -B --no-transfer-progress
 
 # -------- Stage 3: 运行时镜像 ------------------------------------
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:17-jre-noble
 
 ARG MODULE_NAME=java-client
 ARG MODULE_JAR=java-client.jar
@@ -54,7 +56,8 @@ ARG MODULE_JAR=java-client.jar
 LABEL maintainer="superSQL Team <zju>"
 LABEL component="client"
 
-RUN apt-get update && apt-get install -y curl dnsutils \
+RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.ustc.edu.cn/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update && apt-get install -y curl dnsutils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r supersql && useradd -r -g supersql supersql

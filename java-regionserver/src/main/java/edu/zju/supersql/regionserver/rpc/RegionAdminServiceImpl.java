@@ -14,7 +14,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     private static Response notImplemented(String method) {
         log.warn("RegionAdminService.{} called — not yet implemented", method);
-        return new Response(StatusCode.ERROR).setMessage("Not implemented: " + method);
+        Response r = new Response(StatusCode.ERROR);
+        r.setMessage("Not implemented: " + method);
+        return r;
     }
 
     @Override
@@ -45,7 +47,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     @Override
     public Response registerRegionServer(RegionServerInfo info) throws TException {
         log.info("RegionAdminService.registerRegionServer called by {} — not yet implemented", info.getId());
-        return new Response(StatusCode.OK).setMessage("registered (stub)");
+        Response r = new Response(StatusCode.OK);
+        r.setMessage("registered (stub)");
+        return r;
     }
 
     @Override

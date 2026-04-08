@@ -18,7 +18,9 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     private static Response notImplemented(String method) {
         log.warn("MasterService.{} called — not yet implemented", method);
-        return new Response(StatusCode.ERROR).setMessage("Not implemented: " + method);
+        Response r = new Response(StatusCode.ERROR);
+        r.setMessage("Not implemented: " + method);
+        return r;
     }
 
     @Override

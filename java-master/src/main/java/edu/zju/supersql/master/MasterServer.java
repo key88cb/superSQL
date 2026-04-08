@@ -49,7 +49,19 @@ public class MasterServer {
                     .namespace("supersql")
                     .build();
             zkClient.start();
+            zkClient.blockUntilConnected(10, java.util.concurrent.TimeUnit.SECONDS);
             log.info("ZooKeeper client started (connecting to {})", zkConnect);
+
+            // S0-06: 创建 ZK 基础目录（namespace="supersql"，实际路径为 /supersql/masters 等）
+            String[] basePaths = {"/masters", "/region_servers", "/meta/tables", "/assignments", "/active-master"};
+            for (String path : basePaths) {
+                if (zkClient.checkExists().forPath(path) == null) {
+                    zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
+                    log.info("Created ZK base path: {}", path);
+                }
+            }
+            log.info("ZK base directories initialized");
+
             // TODO Sprint 1: LeaderElector.start(zkClient, masterId)
             // TODO Sprint 1: MetaManager.init(zkClient)
         } catch (Exception e) {

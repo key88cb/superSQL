@@ -17,13 +17,16 @@ public class RegionServiceImpl implements RegionService.Iface {
 
     private static QueryResult notImplemented(String method) {
         log.warn("RegionService.{} called — not yet implemented", method);
-        Response status = new Response(StatusCode.ERROR).setMessage("Not implemented: " + method);
+        Response status = new Response(StatusCode.ERROR);
+        status.setMessage("Not implemented: " + method);
         return new QueryResult(status);
     }
 
     private static Response notImplementedResp(String method) {
         log.warn("RegionService.{} called — not yet implemented", method);
-        return new Response(StatusCode.ERROR).setMessage("Not implemented: " + method);
+        Response r = new Response(StatusCode.ERROR);
+        r.setMessage("Not implemented: " + method);
+        return r;
     }
 
     @Override
@@ -49,6 +52,8 @@ public class RegionServiceImpl implements RegionService.Iface {
     @Override
     public Response ping() throws TException {
         log.debug("RegionService.ping called");
-        return new Response(StatusCode.OK).setMessage("pong");
+        Response r = new Response(StatusCode.OK);
+        r.setMessage("pong");
+        return r;
     }
 }
