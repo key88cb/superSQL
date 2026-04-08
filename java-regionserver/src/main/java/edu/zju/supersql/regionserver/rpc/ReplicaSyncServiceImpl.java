@@ -17,8 +17,11 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
 
     @Override
     public Response syncLog(WalEntry entry) throws TException {
+        // TODO Sprint 4: persist WAL entry and return ACK status from local replica.
         log.warn("ReplicaSyncService.syncLog called — not yet implemented");
-        return new Response(StatusCode.ERROR).setMessage("Not implemented: syncLog");
+        Response response = new Response(StatusCode.ERROR);
+        response.setMessage("TODO Sprint 4: syncLog not implemented");
+        return response;
     }
 
     @Override
@@ -35,7 +38,10 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
 
     @Override
     public Response commitLog(String tableName, long lsn) throws TException {
+        // TODO Sprint 4: mark WAL entry committed and make it visible to reads.
         log.warn("ReplicaSyncService.commitLog called — not yet implemented");
-        return new Response(StatusCode.ERROR).setMessage("Not implemented: commitLog");
+        Response response = new Response(StatusCode.ERROR);
+        response.setMessage("TODO Sprint 4: commitLog not implemented");
+        return response;
     }
 }

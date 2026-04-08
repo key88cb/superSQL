@@ -25,8 +25,14 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     @Override
     public TableLocation getTableLocation(String tableName) throws TException {
-        notImplemented("getTableLocation");
-        throw new TException("Not implemented");
+        // TODO Sprint 3: resolve table route from MetaManager and support NOT_LEADER redirect.
+        log.warn("MasterService.getTableLocation called for '{}' — returning stub location", tableName);
+        RegionServerInfo placeholderPrimary = new RegionServerInfo("stub-rs", "127.0.0.1", 9090);
+        TableLocation location = new TableLocation(tableName, placeholderPrimary,
+                Collections.singletonList(placeholderPrimary));
+        location.setTableStatus("TODO_NOT_IMPLEMENTED");
+        location.setVersion(0L);
+        return location;
     }
 
     @Override
