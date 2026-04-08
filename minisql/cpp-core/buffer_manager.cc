@@ -194,11 +194,16 @@ int BufferManager::loadDiskBlock(int page_id , std::string file_name , int block
 
 // 核心函数之一。内存和磁盘交互的接口。
 int BufferManager::flushPage(int page_id , std::string file_name , int block_id) {
-    // 打开文件
-    FILE* f = fopen(file_name.c_str() , "r+");
-    // 其实这里有写多余，因为打开一个文件读总是能成功。
-    if (f == NULL)
-        return -1; 
+    // 尝试以读写模式打开（要求文件必须存在）
+    FILE* f = fopen(file_name.c_str() , "rb+");
+    if (f == NULL) {
+        // 如果文件不存在，则以创建模式打开
+        f = fopen(file_name.c_str() , "wb+");
+        if (f == NULL) {
+            std::cerr << ">>> Error: Failed to create file " << file_name << std::endl;
+            return -1;
+        }
+    }
     // 将文件指针定位到对应位置
     fseek(f , PAGESIZE * block_id , SEEK_SET);
     // 获取页的句柄
