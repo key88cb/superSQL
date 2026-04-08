@@ -1,6 +1,7 @@
 package edu.zju.supersql.regionserver;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
@@ -22,7 +23,7 @@ class RegionServerRegistrarIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        server = new TestingServer(true);
+        server = EmbeddedZkServerFactory.create();
         zkClient = CuratorFrameworkFactory.builder()
                 .connectString(server.getConnectString())
                 .retryPolicy(new ExponentialBackoffRetry(200, 3))
@@ -91,4 +92,5 @@ class RegionServerRegistrarIntegrationTest {
         Assertions.assertEquals("rs-reregister", payload.get("id"));
         Assertions.assertEquals(0, ((Number) payload.get("tableCount")).intValue());
     }
+
 }

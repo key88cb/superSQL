@@ -1,5 +1,6 @@
 package edu.zju.supersql.client;
 
+import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
 import edu.zju.supersql.rpc.RegionServerInfo;
 import edu.zju.supersql.rpc.TableLocation;
 import org.apache.curator.framework.CuratorFramework;
@@ -21,7 +22,7 @@ class SqlClientRoutingTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        server = new TestingServer(true);
+        server = EmbeddedZkServerFactory.create();
         zkClient = CuratorFrameworkFactory.builder()
                 .connectString(server.getConnectString())
                 .retryPolicy(new ExponentialBackoffRetry(200, 3))
@@ -98,4 +99,5 @@ class SqlClientRoutingTest {
         String master = SqlClient.readActiveMaster(zkClient, "fallback:8080");
         Assertions.assertEquals("fallback:8080", master);
     }
+
 }

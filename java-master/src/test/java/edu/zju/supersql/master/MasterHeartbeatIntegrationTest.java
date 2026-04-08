@@ -1,6 +1,7 @@
 package edu.zju.supersql.master;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
@@ -23,7 +24,7 @@ class MasterHeartbeatIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        server = new TestingServer(true);
+        server = EmbeddedZkServerFactory.create();
         zkClient = CuratorFrameworkFactory.builder()
                 .connectString(server.getConnectString())
                 .retryPolicy(new ExponentialBackoffRetry(200, 3))
@@ -89,4 +90,5 @@ class MasterHeartbeatIntegrationTest {
         payload.put("ts", System.currentTimeMillis());
         zkClient.setData().forPath("/active-master", MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8));
     }
+
 }

@@ -2,6 +2,7 @@ package edu.zju.supersql.master.rpc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.zju.supersql.master.MasterRuntimeContext;
+import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
 import edu.zju.supersql.rpc.TableLocation;
@@ -30,7 +31,7 @@ class MasterServiceMetadataIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        server = new TestingServer(true);
+        server = EmbeddedZkServerFactory.create();
         zkClient = CuratorFrameworkFactory.builder()
                 .connectString(server.getConnectString())
                 .retryPolicy(new ExponentialBackoffRetry(200, 3))

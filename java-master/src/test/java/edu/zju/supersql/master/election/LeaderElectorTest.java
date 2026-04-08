@@ -1,6 +1,7 @@
 package edu.zju.supersql.master.election;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
@@ -26,7 +27,7 @@ class LeaderElectorTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        server = new TestingServer(true);
+        server = EmbeddedZkServerFactory.create();
         zk1 = buildClient();
         zk2 = buildClient();
 
