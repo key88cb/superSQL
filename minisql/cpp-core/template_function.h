@@ -66,7 +66,7 @@ void copyString(char* p , int& offset , T data) {
     std::stringstream stream;
     stream << data;
     std::string s1 = stream.str();
-    for (int i = 0;i < s1.length();i++,offset++)
+    for (size_t i = 0; i < s1.length(); i++, offset++)
         p[offset] = s1[i];
 }
 

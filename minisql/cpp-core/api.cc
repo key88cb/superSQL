@@ -105,16 +105,19 @@ bool API::dropTable(std::string table_name)
 bool API::createIndex(std::string table_name, std::string index_name, std::string attr_name)
 {
 	std::string file_path = "INDEX_FILE_" + attr_name + "_" + table_name;
-	int type;
+    int type = 0;
+    bool found = false;
 
 	catalog.createIndex(table_name, attr_name, index_name);
 	Attribute attr = catalog.getAttribute(table_name);
 	for (int i = 0; i < attr.num; i++) {
 		if (attr.name[i] == attr_name) {
 			type = (int)attr.type[i];
+            found = true;
 			break;
 		}
 	}
+    if (!found) throw attribute_not_exist();
 	IndexManager* im = record.getIndexManager(table_name);
 	im->createIndex(file_path, type);
 	record.createIndex(*im , table_name, attr_name);
@@ -133,15 +136,18 @@ bool API::dropIndex(std::string table_name, std::string index_name)
 {
 	std::string attr_name = catalog.IndextoAttr(table_name, index_name);
 	std::string file_path = "INDEX_FILE_" + attr_name + "_" + table_name;
-	int type;
+    int type = 0;
+    bool found = false;
 
 	Attribute attr = catalog.getAttribute(table_name);
 	for (int i = 0; i < attr.num; i++) {
 		if (attr.name[i] == attr_name) {
 			type = (int)attr.type[i];
+            found = true;
 			break;
 		}
 	}
+    if (!found) throw attribute_not_exist();
 	IndexManager* im = record.getIndexManager(table_name);
 	im->dropIndex(file_path, type);
 	catalog.dropIndex(table_name, index_name);
@@ -173,7 +179,7 @@ Table API::unionTable(Table &table1, Table &table2, std::string target_attr, Whe
         if (attr.name[i] == target_attr)
             break;
     
-    for (int j = 0; j < tuple2.size(); j++)
+    for (size_t j = 0; j < tuple2.size(); j++)
         if (!isSatisfied(tuple2[j], i, where))
             result_tuple.push_back(tuple2[j]);
     
@@ -240,7 +246,7 @@ Table API::joinTable(Table &table1, Table &table2, std::string target_attr, Wher
         if (attr.name[i] == target_attr)
             break;
     
-    for (int j = 0; j < tuple2.size(); j++)
+    for (size_t j = 0; j < tuple2.size(); j++)
         if (isSatisfied(tuple2[j], i, where))
             result_tuple.push_back(tuple2[j]);
     
@@ -271,7 +277,7 @@ bool sortcmp(const Tuple &tuple1, const Tuple &tuple2)
 //用于对vector对合并时排序
 bool calcmp(const Tuple &tuple1, const Tuple &tuple2)
 {
-	int i;
+    size_t i;
 
 	std::vector<Data> data1 = tuple1.getData();
 	std::vector<Data> data2 = tuple2.getData();
@@ -297,7 +303,7 @@ bool calcmp(const Tuple &tuple1, const Tuple &tuple2)
     }
 
 
-	if (i == data1.size())
+    if (i == data1.size())
 		return true;
 	else
 		return false;

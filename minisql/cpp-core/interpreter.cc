@@ -21,11 +21,11 @@ void Interpreter::getQuery(){
 
 void Interpreter::Normalize(){
     //在所有的特殊符号的前后增加一个空格以拆分段落
-    for(int pos=0;pos<query.length();pos++){
+    for (size_t pos = 0; pos < query.length(); pos++) {
         if(query[pos]=='*'||query[pos]=='='||query[pos]==','||query[pos]=='('||query[pos]==')'||query[pos]=='<'||query[pos]=='>'){
-            if(query[pos-1]!=' ')
+            if (pos > 0 && query[pos-1] != ' ')
                 query.insert(pos++," ");
-            if(query[pos+1]!=' ')
+            if (pos + 1 < query.length() && query[pos+1] != ' ')
                 query.insert(++pos," ");
         }
     }
@@ -113,37 +113,37 @@ void Interpreter::EXEC(){
         }
     }
     
-    catch(table_exist error){
+    catch(const table_exist&){
         std::cout<<">>> Error: Table has existed!"<<std::endl;
     }
-    catch(table_not_exist error) {
+    catch(const table_not_exist&) {
         std::cout<<">>> Error: Table not exist!"<<std::endl;
     }
-    catch(attribute_not_exist error) {
+    catch(const attribute_not_exist&) {
         std::cout<<">>> Error: Attribute not exist!"<<std::endl;
     }
-    catch(index_exist error) {
+    catch(const index_exist&) {
         std::cout<<">>> Error: Index has existed!"<<std::endl;
     }
-    catch(index_not_exist error) {
+    catch(const index_not_exist&) {
         std::cout<<">>> Error: Index not existed!"<<std::endl;
     }
-    catch(tuple_type_conflict error) {
+    catch(const tuple_type_conflict&) {
         std::cout<<">>> Error: Tuple type conflict!"<<std::endl;
     }
-    catch(primary_key_conflict error) {
+    catch(const primary_key_conflict&) {
         std::cout<<">>> Error: Primary key conflict!"<<std::endl;
     }
-    catch(data_type_conflict error) {
+    catch(const data_type_conflict&) {
         std::cout<<">>> Error: data type conflict!"<<std::endl;
     }
-    catch(index_full error) {
+    catch(const index_full&) {
         std::cout<<">>> Error: Index full!"<<std::endl;
     }
-    catch(unique_conflict error) {
+    catch(const unique_conflict&) {
         std::cout<<">>> Error: unique conflict!"<<std::endl;
     }
-    catch(exit_command error){
+    catch(const exit_command&){
         std::cout<<">>> Bye bye~"<<std::endl;
         exit(0);
     }
@@ -373,11 +373,11 @@ void Interpreter::EXEC_INSERT(){
                 try {
                     if(!(value_insert[0]=='\''&&value_insert[value_insert.length()-1]=='\'')&&!(value_insert[0]=='"'&&value_insert[value_insert.length()-1]=='"'))
                         throw input_format_error();//格式不正确
-                    if(value_insert.length()-1>attr_exist.type[num_of_insert])
+                    if(static_cast<int>(value_insert.length()) - 1 > static_cast<int>(attr_exist.type[num_of_insert]))
                         throw input_format_error();//长度超过限制
                     insert_data.datas=value_insert.substr(1,value_insert.length()-2);
                 }
-                catch(input_format_error error){
+                catch(const input_format_error&){
                     throw input_format_error();
                 }
                 catch (...) {
@@ -435,7 +435,7 @@ void Interpreter::EXEC_SELECT(){
         throw table_not_exist();
     Attribute tmp_attr=CM.getAttribute(table_name);
     if(!flag){
-        for(int index=0;index<attr_name.size();index++){
+        for (size_t index = 0; index < attr_name.size(); index++) {
             if(!CM.hasAttribute(table_name, attr_name[index]))
                 throw attribute_not_exist();
         }
@@ -498,7 +498,7 @@ void Interpreter::EXEC_SELECT(){
                                     throw input_format_error();//格式不正确
                                 tmp_where.data.datas=tmp_value.substr(1,tmp_value.length()-2);
                             }
-                            catch(input_format_error error){
+                            catch(const input_format_error&){
                                 throw input_format_error();
                             }
                             catch (...) {
@@ -534,7 +534,7 @@ void Interpreter::EXEC_SELECT(){
             use[i]=i;
     }
     else{
-        for(int i=0;i<attr_name.size();i++)
+        for (size_t i = 0; i < attr_name.size(); i++)
             for(int j=0;j<attr_record.num;j++){
                 if(attr_record.name[j]==attr_name[i])
                 {
@@ -545,63 +545,63 @@ void Interpreter::EXEC_SELECT(){
     }
     std::vector<Tuple> output_tuple=output_table.getTuple();
     int longest=-1;
-    for(int index=0;index<attr_name.size();index++){
+    for (size_t index = 0; index < attr_name.size(); index++) {
         if((int)attr_record.name[use[index]].length()>longest)
             longest=(int)attr_record.name[use[index]].length();
     }
-    for(int index=0;index<attr_name.size();index++){
+    for (size_t index = 0; index < attr_name.size(); index++) {
         int type=attr_record.type[use[index]];
         if(type==-1){
-            for(int i=0;i<output_tuple.size();i++){
+            for (size_t i = 0; i < output_tuple.size(); i++) {
                 if(longest<getBits(output_tuple[i].getData()[use[index]].datai)){
                     longest=getBits(output_tuple[i].getData()[use[index]].datai);
                 }
             }
         }
         if(type==0){
-            for(int i=0;i<output_tuple.size();i++){
+            for (size_t i = 0; i < output_tuple.size(); i++) {
                 if(longest<getBits(output_tuple[i].getData()[use[index]].dataf)){
                     longest=getBits(output_tuple[i].getData()[use[index]].dataf);
                 }
             }
         }
         if(type>0){
-            for(int i=0;i<output_tuple.size();i++){
-                if(longest<output_tuple[i].getData()[use[index]].datas.length()){
+            for (size_t i = 0; i < output_tuple.size(); i++) {
+                if (longest < static_cast<int>(output_tuple[i].getData()[use[index]].datas.length())) {
                     longest=(int)output_tuple[i].getData()[use[index]].datas.length();
                 }
             }
         }
     }
     longest+=1;
-    for(int index=0;index<attr_name.size();index++){
-        if(index!=attr_name.size()-1){
-            for(int i=0;i<(longest-attr_record.name[use[index]].length())/2;i++)
+    for (size_t index = 0; index < attr_name.size(); index++) {
+        if (index != attr_name.size()-1) {
+            for (int i = 0; i < (longest - static_cast<int>(attr_record.name[use[index]].length())) / 2; i++)
                 printf(" ");
             printf("%s",attr_record.name[use[index]].c_str());
-            for(int i=0;i<longest-(longest-attr_record.name[use[index]].length())/2-attr_record.name[use[index]].length();i++)
+            for (int i = 0; i < longest - (longest - static_cast<int>(attr_record.name[use[index]].length())) / 2 - static_cast<int>(attr_record.name[use[index]].length()); i++)
                 printf(" ");
             printf("|");
         }
         else{
-            for(int i=0;i<(longest-attr_record.name[use[index]].length())/2;i++)
+            for (int i = 0; i < (longest - static_cast<int>(attr_record.name[use[index]].length())) / 2; i++)
                 printf(" ");
             printf("%s",attr_record.name[use[index]].c_str());
-            for(int i=0;i<longest-(longest-attr_record.name[use[index]].length())/2-attr_record.name[use[index]].length();i++)
+            for (int i = 0; i < longest - (longest - static_cast<int>(attr_record.name[use[index]].length())) / 2 - static_cast<int>(attr_record.name[use[index]].length()); i++)
                 printf(" ");
             printf("\n");
         }
     }
-    for(int index=0;index<attr_name.size()*(longest+1);index++){
+    for (int index = 0; index < static_cast<int>(attr_name.size()) * (longest + 1); index++) {
         std::cout<<"-";
     }
     std::cout<<std::endl;
-    for(int index=0;index<output_tuple.size();index++){
-        for(int i=0;i<attr_name.size();i++)
+    for (size_t index = 0; index < output_tuple.size(); index++) {
+        for (size_t i = 0; i < attr_name.size(); i++)
         {
             switch (output_tuple[index].getData()[use[i]].type) {
                 case -1:
-                    if(i!=attr_name.size()-1){
+                    if (i != attr_name.size()-1) {
                         int len=output_tuple[index].getData()[use[i]].datai;
                         len=getBits(len);
                         for(int i=0;i<(longest-len)/2;i++)
@@ -623,7 +623,7 @@ void Interpreter::EXEC_SELECT(){
                     }
                     break;
                 case 0:
-                    if(i!=attr_name.size()-1){
+                    if (i != attr_name.size()-1) {
                         float num=output_tuple[index].getData()[use[i]].dataf;
                         int len=getBits(num);
                         for(int i=0;i<(longest-len)/2;i++)
@@ -646,8 +646,8 @@ void Interpreter::EXEC_SELECT(){
                     break;
                 default:
                     std::string tmp=output_tuple[index].getData()[use[i]].datas;
-                    if(i!=attr_name.size()-1){
-                        for(int i=0;i<(longest-tmp.length())/2;i++)
+                    if (i != attr_name.size()-1) {
+                        for (int i = 0; i < (longest - static_cast<int>(tmp.length())) / 2; i++)
                             printf(" ");
                         printf("%s",tmp.c_str());
                         for(int i=0;i<longest-(longest-(int)tmp.length())/2-(int)tmp.length();i++)
@@ -656,7 +656,7 @@ void Interpreter::EXEC_SELECT(){
                     }
                     else{
                         std::string tmp=output_tuple[index].getData()[i].datas;
-                        for(int i=0;i<(longest-tmp.length())/2;i++)
+                        for (int i = 0; i < (longest - static_cast<int>(tmp.length())) / 2; i++)
                             printf(" ");
                         printf("%s",tmp.c_str());
                         for(int i=0;i<longest-(longest-(int)tmp.length())/2-(int)tmp.length();i++)

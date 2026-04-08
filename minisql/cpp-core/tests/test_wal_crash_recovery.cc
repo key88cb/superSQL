@@ -109,7 +109,7 @@ int main() {
     Table res_after = rm.selectRecord(table_name);
     
     std::cout << "Records found after recovery: " << res_after.getTuple().size() << std::endl;
-    for (int i = 0; i < res_after.getTuple().size(); i++) {
+    for (size_t i = 0; i < res_after.getTuple().size(); i++) {
         std::cout << "  Row " << i+1 << ": ID=" << res_after.getTuple()[i].getData()[0].datai << ", Score=" << res_after.getTuple()[i].getData()[1].datai << std::endl;
     }
 

@@ -180,7 +180,7 @@ TreeNode<T>::TreeNode(int in_degree, bool Leaf):
 	isLeaf(Leaf),
 	degree(in_degree)
 {
-    for (unsigned i = 0; i < degree+1; i++) {
+    for (int i = 0; i < degree + 1; i++) {
         childs.push_back(NULL);
         keys.push_back(T());
         vals.push_back(int());
@@ -294,7 +294,7 @@ TreeNode<T>* TreeNode<T>::splitNode(T &key)
     if (isLeaf) {
         key = keys[minmumNodeNum + 1];
 		//将右半部分key值拷贝至新结点内
-        for (unsigned int i = minmumNodeNum + 1; i < degree; i++) {
+        for (unsigned int i = minmumNodeNum + 1; i < static_cast<unsigned int>(degree); i++) {
             newNode->keys[i-minmumNodeNum-1] = keys[i];
             keys[i] = T();
             newNode->vals[i-minmumNodeNum-1] = vals[i];
@@ -311,13 +311,13 @@ TreeNode<T>* TreeNode<T>::splitNode(T &key)
     } else if (!isLeaf) {  //非叶结点情况
         key = keys[minmumNodeNum];
 		//拷贝子结点指针至新结点
-        for (unsigned int i = minmumNodeNum + 1; i < degree+1; i++) {
+        for (unsigned int i = minmumNodeNum + 1; i < static_cast<unsigned int>(degree + 1); i++) {
             newNode->childs[i-minmumNodeNum-1] = this->childs[i];
             newNode->childs[i-minmumNodeNum-1]->parent = newNode;
             this->childs[i] = NULL;
         }
 		//拷贝key值至新结点
-        for (unsigned int i = minmumNodeNum + 1; i < degree; i++) {
+        for (unsigned int i = minmumNodeNum + 1; i < static_cast<unsigned int>(degree); i++) {
             newNode->keys[i-minmumNodeNum-1] = this->keys[i];
             this->keys[i] = T();
         }
@@ -498,11 +498,11 @@ bool TreeNode<T>::findRange2(unsigned int index, std::vector<int>& valsout)
 template <class T>
 BPlusTree<T>::BPlusTree(std::string in_name, int keysize, int in_degree):
 	file_name(in_name),
+    root(NULL),
+    leafHead(NULL),
 	key_num(0),
 	level(0),
 	node_num(0),
-	root(NULL),
-	leafHead(NULL),
 	key_size(keysize),
 	degree(in_degree)
 {
@@ -594,7 +594,7 @@ bool BPlusTree<T>::insertKey(T &key, int val)
     } else { //不存在，可以插入
         snp.pNode->addKey(key, val);
 		//插入后结点满，需要进行调整
-        if (snp.pNode->num == degree) {
+        if (snp.pNode->num == static_cast<unsigned int>(degree)) {
             adjustAfterinsert(snp.pNode);
         }
         key_num++;
@@ -638,7 +638,7 @@ bool BPlusTree<T>::adjustAfterinsert(Tree pNode)
         parent->childs[index+1] = newNode;
         newNode->parent = parent;
 		//递归进行调整
-        if(parent->num == degree)
+        if (parent->num == static_cast<unsigned int>(degree))
             return adjustAfterinsert(parent);
 
         return true;
@@ -777,7 +777,7 @@ bool BPlusTree<T>::adjustAfterDelete(Tree pNode)
                 } else {
                     parent->deleteKeyByIndex(index);
 
-                    for (int i = 0; i < pNode->num; i++) {
+                    for (unsigned int i = 0; i < pNode->num; i++) {
                         brother->keys[i+brother->num] = pNode->keys[i];
                         brother->vals[i+brother->num] = pNode->vals[i];
                     }
@@ -807,7 +807,7 @@ bool BPlusTree<T>::adjustAfterDelete(Tree pNode)
                     return true;
 
                 } else {
-                    for (int i = 0; i < brother->num; i++) {
+                    for (unsigned int i = 0; i < brother->num; i++) {
                         pNode->keys[pNode->num+i] = brother->keys[i];
                         pNode->vals[pNode->num+i] = brother->vals[i];
                     }
@@ -852,7 +852,7 @@ bool BPlusTree<T>::adjustAfterDelete(Tree pNode)
                     parent->deleteKeyByIndex(index);
                     brother->num++;
 
-                    for (int i = 0; i < pNode->num; i++) {
+                    for (unsigned int i = 0; i < pNode->num; i++) {
                         brother->childs[brother->num+i] = pNode->childs[i];
                         brother->keys[brother->num+i] = pNode->keys[i];
                         brother->childs[brother->num+i]-> parent= brother;
@@ -900,7 +900,7 @@ bool BPlusTree<T>::adjustAfterDelete(Tree pNode)
 
                     pNode->num++;
 
-                    for (int i = 0; i < brother->num; i++) {
+                    for (unsigned int i = 0; i < brother->num; i++) {
                         pNode->childs[pNode->num+i] = brother->childs[i];
                         pNode->keys[pNode->num+i] = brother->keys[i];
                         pNode->childs[pNode->num+i]->parent = pNode;
@@ -1120,9 +1120,10 @@ void BPlusTree<T>::writtenbackToDiskAll()
 	int block_num = getBlockNum(fname);
 
     Tree ntmp = leafHead;
-	int i, j;
+    unsigned int i = 0;
+    int j = 0;
     
-    for (j = 0, i = 0; ntmp != NULL; j++) {
+	for (; ntmp != NULL; j++) {
 		char* p = buffer_manager.getPage(fname, j);
         int offset = 0;
         
@@ -1178,7 +1179,7 @@ void BPlusTree<T>::printleaf()
 template <class T>
 void TreeNode<T>::printl()
 {
-    for (int i = 0; i < num; i++)
+    for (unsigned int i = 0; i < num; i++)
         std::cout << "->" << keys[i];
     std::cout<<std::endl;
     

@@ -185,7 +185,10 @@ int BufferManager::loadDiskBlock(int page_id , std::string file_name , int block
     // 获取页的句柄
     char* buffer = Frames[page_id].getBuffer();
     // 读取对应磁盘块到内存页
-    fread(buffer , PAGESIZE , 1 , f);
+    size_t read_bytes = fread(buffer, 1, PAGESIZE, f);
+    for (size_t i = read_bytes; i < static_cast<size_t>(PAGESIZE); i++) {
+        buffer[i] = '\0';
+    }
     // 关闭文件
     fclose(f);
     

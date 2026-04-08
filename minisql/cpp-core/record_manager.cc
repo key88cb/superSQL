@@ -64,7 +64,7 @@ void RecordManager::insertRecord(std::string table_name , Tuple& tuple) {
     Attribute attr = catalog_manager.getAttribute(tmp_name);
     std::vector<Data> v = tuple.getData();
     //检测插入的元组的各个属性是否合法
-    for (int i = 0;i < v.size();i++) {
+    for (size_t i = 0; i < v.size(); i++) {
         if (v[i].type != attr.type[i])
             throw tuple_type_conflict();
     }
@@ -108,7 +108,7 @@ void RecordManager::insertRecord(std::string table_name , Tuple& tuple) {
     int j;
     int len = 0;
     //计算插入的tuple的长度
-    for (j = 0;j < v.size();j++) {
+    for (j = 0; j < static_cast<int>(v.size()); j++) {
         Data d = v[j];
         switch(d.type) {
             case -1:{
@@ -263,7 +263,7 @@ int RecordManager::deleteRecord(std::string table_name , std::string target_attr
         std::vector<int> block_ids;
         //通过索引获取满足条件的记录所在的块号
         searchWithIndex(tmp_name , target_attr , where , block_ids);
-        for (int i = 0;i < block_ids.size();i++) {
+        for (size_t i = 0; i < block_ids.size(); i++) {
             count += conditionDeleteInBlock(tmp_name , block_ids[i] , attr , index , where);
         }
     }
@@ -370,7 +370,7 @@ Table RecordManager::selectRecord(std::string table_name , std::string target_at
         std::vector<int> block_ids;
         //使用索引获取满足条件的记录所在块号
         searchWithIndex(tmp_name , target_attr , where , block_ids);
-        for (int i = 0; i < block_ids.size();i++) {
+        for (size_t i = 0; i < block_ids.size(); i++) {
             conditionSelectInBlock(tmp_name , block_ids[i] , attr , index , where , v);
         }
     }
@@ -472,12 +472,12 @@ void RecordManager::insertRecord1(char* p , int offset , int len , const std::ve
     std::string s = stream.str();
     while (s.length() < 4) 
         s = "0" + s;
-    for (int j = 0;j < s.length();j++,offset++)
+    for (size_t j = 0; j < s.length(); j++, offset++)
         p[offset] = s[j];
     std::string s_tuple = "tuple";
-    for (int j = 0; j < s_tuple.length(); j++, offset++)
+    for (size_t j = 0; j < s_tuple.length(); j++, offset++)
         p[offset] = s_tuple[j];
-    for (int j = 0;j < v.size();j++) {
+    for (size_t j = 0; j < v.size(); j++) {
         p[offset] = ' ';
         offset++;
         Data d = v[j];

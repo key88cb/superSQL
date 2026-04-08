@@ -52,7 +52,7 @@ void LogManager::flush(int lsn) {
             LogRecord& r = log_buffer_[i];
             fprintf(f, "LSN:%d TYPE:%d FILE:%s BLK:%d OFF:%d LEN:%d\n", 
                     r.lsn, (int)r.type, r.file_name.c_str(), r.block_id, r.offset, r.length);
-            if (r.length > 0 && r.new_data.size() == r.length) {
+            if (r.length > 0 && r.new_data.size() == static_cast<size_t>(r.length)) {
                 fwrite(r.new_data.data(), 1, r.length, f);
             }
             fprintf(f, "\n");
@@ -80,7 +80,10 @@ void LogManager::recoverRedo() {
             
             std::vector<char> new_data(length);
             if (length > 0) {
-                fread(new_data.data(), 1, length, f);
+                size_t read_bytes = fread(new_data.data(), 1, length, f);
+                if (read_bytes != static_cast<size_t>(length)) {
+                    break;
+                }
                 fgetc(f); // Read the trailing \n
             }
             
