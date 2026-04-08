@@ -2,6 +2,7 @@ package edu.zju.supersql.master.rpc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.zju.supersql.master.MasterRuntimeContext;
+import edu.zju.supersql.testutil.EmbeddedZkServer;
 import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
@@ -9,7 +10,6 @@ import edu.zju.supersql.rpc.TableLocation;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
-import org.apache.curator.test.TestingServer;
 import org.apache.zookeeper.CreateMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -25,7 +25,7 @@ class MasterServiceMetadataIntegrationTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private TestingServer server;
+    private EmbeddedZkServer server;
     private CuratorFramework zkClient;
     private MasterServiceImpl service;
 

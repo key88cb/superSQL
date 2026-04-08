@@ -1,11 +1,11 @@
 package edu.zju.supersql.regionserver;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.zju.supersql.testutil.EmbeddedZkServer;
 import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
-import org.apache.curator.test.TestingServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,7 +18,7 @@ class RegionServerRegistrarIntegrationTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private TestingServer server;
+    private EmbeddedZkServer server;
     private CuratorFramework zkClient;
 
     @BeforeEach

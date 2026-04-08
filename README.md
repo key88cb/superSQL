@@ -171,6 +171,14 @@ sequenceDiagram
 
 ---
 
+## Java 测试约定（嵌入式 ZooKeeper）
+
+- 统一使用 `test-common` 中的 `EmbeddedZkServerFactory` 创建内嵌 ZooKeeper。
+- 模块测试中统一使用 `EmbeddedZkServer` 类型，不直接暴露/依赖 `TestingServer` 类型。
+- `java-master` / `java-regionserver` / `java-client` 三个模块测试依赖 `test-common`，并显式保留 `org.apache.curator:curator-test` 的 `test` 作用域依赖，以保证单模块与 IDE 运行测试时类路径稳定。
+
+---
+
 ## 技术栈与设计决策
 
 ### 为什么选表级分布而非行级？

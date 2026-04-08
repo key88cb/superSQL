@@ -106,11 +106,13 @@ mkdir exh_db; $env:MINISQL_DATA_DIR="exh_db"; ./test_exh
 
 - 所有需要内嵌 ZooKeeper 的 Java 测试，必须通过共享工具类创建实例：
 	- `test-common/src/main/java/edu/zju/supersql/testutil/EmbeddedZkServerFactory.java`
+- 测试代码应使用 `EmbeddedZkServer`（test-common 提供的包装类型），不要在模块测试中直接声明 `TestingServer` 字段类型。
 - 禁止在测试里直接写 `new TestingServer(true)`。
 - 原因：共享工厂已统一设置 `maxCnxns` 与 `maxClientCnxns`，用于消除 CI 常见告警：
 	- `[zkservermainrunner] WARN  o.a.z.server.ServerCnxnFactory - maxCnxns is not configured, using default value 0.`
 - 依赖关系要求：
 	- `java-master` / `java-regionserver` / `java-client` 的测试依赖 `test-common`，不要在各模块重复实现同名工厂类。
+	- 同时这三个模块都应显式声明 `org.apache.curator:curator-test`（`test` scope），避免单模块执行或 IDE 直跑测试时出现 `NoClassDefFoundError: org/apache/curator/test/InstanceSpec`。
 
 ### 推荐执行顺序（仓库根目录）
 

@@ -1,12 +1,12 @@
 package edu.zju.supersql.client;
 
+import edu.zju.supersql.testutil.EmbeddedZkServer;
 import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
 import edu.zju.supersql.rpc.RegionServerInfo;
 import edu.zju.supersql.rpc.TableLocation;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
-import org.apache.curator.test.TestingServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,7 +17,7 @@ import java.util.Collections;
 
 class SqlClientRoutingTest {
 
-    private TestingServer server;
+    private EmbeddedZkServer server;
     private CuratorFramework zkClient;
 
     @BeforeEach

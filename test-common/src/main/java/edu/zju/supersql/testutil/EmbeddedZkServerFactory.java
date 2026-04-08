@@ -13,12 +13,12 @@ public final class EmbeddedZkServerFactory {
     private EmbeddedZkServerFactory() {
     }
 
-    public static TestingServer create() throws Exception {
+    public static EmbeddedZkServer create() throws Exception {
         File dataDir = Files.createTempDirectory("zk-test-").toFile();
         Map<String, Object> props = new HashMap<>();
         props.put("maxCnxns", "60");
         props.put("maxClientCnxns", "60");
         InstanceSpec spec = new InstanceSpec(dataDir, -1, -1, -1, true, -1, -1, 60, props);
-        return new TestingServer(spec, true);
+        return new EmbeddedZkServer(new TestingServer(spec, true));
     }
 }
