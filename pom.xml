@@ -28,9 +28,9 @@
         <!-- Dependency versions -->
         <thrift.version>0.20.0</thrift.version>
         <curator.version>5.5.0</curator.version>
-        <zookeeper.version>3.8.3</zookeeper.version>
-        <slf4j.version>1.7.36</slf4j.version>
-        <logback.version>1.2.12</logback.version>
+        <zookeeper.version>3.8.6</zookeeper.version>
+        <slf4j.version>2.0.17</slf4j.version>
+        <logback.version>1.5.18</logback.version>
         <junit.version>5.10.1</junit.version>
         <curator.testing.version>5.5.0</curator.testing.version>
     </properties>
