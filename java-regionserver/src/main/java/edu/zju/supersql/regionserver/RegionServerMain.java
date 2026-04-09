@@ -111,7 +111,7 @@ public class RegionServerMain {
         // ── Thrift TMultiplexedProcessor ──────────────────────────────────────
         TMultiplexedProcessor processor = new TMultiplexedProcessor();
         processor.registerProcessor("RegionService",
-                new RegionService.Processor<>(new RegionServiceImpl()));
+                new RegionService.Processor<>(new RegionServiceImpl(miniSql, walManager)));
         processor.registerProcessor("RegionAdminService",
                 new RegionAdminService.Processor<>(new RegionAdminServiceImpl()));
         processor.registerProcessor("ReplicaSyncService",
