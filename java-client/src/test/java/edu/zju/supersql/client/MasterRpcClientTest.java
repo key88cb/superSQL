@@ -4,6 +4,7 @@ import edu.zju.supersql.rpc.*;
 import org.apache.thrift.TMultiplexedProcessor;
 import org.apache.thrift.TException;
 import org.apache.thrift.server.TThreadPoolServer;
+import org.apache.thrift.transport.TTransportException;
 import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.layered.TFramedTransport;
 import org.junit.jupiter.api.AfterEach;
@@ -27,8 +28,7 @@ class MasterRpcClientTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        port = freePort();
-        server = buildServer(port);
+        startEmbeddedServerWithRetry();
         serverPool = Executors.newSingleThreadExecutor();
         serverPool.submit(server::serve);
         Thread.sleep(200);
@@ -99,6 +99,24 @@ class MasterRpcClientTest {
         try (ServerSocket s = new ServerSocket(0)) {
             return s.getLocalPort();
         }
+    }
+
+    private void startEmbeddedServerWithRetry() throws Exception {
+        TTransportException last = null;
+        for (int i = 0; i < 8; i++) {
+            int candidate = freePort();
+            try {
+                server = buildServer(candidate);
+                port = candidate;
+                return;
+            } catch (TTransportException e) {
+                last = e;
+            }
+        }
+        if (last != null) {
+            throw last;
+        }
+        throw new IllegalStateException("Failed to allocate embedded thrift server port");
     }
 
     /** Minimal MasterService stub that returns hardcoded responses. */

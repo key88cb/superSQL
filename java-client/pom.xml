@@ -72,6 +72,18 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>edu.zju.supersql</groupId>
+            <artifactId>java-master</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>edu.zju.supersql</groupId>
+            <artifactId>java-regionserver</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.apache.curator</groupId>
             <artifactId>curator-test</artifactId>
             <scope>test</scope>

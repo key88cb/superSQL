@@ -39,14 +39,15 @@ public class RegionServerMain {
     private static final Logger log = LoggerFactory.getLogger(RegionServerMain.class);
 
     public static void main(String[] args) throws Exception {
-        String rsId      = System.getenv().getOrDefault("RS_ID",      "rs-1");
-        String rsHost    = System.getenv().getOrDefault("RS_HOST",    "rs-1");
-        int thriftPort   = Integer.parseInt(System.getenv().getOrDefault("RS_THRIFT_PORT", "9090"));
-        int httpPort     = Integer.parseInt(System.getenv().getOrDefault("RS_HTTP_PORT",   "9190"));
-        String zkConnect = System.getenv().getOrDefault("ZK_CONNECT", "zk1:2181,zk2:2181,zk3:2181");
-        String dataDir   = System.getenv().getOrDefault("RS_DATA_DIR",  "/data/db");
-        String walDir    = System.getenv().getOrDefault("RS_WAL_DIR",   "/data/wal");
-        String miniSqlBin= System.getenv().getOrDefault("MINISQL_BIN",  "/opt/minisql/main");
+        RegionServerConfig config = RegionServerConfig.fromSystemEnv();
+        String rsId = config.rsId();
+        String rsHost = config.rsHost();
+        int thriftPort = config.thriftPort();
+        int httpPort = config.httpPort();
+        String zkConnect = config.zkConnect();
+        String dataDir = config.dataDir();
+        String walDir = config.walDir();
+        String miniSqlBin = config.miniSqlBin();
 
         log.info("Starting SuperSQL RegionServer: id={} host={} thriftPort={} httpPort={} zk={}",
                 rsId, rsHost, thriftPort, httpPort, zkConnect);
@@ -79,10 +80,10 @@ public class RegionServerMain {
             });
             heartbeatExecutor.scheduleAtFixedRate(() ->
                             finalRegistrar.heartbeat(rsHost, thriftPort, 0, 0.0, 0.0, 0.0),
-                    10,
-                    10,
-                    TimeUnit.SECONDS);
-            log.info("RegionServer heartbeat scheduler started (interval=10s)");
+                    config.heartbeatIntervalMs(),
+                    config.heartbeatIntervalMs(),
+                    TimeUnit.MILLISECONDS);
+            log.info("RegionServer heartbeat scheduler started (interval={}ms)", config.heartbeatIntervalMs());
         } catch (Exception e) {
             log.warn("ZooKeeper connection failed at startup — proceeding without ZK: {}", e.getMessage());
         }

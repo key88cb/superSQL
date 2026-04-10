@@ -1,7 +1,12 @@
 package edu.zju.supersql.master.rpc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.zju.supersql.master.MasterConfig;
 import edu.zju.supersql.master.MasterRuntimeContext;
+import edu.zju.supersql.master.ZkPaths;
+import edu.zju.supersql.master.balance.LoadBalancer;
+import edu.zju.supersql.master.meta.AssignmentManager;
+import edu.zju.supersql.master.meta.MetaManager;
 import edu.zju.supersql.rpc.*;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.thrift.TException;
@@ -28,6 +33,32 @@ public class MasterServiceImpl implements MasterService.Iface {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Pattern CREATE_TABLE_PATTERN =
             Pattern.compile("(?i)^\\s*create\\s+table\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
+
+    private final MetaManager metaManager;
+    private final AssignmentManager assignmentManager;
+    private final LoadBalancer loadBalancer;
+    private final RegionDdlExecutor regionDdlExecutor;
+    private final RegionAdminExecutor regionAdminExecutor;
+
+    public MasterServiceImpl() {
+        this(new MetaManager(MasterRuntimeContext.getZkClient()),
+                new AssignmentManager(MasterRuntimeContext.getZkClient()),
+                new LoadBalancer(),
+                new RegionServiceDdlExecutor(10_000),
+                new ThriftRegionAdminExecutor(10_000));
+    }
+
+    public MasterServiceImpl(MetaManager metaManager,
+                             AssignmentManager assignmentManager,
+                             LoadBalancer loadBalancer,
+                             RegionDdlExecutor regionDdlExecutor,
+                             RegionAdminExecutor regionAdminExecutor) {
+        this.metaManager = metaManager;
+        this.assignmentManager = assignmentManager;
+        this.loadBalancer = loadBalancer;
+        this.regionDdlExecutor = regionDdlExecutor;
+        this.regionAdminExecutor = regionAdminExecutor;
+    }
 
     private static Response notImplemented(String method) {
         log.warn("MasterService.{} called — not yet implemented", method);
@@ -67,11 +98,11 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     private static String tableMetaPath(String tableName) {
-        return "/meta/tables/" + tableName;
+        return ZkPaths.tableMeta(tableName);
     }
 
     private static String assignmentPath(String tableName) {
-        return "/assignments/" + tableName;
+        return ZkPaths.assignment(tableName);
     }
 
     private static String stringifyMap(Map<String, Object> map) throws Exception {
@@ -237,15 +268,15 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         try {
-            String path = tableMetaPath(tableName);
-            if (zk.checkExists().forPath(path) == null) {
+            TableLocation location = metaManager.getTableLocation(tableName);
+            if (location == null) {
                 RegionServerInfo none = new RegionServerInfo("none", "0.0.0.0", 0);
-                TableLocation location = new TableLocation(tableName, none, Collections.singletonList(none));
-                location.setTableStatus("TABLE_NOT_FOUND");
-                location.setVersion(-1L);
-                return location;
+                TableLocation notFound = new TableLocation(tableName, none, Collections.singletonList(none));
+                notFound.setTableStatus("TABLE_NOT_FOUND");
+                notFound.setVersion(-1L);
+                return notFound;
             }
-            return bytesToLocation(zk.getData().forPath(path), tableName);
+            return location;
         } catch (Exception e) {
             throw new TException("Failed to resolve table location: " + tableName, e);
         }
@@ -272,8 +303,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         try {
-            String tablePath = tableMetaPath(tableName);
-            if (zk.checkExists().forPath(tablePath) != null) {
+            if (metaManager.tableExists(tableName)) {
                 Response r = new Response(StatusCode.TABLE_EXISTS);
                 r.setMessage("Table already exists: " + tableName);
                 return r;
@@ -286,11 +316,18 @@ public class MasterServiceImpl implements MasterService.Iface {
                 return r;
             }
 
-            rsList.sort(Comparator.comparingInt(r -> r.isSetTableCount() ? r.getTableCount() : 0));
-            List<RegionServerInfo> replicas = new ArrayList<>();
-            int replicaCount = Math.min(3, rsList.size());
-            for (int i = 0; i < replicaCount; i++) {
-                replicas.add(rsList.get(i));
+            List<RegionServerInfo> replicas = loadBalancer.selectReplicas(rsList, Math.min(3, rsList.size()));
+            List<RegionServerInfo> createdReplicas = new ArrayList<>();
+            for (RegionServerInfo replica : replicas) {
+                Response ddlResponse = regionDdlExecutor.execute(replica, tableName, ddl);
+                if (ddlResponse.getCode() != StatusCode.OK) {
+                    rollbackCreatedReplicas(tableName, createdReplicas);
+                    Response error = new Response(StatusCode.ERROR);
+                    error.setMessage("Failed to create table on replica " + replica.getId()
+                            + ": " + ddlResponse.getMessage());
+                    return error;
+                }
+                createdReplicas.add(replica);
             }
 
             RegionServerInfo primary = replicas.get(0);
@@ -298,18 +335,8 @@ public class MasterServiceImpl implements MasterService.Iface {
             location.setTableStatus("ACTIVE");
             location.setVersion(System.currentTimeMillis());
 
-            zk.create().creatingParentsIfNeeded().forPath(tablePath, locationToBytes(location));
-
-            Map<String, Object> assignment = new HashMap<>();
-            assignment.put("tableName", tableName);
-            assignment.put("replicas", replicas.stream().map(MasterServiceImpl::regionToMap).toList());
-            byte[] assignmentBytes = stringifyMap(assignment).getBytes(StandardCharsets.UTF_8);
-            String assignPath = assignmentPath(tableName);
-            if (zk.checkExists().forPath(assignPath) == null) {
-                zk.create().creatingParentsIfNeeded().forPath(assignPath, assignmentBytes);
-            } else {
-                zk.setData().forPath(assignPath, assignmentBytes);
-            }
+            metaManager.saveTableLocation(location);
+            assignmentManager.saveAssignment(tableName, replicas);
 
             Response r = new Response(StatusCode.OK);
             r.setMessage("Table metadata created: " + tableName);
@@ -333,18 +360,31 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         try {
-            String tablePath = tableMetaPath(tableName);
-            if (zk.checkExists().forPath(tablePath) == null) {
+            if (!metaManager.tableExists(tableName)) {
                 Response r = new Response(StatusCode.TABLE_NOT_FOUND);
                 r.setMessage("Table not found: " + tableName);
                 return r;
             }
-            zk.delete().forPath(tablePath);
-
-            String assignPath = assignmentPath(tableName);
-            if (zk.checkExists().forPath(assignPath) != null) {
-                zk.delete().forPath(assignPath);
+            List<RegionServerInfo> replicas = assignmentManager.getAssignment(tableName);
+            if (replicas.isEmpty()) {
+                TableLocation location = metaManager.getTableLocation(tableName);
+                if (location != null && location.isSetReplicas()) {
+                    replicas = location.getReplicas();
+                }
             }
+            String ddl = "drop table " + tableName + ";";
+            for (RegionServerInfo replica : replicas) {
+                Response ddlResponse = regionDdlExecutor.execute(replica, tableName, ddl);
+                if (ddlResponse.getCode() != StatusCode.OK
+                        && ddlResponse.getCode() != StatusCode.TABLE_NOT_FOUND) {
+                    Response error = new Response(StatusCode.ERROR);
+                    error.setMessage("Failed to drop table on replica " + replica.getId()
+                            + ": " + ddlResponse.getMessage());
+                    return error;
+                }
+            }
+            metaManager.deleteTableLocation(tableName);
+            assignmentManager.deleteAssignment(tableName);
 
             Response r = new Response(StatusCode.OK);
             r.setMessage("Table dropped: " + tableName);
@@ -367,10 +407,10 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         try {
-            List<String> children = zk.getChildren().forPath("/region_servers");
+            List<String> children = zk.getChildren().forPath(ZkPaths.REGION_SERVERS);
             List<RegionServerInfo> infos = new ArrayList<>();
             for (String child : children) {
-                String path = "/region_servers/" + child;
+                String path = ZkPaths.regionServer(child);
                 byte[] bytes = zk.getData().forPath(path);
                 if (bytes == null || bytes.length == 0) {
                     continue;
@@ -386,23 +426,12 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     @Override
     public List<TableLocation> listTables() throws TException {
-        CuratorFramework zk = zk();
-        if (zk == null) {
+        if (zk() == null) {
             return Collections.emptyList();
         }
 
         try {
-            List<String> tables = zk.getChildren().forPath("/meta/tables");
-            List<TableLocation> locations = new ArrayList<>();
-            for (String tableName : tables) {
-                String path = tableMetaPath(tableName);
-                byte[] bytes = zk.getData().forPath(path);
-                if (bytes == null || bytes.length == 0) {
-                    continue;
-                }
-                locations.add(bytesToLocation(bytes, tableName));
-            }
-            return locations;
+            return metaManager.listTables();
         } catch (Exception e) {
             throw new TException("Failed to list table metadata", e);
         }
@@ -410,6 +439,157 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     @Override
     public Response triggerRebalance() throws TException {
-        return notImplemented("triggerRebalance");
+        if (!isLeader()) {
+            return notLeaderResponse("triggerRebalance");
+        }
+        if (zk() == null) {
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("ZooKeeper is unavailable");
+            return r;
+        }
+        try {
+            List<RegionServerInfo> regionServers = listRegionServers();
+            log.info("triggerRebalance start onlineRs={} rsLoads={}",
+                    regionServers.size(),
+                    regionServers.stream()
+                            .map(rs -> rs.getId() + ":" + (rs.isSetTableCount() ? rs.getTableCount() : 0))
+                            .toList());
+            if (regionServers.size() < 2) {
+                log.info("triggerRebalance skipped: fewer than 2 region servers");
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("Rebalance skipped: fewer than 2 region servers");
+                return r;
+            }
+            if (loadBalancer.isBalanced(regionServers, MasterConfig.fromSystemEnv().rebalanceRatio())) {
+                log.info("triggerRebalance skipped: cluster already balanced");
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("Cluster already balanced");
+                return r;
+            }
+            TableLocation candidate = selectRebalanceCandidate(regionServers);
+            if (candidate == null) {
+                log.info("triggerRebalance skipped: no migratable replica found");
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("Rebalance skipped: no migratable replica found");
+                return r;
+            }
+            RegionServerInfo source = findNonPrimaryReplicaOnHotNode(candidate, regionServers);
+            if (source == null) {
+                log.info("triggerRebalance skipped: only primary replicas on hotspot table={}",
+                        candidate.getTableName());
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("Rebalance skipped: only primary replicas on hotspot");
+                return r;
+            }
+            RegionServerInfo target = loadBalancer.leastLoadedExcluding(regionServers,
+                    candidate.getReplicas().stream().map(RegionServerInfo::getId).toList());
+            if (target == null) {
+                log.info("triggerRebalance skipped: no eligible target region server table={}",
+                        candidate.getTableName());
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("Rebalance skipped: no eligible target region server");
+                return r;
+            }
+            int sourceLoad = source.isSetTableCount() ? source.getTableCount() : 0;
+            int targetLoad = target.isSetTableCount() ? target.getTableCount() : 0;
+            if (targetLoad >= sourceLoad) {
+                log.info("triggerRebalance skipped: target not lighter table={} source={}({}) target={}({})",
+                        candidate.getTableName(), source.getId(), sourceLoad, target.getId(), targetLoad);
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("Rebalance skipped: no lighter target region server available");
+                return r;
+            }
+
+            return rebalanceReplica(candidate, source, target);
+        } catch (Exception e) {
+            throw new TException("Failed to trigger rebalance", e);
+        }
+    }
+
+    private void rollbackCreatedReplicas(String tableName, List<RegionServerInfo> createdReplicas) {
+        String rollbackDdl = "drop table " + tableName + ";";
+        for (RegionServerInfo replica : createdReplicas) {
+            try {
+                regionDdlExecutor.execute(replica, tableName, rollbackDdl);
+            } catch (Exception ignored) {
+                log.warn("Rollback dropTable failed on replica {}", replica.getId());
+            }
+        }
+    }
+
+    private TableLocation selectRebalanceCandidate(List<RegionServerInfo> regionServers) throws Exception {
+        RegionServerInfo hot = loadBalancer.hottest(regionServers);
+        if (hot == null) {
+            return null;
+        }
+        for (TableLocation table : metaManager.listTables()) {
+            if (table.getReplicas().stream().anyMatch(rs -> hot.getId().equals(rs.getId()))
+                    && !hot.getId().equals(table.getPrimaryRS().getId())) {
+                return table;
+            }
+        }
+        return null;
+    }
+
+    private RegionServerInfo findNonPrimaryReplicaOnHotNode(TableLocation location, List<RegionServerInfo> regionServers) {
+        RegionServerInfo hot = loadBalancer.hottest(regionServers);
+        if (hot == null) {
+            return null;
+        }
+        boolean presentAsNonPrimary = location.getReplicas().stream()
+                .anyMatch(rs -> hot.getId().equals(rs.getId()) && !location.getPrimaryRS().getId().equals(rs.getId()));
+        return presentAsNonPrimary ? hot : null;
+    }
+
+    private Response rebalanceReplica(TableLocation location, RegionServerInfo source, RegionServerInfo target) throws Exception {
+        RegionServerInfo primary = location.getPrimaryRS();
+        String tableName = location.getTableName();
+        List<String> beforeReplicas = location.getReplicas().stream().map(RegionServerInfo::getId).toList();
+        log.info("triggerRebalance executing table={} primary={} source={} target={} replicasBefore={}",
+                tableName, primary.getId(), source.getId(), target.getId(), beforeReplicas);
+
+        Response pause = regionAdminExecutor.pauseTableWrite(primary, tableName);
+        if (pause.getCode() != StatusCode.OK) {
+            log.warn("triggerRebalance pause failed table={} primary={} code={}",
+                    tableName, primary.getId(), pause.getCode());
+            return pause;
+        }
+
+        try {
+            Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
+            if (transfer.getCode() != StatusCode.OK) {
+                return transfer;
+            }
+
+            List<RegionServerInfo> updatedReplicas = new ArrayList<>();
+            for (RegionServerInfo replica : location.getReplicas()) {
+                updatedReplicas.add(replica.getId().equals(source.getId()) ? target : replica);
+            }
+            TableLocation updatedLocation = new TableLocation(tableName, primary, updatedReplicas);
+            updatedLocation.setTableStatus("ACTIVE");
+            updatedLocation.setVersion(System.currentTimeMillis());
+            metaManager.saveTableLocation(updatedLocation);
+            assignmentManager.saveAssignment(tableName, updatedReplicas);
+            log.info("triggerRebalance metadata updated table={} replicasAfter={}",
+                    tableName, updatedReplicas.stream().map(RegionServerInfo::getId).toList());
+
+            Response delete = regionAdminExecutor.deleteLocalTable(source, tableName);
+            if (delete.getCode() != StatusCode.OK) {
+                log.warn("triggerRebalance deleteLocalTable failed table={} source={} code={}",
+                        tableName, source.getId(), delete.getCode());
+                return delete;
+            }
+
+            regionAdminExecutor.invalidateClientCache(primary, tableName);
+            regionAdminExecutor.invalidateClientCache(target, tableName);
+
+            Response ok = new Response(StatusCode.OK);
+            ok.setMessage("Rebalanced table " + tableName + " from " + source.getId() + " to " + target.getId());
+            log.info("triggerRebalance success table={} source={} target={}", tableName, source.getId(), target.getId());
+            return ok;
+        } finally {
+            regionAdminExecutor.resumeTableWrite(primary, tableName);
+            log.info("triggerRebalance resume writes table={} primary={}", tableName, primary.getId());
+        }
     }
 }

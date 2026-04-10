@@ -37,7 +37,7 @@ public class MasterServer {
     private static final Logger log = LoggerFactory.getLogger(MasterServer.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    static ScheduledExecutorService startActiveHeartbeatScheduler() {
+    static ScheduledExecutorService startActiveHeartbeatScheduler(long intervalMs) {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "Master-Active-Heartbeat");
             t.setDaemon(true);
@@ -46,8 +46,8 @@ public class MasterServer {
         scheduler.scheduleAtFixedRate(
                 MasterRuntimeContext::updateActiveHeartbeat,
                 0,
-                5,
-                TimeUnit.SECONDS);
+                intervalMs,
+                TimeUnit.MILLISECONDS);
         return scheduler;
     }
 
@@ -85,10 +85,11 @@ public class MasterServer {
     }
 
     public static void main(String[] args) throws Exception {
-        int thriftPort = Integer.parseInt(System.getenv().getOrDefault("MASTER_THRIFT_PORT", "8080"));
-        int httpPort   = Integer.parseInt(System.getenv().getOrDefault("MASTER_HTTP_PORT",   "8880"));
-        String zkConnect = System.getenv().getOrDefault("ZK_CONNECT", "zk1:2181,zk2:2181,zk3:2181");
-        String masterId  = System.getenv().getOrDefault("MASTER_ID", "master-1");
+        MasterConfig config = MasterConfig.fromSystemEnv();
+        int thriftPort = config.thriftPort();
+        int httpPort = config.httpPort();
+        String zkConnect = config.zkConnect();
+        String masterId = config.masterId();
 
         log.info("Starting SuperSQL Master: id={} thriftPort={} httpPort={} zk={}",
                 masterId, thriftPort, httpPort, zkConnect);
@@ -96,6 +97,7 @@ public class MasterServer {
         // ── ZooKeeper connection (best-effort at startup) ──────────────────────
         CuratorFramework zkClient = null;
         LeaderElector leaderElector = null;
+        RegionServerWatcher regionServerWatcher = null;
         try {
             RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
             zkClient = CuratorFrameworkFactory.builder()
@@ -110,8 +112,7 @@ public class MasterServer {
             log.info("ZooKeeper client started (connecting to {})", zkConnect);
 
             // S0-06: 创建 ZK 基础目录（namespace="supersql"，实际路径为 /supersql/masters 等）
-            String[] basePaths = {"/masters", "/masters/active-heartbeat", "/region_servers", "/meta/tables", "/assignments", "/active-master"};
-            for (String path : basePaths) {
+            for (String path : ZkPaths.bootstrapPaths()) {
                 if (zkClient.checkExists().forPath(path) == null) {
                     zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
                     log.info("Created ZK base path: {}", path);
@@ -121,13 +122,17 @@ public class MasterServer {
 
             MasterRuntimeContext.initialize(zkClient, masterId, thriftPort);
             MasterRuntimeContext.tryBootstrapActiveMaster();
-            startActiveHeartbeatScheduler();
-            log.info("Active heartbeat scheduler started (interval=5s)");
+            startActiveHeartbeatScheduler(config.heartbeatIntervalMs());
+            log.info("Active heartbeat scheduler started (interval={}ms)", config.heartbeatIntervalMs());
 
             leaderElector = new LeaderElector(zkClient, masterId, masterId + ":" + thriftPort);
             leaderElector.start();
+            regionServerWatcher = new RegionServerWatcher(zkClient);
+            regionServerWatcher.start();
             LeaderElector finalLeaderElector = leaderElector;
+            RegionServerWatcher finalRegionServerWatcher = regionServerWatcher;
             Runtime.getRuntime().addShutdownHook(new Thread(finalLeaderElector::close));
+            Runtime.getRuntime().addShutdownHook(new Thread(finalRegionServerWatcher::close));
 
             // TODO Sprint 3: MetaManager.init(zkClient)
         } catch (Exception e) {

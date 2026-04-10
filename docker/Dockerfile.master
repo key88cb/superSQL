@@ -6,9 +6,11 @@
 FROM eclipse-temurin:17-jdk-noble AS thrift-gen
 
 ARG THRIFT_IDL=supersql.thrift
+ARG UBUNTU_PORTS_MIRROR=http://ports.ubuntu.com/ubuntu-ports
 
-RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.ustc.edu.cn/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
-    && apt-get update && apt-get install -y thrift-compiler \
+RUN sed -i "s|http://ports.ubuntu.com/ubuntu-ports|${UBUNTU_PORTS_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --fix-missing thrift-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /gen
@@ -22,10 +24,12 @@ FROM eclipse-temurin:17-jdk-noble AS builder
 ARG THRIFT_IDL=supersql.thrift
 ARG MODULE_NAME=java-master
 ARG MODULE_JAR=java-master.jar
+ARG UBUNTU_PORTS_MIRROR=http://ports.ubuntu.com/ubuntu-ports
 
 WORKDIR /build
-RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.ustc.edu.cn/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
-    && apt-get update && apt-get install -y maven \
+RUN sed -i "s|http://ports.ubuntu.com/ubuntu-ports|${UBUNTU_PORTS_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --fix-missing maven \
     && rm -rf /var/lib/apt/lists/*
 
 # 父 pom + 所有子模块 pom（Maven 要求父 pom 中声明的模块目录必须存在）
@@ -59,12 +63,14 @@ FROM eclipse-temurin:17-jre-noble
 
 ARG MODULE_NAME=java-master
 ARG MODULE_JAR=java-master.jar
+ARG UBUNTU_PORTS_MIRROR=http://ports.ubuntu.com/ubuntu-ports
 
 LABEL maintainer="superSQL Team <zju>"
 LABEL component="master"
 
-RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.ustc.edu.cn/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
-    && apt-get update && apt-get install -y curl dnsutils \
+RUN sed -i "s|http://ports.ubuntu.com/ubuntu-ports|${UBUNTU_PORTS_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update -o Acquire::Retries=5 \
+    && apt-get install -y --fix-missing curl dnsutils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r supersql && useradd -r -g supersql supersql

@@ -51,7 +51,7 @@ public final class MasterRuntimeContext {
             return;
         }
         try {
-            byte[] existing = zkClient.getData().forPath("/active-master");
+            byte[] existing = zkClient.getData().forPath(ZkPaths.ACTIVE_MASTER);
             if (existing == null || existing.length == 0) {
                 writeActiveMaster(1L);
                 return;
@@ -73,7 +73,7 @@ public final class MasterRuntimeContext {
             return true;
         }
         try {
-            byte[] bytes = zkClient.getData().forPath("/active-master");
+            byte[] bytes = zkClient.getData().forPath(ZkPaths.ACTIVE_MASTER);
             if (bytes == null || bytes.length == 0) {
                 return true;
             }
@@ -91,7 +91,7 @@ public final class MasterRuntimeContext {
             return masterAddress;
         }
         try {
-            byte[] bytes = zkClient.getData().forPath("/active-master");
+            byte[] bytes = zkClient.getData().forPath(ZkPaths.ACTIVE_MASTER);
             if (bytes == null || bytes.length == 0) {
                 return masterAddress;
             }
@@ -118,7 +118,7 @@ public final class MasterRuntimeContext {
 
         try {
             byte[] payload = buildActiveHeartbeatPayload();
-            String path = "/masters/active-heartbeat";
+            String path = ZkPaths.ACTIVE_HEARTBEAT;
             if (zkClient.checkExists().forPath(path) == null) {
                 zkClient.create().creatingParentsIfNeeded().forPath(path, payload);
             } else {
@@ -144,7 +144,7 @@ public final class MasterRuntimeContext {
         payload.put("address", masterAddress);
         payload.put("ts", System.currentTimeMillis());
         byte[] bytes = MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
-        zkClient.setData().forPath("/active-master", bytes);
+        zkClient.setData().forPath(ZkPaths.ACTIVE_MASTER, bytes);
         log.info("Active master bootstrap write success: {}", masterAddress);
     }
 

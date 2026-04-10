@@ -2,8 +2,12 @@ package edu.zju.supersql.master.rpc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.zju.supersql.master.MasterRuntimeContext;
+import edu.zju.supersql.master.balance.LoadBalancer;
+import edu.zju.supersql.master.meta.AssignmentManager;
+import edu.zju.supersql.master.meta.MetaManager;
 import edu.zju.supersql.testutil.EmbeddedZkServer;
 import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
+import edu.zju.supersql.rpc.RegionServerInfo;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
 import edu.zju.supersql.rpc.TableLocation;
@@ -17,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +33,8 @@ class MasterServiceMetadataIntegrationTest {
     private EmbeddedZkServer server;
     private CuratorFramework zkClient;
     private MasterServiceImpl service;
+    private RecordingRegionDdlExecutor ddlExecutor;
+    private RecordingRegionAdminExecutor adminExecutor;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -50,7 +57,14 @@ class MasterServiceMetadataIntegrationTest {
         MasterRuntimeContext.initialize(zkClient, "master-1", 8080);
         writeActiveMaster("master-1", "master-1:8080");
 
-        service = new MasterServiceImpl();
+        ddlExecutor = new RecordingRegionDdlExecutor();
+        adminExecutor = new RecordingRegionAdminExecutor();
+        service = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                adminExecutor);
     }
 
     @AfterEach
@@ -75,15 +89,39 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertEquals("orders", location.getTableName());
         Assertions.assertEquals("rs-2", location.getPrimaryRS().getId());
         Assertions.assertEquals(2, location.getReplicasSize());
+        Assertions.assertEquals(2, ddlExecutor.commands.size());
 
         List<TableLocation> tables = service.listTables();
         Assertions.assertEquals(1, tables.size());
 
         Response dropResp = service.dropTable("orders");
         Assertions.assertEquals(StatusCode.OK, dropResp.getCode());
+        Assertions.assertTrue(ddlExecutor.commands.stream().anyMatch(cmd -> cmd.sql.startsWith("drop table orders")));
 
         TableLocation dropped = service.getTableLocation("orders");
         Assertions.assertEquals("TABLE_NOT_FOUND", dropped.getTableStatus());
+    }
+
+    @Test
+    void createTableShouldSelectUpToThreeLeastLoadedReplicasAndPersistAssignment() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 9);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 3);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        Response response = service.createTable("create table t_assign(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, response.getCode());
+
+        TableLocation location = service.getTableLocation("t_assign");
+        Assertions.assertEquals("rs-2", location.getPrimaryRS().getId());
+        Assertions.assertEquals(3, location.getReplicasSize());
+        Assertions.assertEquals(List.of("rs-2", "rs-4", "rs-3"),
+                location.getReplicas().stream().map(rs -> rs.getId()).toList());
+
+        Map<?, ?> assignment = readJson("/assignments/t_assign");
+        Assertions.assertEquals("t_assign", assignment.get("tableName"));
+        List<?> replicas = (List<?>) assignment.get("replicas");
+        Assertions.assertEquals(3, replicas.size());
     }
 
     @Test
@@ -107,6 +145,17 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void getTableLocationOnStandbyShouldReturnRedirectPlaceholder() throws Exception {
+        writeActiveMaster("master-2", "master-2:8081");
+
+        TableLocation location = service.getTableLocation("t_standby");
+
+        Assertions.assertEquals("NOT_LEADER", location.getTableStatus());
+        Assertions.assertEquals("master-2:8081", location.getPrimaryRS().getHost());
+        Assertions.assertEquals(-1L, location.getVersion());
+    }
+
+    @Test
     void listMethodsShouldReturnEmptyWhenNoData() throws Exception {
         List<TableLocation> tables = service.listTables();
         Assertions.assertTrue(tables.isEmpty());
@@ -115,9 +164,78 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void dropMissingTableShouldReturnTableNotFound() throws Exception {
+        Response response = service.dropTable("missing_table");
+        Assertions.assertEquals(StatusCode.TABLE_NOT_FOUND, response.getCode());
+    }
+
+    @Test
     void createTableShouldReturnRsNotFoundWithoutRegionServer() throws Exception {
         Response response = service.createTable("create table t_no_rs(id int, primary key(id));");
         Assertions.assertEquals(StatusCode.RS_NOT_FOUND, response.getCode());
+    }
+
+    @Test
+    void createTableShouldNotPersistMetadataWhenRemoteDdlFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        ddlExecutor.failOnReplica("rs-1", StatusCode.ERROR, "engine rejected ddl");
+
+        Response response = service.createTable("create table t_fail(id int, primary key(id));");
+
+        Assertions.assertEquals(StatusCode.ERROR, response.getCode());
+        Assertions.assertTrue(response.getMessage().contains("rs-1"));
+        Assertions.assertEquals("TABLE_NOT_FOUND", service.getTableLocation("t_fail").getTableStatus());
+        Assertions.assertTrue(zkClient.checkExists().forPath("/meta/tables/t_fail") == null);
+        Assertions.assertTrue(zkClient.checkExists().forPath("/assignments/t_fail") == null);
+    }
+
+    @Test
+    void dropTableShouldKeepMetadataWhenRemoteDropFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+
+        Response create = service.createTable("create table t_drop_fail(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        ddlExecutor.failOnSqlPrefix("drop table t_drop_fail", StatusCode.ERROR, "drop failed");
+        Response drop = service.dropTable("t_drop_fail");
+
+        Assertions.assertEquals(StatusCode.ERROR, drop.getCode());
+        Assertions.assertNotNull(service.getTableLocation("t_drop_fail"));
+        Assertions.assertNotNull(zkClient.checkExists().forPath("/meta/tables/t_drop_fail"));
+    }
+
+    @Test
+    void getActiveMasterShouldReturnAddressFromZooKeeper() throws Exception {
+        writeActiveMaster("master-9", "master-9:8090");
+        Assertions.assertEquals("master-9:8090", service.getActiveMaster());
+    }
+
+    @Test
+    void triggerRebalanceShouldMoveNonPrimaryReplicaToLeastLoadedNode() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_rebalance(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 10);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        Response rebalance = service.triggerRebalance();
+
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+
+        TableLocation location = service.getTableLocation("t_rebalance");
+        Assertions.assertEquals(List.of("rs-1", "rs-3", "rs-4"),
+                location.getReplicas().stream().map(RegionServerInfo::getId).toList());
+        Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op -> op.method.equals("pause")));
+        Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op -> op.method.equals("transfer")));
+        Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op -> op.method.equals("delete")));
+        Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op -> op.method.equals("resume")));
     }
 
     private void createPathIfMissing(String path) throws Exception {
@@ -153,5 +271,85 @@ class MasterServiceMetadataIntegrationTest {
         } else {
             zkClient.setData().forPath(path, bytes);
         }
+    }
+
+    private Map<?, ?> readJson(String path) throws Exception {
+        byte[] bytes = zkClient.getData().forPath(path);
+        return MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
+    }
+
+    private static class RecordingRegionDdlExecutor implements RegionDdlExecutor {
+
+        private final List<Command> commands = new ArrayList<>();
+        private final Map<String, Response> byReplica = new HashMap<>();
+        private final Map<String, Response> bySqlPrefix = new HashMap<>();
+
+        @Override
+        public Response execute(RegionServerInfo regionServer, String tableName, String ddl) {
+            commands.add(new Command(regionServer.getId(), tableName, ddl));
+            Response replicaResponse = byReplica.get(regionServer.getId());
+            if (replicaResponse != null) {
+                return replicaResponse;
+            }
+            for (Map.Entry<String, Response> entry : bySqlPrefix.entrySet()) {
+                if (ddl.toLowerCase().startsWith(entry.getKey().toLowerCase())) {
+                    return entry.getValue();
+                }
+            }
+            return new Response(StatusCode.OK);
+        }
+
+        void failOnReplica(String replicaId, StatusCode code, String message) {
+            Response response = new Response(code);
+            response.setMessage(message);
+            byReplica.put(replicaId, response);
+        }
+
+        void failOnSqlPrefix(String sqlPrefix, StatusCode code, String message) {
+            Response response = new Response(code);
+            response.setMessage(message);
+            bySqlPrefix.put(sqlPrefix, response);
+        }
+    }
+
+    private record Command(String replicaId, String tableName, String sql) {
+    }
+
+    private static class RecordingRegionAdminExecutor implements RegionAdminExecutor {
+
+        private final List<AdminOperation> operations = new ArrayList<>();
+
+        @Override
+        public Response pauseTableWrite(RegionServerInfo regionServer, String tableName) {
+            operations.add(new AdminOperation("pause", regionServer.getId(), tableName, null));
+            return new Response(StatusCode.OK);
+        }
+
+        @Override
+        public Response resumeTableWrite(RegionServerInfo regionServer, String tableName) {
+            operations.add(new AdminOperation("resume", regionServer.getId(), tableName, null));
+            return new Response(StatusCode.OK);
+        }
+
+        @Override
+        public Response transferTable(RegionServerInfo source, String tableName, RegionServerInfo target) {
+            operations.add(new AdminOperation("transfer", source.getId(), tableName, target.getId()));
+            return new Response(StatusCode.OK);
+        }
+
+        @Override
+        public Response deleteLocalTable(RegionServerInfo regionServer, String tableName) {
+            operations.add(new AdminOperation("delete", regionServer.getId(), tableName, null));
+            return new Response(StatusCode.OK);
+        }
+
+        @Override
+        public Response invalidateClientCache(RegionServerInfo regionServer, String tableName) {
+            operations.add(new AdminOperation("invalidate", regionServer.getId(), tableName, null));
+            return new Response(StatusCode.OK);
+        }
+    }
+
+    private record AdminOperation(String method, String replicaId, String tableName, String targetReplicaId) {
     }
 }

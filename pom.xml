@@ -172,6 +172,7 @@
                     <version>3.2.3</version>
                     <configuration>
                         <useModulePath>false</useModulePath>
+                        <argLine>-Dnet.bytebuddy.experimental=true</argLine>
                     </configuration>
                 </plugin>
                 <plugin>

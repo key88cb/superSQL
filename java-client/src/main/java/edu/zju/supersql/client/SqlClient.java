@@ -33,8 +33,6 @@ public class SqlClient {
     private static final Pattern TABLE_NAME_PATTERN =
             Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final int MASTER_TIMEOUT_MS  = 5_000;
-    private static final int REGION_TIMEOUT_MS  = 10_000;
 
     enum SqlKind { DDL, DML, SHOW_TABLES, UNKNOWN }
 
@@ -58,8 +56,8 @@ public class SqlClient {
     static String readActiveMaster(CuratorFramework zkClient, String fallback) {
         if (zkClient == null) return fallback;
         try {
-            if (zkClient.checkExists().forPath("/active-master") == null) return fallback;
-            byte[] bytes = zkClient.getData().forPath("/active-master");
+            if (zkClient.checkExists().forPath(ZkPaths.ACTIVE_MASTER) == null) return fallback;
+            byte[] bytes = zkClient.getData().forPath(ZkPaths.ACTIVE_MASTER);
             if (bytes == null || bytes.length == 0) return fallback;
             Map<?, ?> node = MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
             Object address = node.get("address");
@@ -73,12 +71,13 @@ public class SqlClient {
     }
 
     public static void main(String[] args) throws IOException {
-        String zkConnect      = System.getenv().getOrDefault("ZK_CONNECT",  "zk1:2181,zk2:2181,zk3:2181");
-        String masterFallback = System.getenv().getOrDefault("MASTER_ADDR", "master-1:8080");
+        ClientConfig config = ClientConfig.fromSystemEnv();
+        String zkConnect = config.zkConnect();
+        String masterFallback = config.masterFallback();
         log.info("SuperSQL Client starting, ZK={}", zkConnect);
 
         CuratorFramework zkClient = null;
-        RouteCache routeCache = new RouteCache(30_000);
+        RouteCache routeCache = new RouteCache(config.cacheTtlMs());
         String activeMaster = masterFallback;
 
         try {
@@ -127,7 +126,7 @@ public class SqlClient {
                 }
 
                 try {
-                    handleSql(line, finalActiveMaster, routeCache);
+                    handleSql(line, finalActiveMaster, routeCache, config);
                 } catch (Exception e) {
                     System.out.println("Error: " + e.getMessage());
                     log.debug("SQL execution error", e);
@@ -142,19 +141,19 @@ public class SqlClient {
 
     // ─────────────────────── routing ──────────────────────────────────────────
 
-    static void handleSql(String sql, String activeMaster, RouteCache routeCache) throws Exception {
+    static void handleSql(String sql, String activeMaster, RouteCache routeCache, ClientConfig config) throws Exception {
         SqlKind kind = classifySql(sql);
 
         switch (kind) {
-            case SHOW_TABLES -> handleShowTables(activeMaster);
-            case DDL         -> handleDdl(sql, activeMaster, routeCache);
-            case DML         -> handleDml(sql, activeMaster, routeCache);
+            case SHOW_TABLES -> handleShowTables(activeMaster, config);
+            case DDL         -> handleDdl(sql, activeMaster, routeCache, config);
+            case DML         -> handleDml(sql, activeMaster, routeCache, config);
             default          -> System.out.println("Unknown SQL: " + sql);
         }
     }
 
-    private static void handleShowTables(String activeMaster) throws Exception {
-        try (MasterRpcClient master = MasterRpcClient.fromAddress(activeMaster, MASTER_TIMEOUT_MS)) {
+    private static void handleShowTables(String activeMaster, ClientConfig config) throws Exception {
+        try (MasterRpcClient master = MasterRpcClient.fromAddress(activeMaster, config.masterRpcTimeoutMs())) {
             List<TableLocation> tables = master.listTables();
             if (tables == null || tables.isEmpty()) {
                 System.out.println("(no tables)");
@@ -170,38 +169,37 @@ public class SqlClient {
         }
     }
 
-    private static void handleDdl(String sql, String activeMaster, RouteCache routeCache) throws Exception {
+    private static void handleDdl(String sql, String activeMaster, RouteCache routeCache, ClientConfig config) throws Exception {
         String normalized = sql.trim().toLowerCase();
-        try (MasterRpcClient master = MasterRpcClient.fromAddress(activeMaster, MASTER_TIMEOUT_MS)) {
-            Response r;
-            if (normalized.startsWith("create table")) {
-                r = master.createTable(sql);
-            } else if (normalized.startsWith("drop table")) {
-                String tableName = extractTableName(sql);
-                if (tableName != null) routeCache.invalidate(tableName);
-                r = master.dropTable(tableName != null ? tableName : sql);
-            } else {
-                // Other DDL (CREATE INDEX, DROP INDEX) — forward to region if table name known
-                String tableName = extractTableName(sql);
-                if (tableName != null) {
-                    TableLocation loc = resolveLocation(tableName, activeMaster, routeCache);
-                    try (RegionRpcClient region = RegionRpcClient.fromInfo(loc.getPrimaryRS(), REGION_TIMEOUT_MS)) {
-                        if (normalized.startsWith("drop index")) {
-                            String indexName = extractIndexName(sql);
-                            r = region.dropIndex(tableName, indexName != null ? indexName : sql);
-                        } else {
-                            r = region.createIndex(tableName, sql);
-                        }
+        Response r;
+        if (normalized.startsWith("create table")) {
+            r = invokeMasterResponseWithRedirect(activeMaster, config, master -> master.createTable(sql));
+        } else if (normalized.startsWith("drop table")) {
+            String tableName = extractTableName(sql);
+            if (tableName != null) routeCache.invalidate(tableName);
+            String target = tableName != null ? tableName : sql;
+            r = invokeMasterResponseWithRedirect(activeMaster, config, master -> master.dropTable(target));
+        } else {
+            // Other DDL (CREATE INDEX, DROP INDEX) — forward to region if table name known
+            String tableName = extractTableName(sql);
+            if (tableName != null) {
+                TableLocation loc = resolveLocation(tableName, activeMaster, routeCache, config);
+                try (RegionRpcClient region = RegionRpcClient.fromInfo(loc.getPrimaryRS(), config.regionRpcTimeoutMs())) {
+                    if (normalized.startsWith("drop index")) {
+                        String indexName = extractIndexName(sql);
+                        r = region.dropIndex(tableName, indexName != null ? indexName : sql);
+                    } else {
+                        r = region.createIndex(tableName, sql);
                     }
-                } else {
-                    r = master.createTable(sql); // best-effort fallback
                 }
+            } else {
+                r = invokeMasterResponseWithRedirect(activeMaster, config, master -> master.createTable(sql));
             }
-            printResponse(r);
         }
+        printResponse(r);
     }
 
-    private static void handleDml(String sql, String activeMaster, RouteCache routeCache)
+    private static void handleDml(String sql, String activeMaster, RouteCache routeCache, ClientConfig config)
             throws Exception {
         String tableName = extractTableName(sql);
         if (tableName == null) {
@@ -209,17 +207,17 @@ public class SqlClient {
             return;
         }
 
-        TableLocation loc = resolveLocation(tableName, activeMaster, routeCache);
+        TableLocation loc = resolveLocation(tableName, activeMaster, routeCache, config);
 
-        try (RegionRpcClient region = RegionRpcClient.fromInfo(loc.getPrimaryRS(), REGION_TIMEOUT_MS)) {
+        try (RegionRpcClient region = RegionRpcClient.fromInfo(loc.getPrimaryRS(), config.regionRpcTimeoutMs())) {
             QueryResult result = region.execute(tableName, sql);
 
             // Handle redirect: primary RS has moved
             if (result.getStatus().getCode() == StatusCode.REDIRECT) {
                 log.info("REDIRECT received for table={}, invalidating cache", tableName);
                 routeCache.invalidate(tableName);
-                loc = resolveLocation(tableName, activeMaster, routeCache);
-                try (RegionRpcClient retry = RegionRpcClient.fromInfo(loc.getPrimaryRS(), REGION_TIMEOUT_MS)) {
+                loc = resolveLocation(tableName, activeMaster, routeCache, config);
+                try (RegionRpcClient retry = RegionRpcClient.fromInfo(loc.getPrimaryRS(), config.regionRpcTimeoutMs())) {
                     result = retry.execute(tableName, sql);
                 }
             }
@@ -235,12 +233,10 @@ public class SqlClient {
     }
 
     private static TableLocation resolveLocation(String tableName, String activeMaster,
-                                                   RouteCache routeCache) throws Exception {
+                                                   RouteCache routeCache, ClientConfig config) throws Exception {
         TableLocation loc = routeCache.get(tableName);
         if (loc == null) {
-            try (MasterRpcClient master = MasterRpcClient.fromAddress(activeMaster, MASTER_TIMEOUT_MS)) {
-                loc = master.getTableLocation(tableName);
-            }
+            loc = fetchTableLocationWithRedirect(activeMaster, tableName, config);
             if (loc != null) {
                 routeCache.put(tableName, loc);
             } else {
@@ -309,5 +305,50 @@ public class SqlClient {
     private static String extractIndexName(String sql) {
         Matcher m = INDEX_NAME_PATTERN.matcher(sql.trim());
         return m.find() ? m.group(1) : null;
+    }
+
+    @FunctionalInterface
+    interface MasterResponseCall {
+        Response call(MasterRpcClient master) throws Exception;
+    }
+
+    static Response invokeMasterResponseWithRedirect(String activeMaster,
+                                                     ClientConfig config,
+                                                     MasterResponseCall call) throws Exception {
+        String currentMaster = activeMaster;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try (MasterRpcClient master = MasterRpcClient.fromAddress(currentMaster, config.masterRpcTimeoutMs())) {
+                Response response = call.call(master);
+                if (response != null
+                        && response.getCode() == StatusCode.NOT_LEADER
+                        && response.isSetRedirectTo()
+                        && !response.getRedirectTo().isBlank()) {
+                    currentMaster = response.getRedirectTo();
+                    continue;
+                }
+                return response;
+            }
+        }
+        throw new IOException("Master redirect retries exhausted for " + activeMaster);
+    }
+
+    static TableLocation fetchTableLocationWithRedirect(String activeMaster,
+                                                        String tableName,
+                                                        ClientConfig config) throws Exception {
+        String currentMaster = activeMaster;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try (MasterRpcClient master = MasterRpcClient.fromAddress(currentMaster, config.masterRpcTimeoutMs())) {
+                TableLocation location = master.getTableLocation(tableName);
+                if (location != null && "NOT_LEADER".equals(location.getTableStatus())) {
+                    String redirect = location.isSetPrimaryRS() ? location.getPrimaryRS().getHost() : null;
+                    if (redirect != null && !redirect.isBlank()) {
+                        currentMaster = redirect;
+                        continue;
+                    }
+                }
+                return location;
+            }
+        }
+        throw new IOException("Table location redirect retries exhausted for " + tableName);
     }
 }

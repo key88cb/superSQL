@@ -12,12 +12,15 @@ import java.util.concurrent.TimeUnit;
  */
 public class MiniSqlProcess {
     private static final Logger log = LoggerFactory.getLogger(MiniSqlProcess.class);
+    private static final long MONITOR_INTERVAL_MS = 1_000L;
     
     private Process process;
     private BufferedWriter stdin;
     private BufferedReader stdout;
-    private String dataDir;
-    private String binPath;
+    private final String dataDir;
+    private final String binPath;
+    private volatile boolean desiredRunning;
+    private Thread monitorThread;
 
     public MiniSqlProcess(String binPath, String dataDir) {
         this.binPath = binPath;
@@ -28,6 +31,12 @@ public class MiniSqlProcess {
      * Starts the MiniSQL process and triggers self-recovery.
      */
     public synchronized void start() throws IOException {
+        desiredRunning = true;
+        startMonitorIfNeeded();
+        startProcessIfNeeded();
+    }
+
+    private void startProcessIfNeeded() throws IOException {
         if (process != null && process.isAlive()) {
             return;
         }
@@ -64,9 +73,44 @@ public class MiniSqlProcess {
         } else {
             throw new IOException("Failed to start MiniSQL engine: Unexpected EOF");
         }
-        
-        // Start a thread to keep logging engine output in background if needed
-        // For now, we manually read it in execute()
+    }
+
+    private void startMonitorIfNeeded() {
+        if (monitorThread != null) {
+            return;
+        }
+        monitorThread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(MONITOR_INTERVAL_MS);
+                    recoverIfCrashed();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }, "MiniSqlProcess-Monitor");
+        monitorThread.setDaemon(true);
+        monitorThread.start();
+    }
+
+    private synchronized void recoverIfCrashed() {
+        if (!desiredRunning || process == null || process.isAlive()) {
+            return;
+        }
+        int exitCode;
+        try {
+            exitCode = process.exitValue();
+        } catch (IllegalThreadStateException e) {
+            return;
+        }
+        log.warn("MiniSQL engine exited unexpectedly with code {}. Restarting...", exitCode);
+        cleanupHandles();
+        process = null;
+        try {
+            startProcessIfNeeded();
+        } catch (IOException e) {
+            log.error("Failed to restart MiniSQL engine after crash: {}", e.getMessage(), e);
+        }
     }
 
     /**
@@ -94,6 +138,14 @@ public class MiniSqlProcess {
         return output.toString();
     }
 
+    public synchronized void restart() throws IOException {
+        log.info("Restarting MiniSQL engine...");
+        desiredRunning = true;
+        destroyProcess();
+        startMonitorIfNeeded();
+        startProcessIfNeeded();
+    }
+
     /**
      * Triggers a checkpoint and returns the reported LSN.
      * Returns -1 if checkpoint failed.
@@ -115,23 +167,50 @@ public class MiniSqlProcess {
     }
 
     public synchronized void stop() {
-        if (process != null) {
-            log.info("Stopping MiniSQL engine...");
-            try {
-                stdin.write("exit;");
-                stdin.newLine();
-                stdin.flush();
-                if (!process.waitFor(5, TimeUnit.SECONDS)) {
-                    process.destroy();
-                }
-            } catch (Exception e) {
-                process.destroy();
-            }
-            process = null;
-        }
+        desiredRunning = false;
+        destroyProcess();
     }
 
     public boolean isAlive() {
         return process != null && process.isAlive();
+    }
+
+    private void destroyProcess() {
+        if (process == null) {
+            return;
+        }
+        log.info("Stopping MiniSQL engine...");
+        try {
+            if (stdin != null) {
+                stdin.write("exit;");
+                stdin.newLine();
+                stdin.flush();
+            }
+            if (!process.waitFor(5, TimeUnit.SECONDS)) {
+                process.destroy();
+            }
+        } catch (Exception e) {
+            process.destroy();
+        } finally {
+            cleanupHandles();
+            process = null;
+        }
+    }
+
+    private void cleanupHandles() {
+        closeQuietly(stdout);
+        closeQuietly(stdin);
+        stdout = null;
+        stdin = null;
+    }
+
+    private static void closeQuietly(Closeable closeable) {
+        if (closeable == null) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (IOException ignored) {
+        }
     }
 }

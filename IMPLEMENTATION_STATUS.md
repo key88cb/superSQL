@@ -15,9 +15,17 @@
 - LeaderLatch 选主：当选时更新 `/active-master`，epoch CAS 防脑裂。
 - Active Master 心跳：每 5 秒更新 `/masters/active-heartbeat`。
 - `/masters` Watcher：CuratorCache 监听在线 Master 节点变化。
+- `/region_servers` Watcher：已通过 `RegionServerWatcher` 监听 RS 上线、更新、下线事件。
 - HTTP 管理端点：`GET /health` 与 `GET /status` 返回 JSON（含角色信息）。
-- getTableLocation / createTable / dropTable / listRegionServers / listTables — 完整 ZooKeeper 元数据读写。
+- 已抽出 `MetaManager` / `AssignmentManager` / `LoadBalancer`，支持 Master 元数据与分配读写。
+- getTableLocation / createTable / dropTable / listRegionServers / listTables 已支持 ZooKeeper 元数据读写。
+- createTable / dropTable 已通过真实 Thrift 调用把 DDL 转发到 RegionServer，再在成功后更新 ZooKeeper 元数据。
+- `triggerRebalance()` 已具备最小可用迁移闭环：可把热点节点上的一个非主副本迁往更空闲节点，并更新 `/meta/tables` 与 `/assignments`。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
+
+当前限制：
+- 当前 rebalance 仍是最小可用版本，尚未形成完整定时调度器 + RegionMigrator + 故障恢复闭环。
+- 当前选主与脑裂防护已跑通基础路径，尚未补全网络分区/抖动场景下的混沌验证。
 
 ## 2. RegionServer 侧已实现内容
 
@@ -33,20 +41,20 @@
 
 已落地能力：
 - 启动时在 `/region_servers/{rsId}` 注册节点，每 10 秒上报心跳。
-- **完整 WAL 持久化**：二进制格式 `[8B lsn][8B txnId][1B opType][4B sqlLen][payload]`，每表一个 `.wal` 文件，`FileChannel.force(false)` 保证落盘。启动时扫描 `.wal` 文件恢复全局 LSN。
-- **WriteGuard**：per-table 写入暂停（用于 Region 迁移），支持 `pause/resume/awaitWritable`。
-- **ReplicaManager**：主侧通过 `TFramedTransport + TMultiplexedProtocol` 并发 sync 到副本（CompletableFuture 半同步），commitOnReplicas 异步 fire-and-forget。
-- **RegionServiceImpl 完整写路径**：
-  1. WriteGuard 检查（返回 MOVING 时不执行）
-  2. WAL append（nextLsn → appendEntry）
-  3. ReplicaManager.syncToReplicas（等待 ≥1 ACK）
-  4. MiniSQL 本地执行
-  5. ReplicaManager.commitOnReplicas（异步）
-  6. WAL 写计数检查，触发异步 Checkpoint
-- **RegionServiceImpl 读路径**：直接 MiniSQL 执行，跳过 WAL 与 replica sync。
-- **executeBatch**：按序执行，遇到错误立即停止。
-- **RegionAdminServiceImpl**：pauseTableWrite / resumeTableWrite / deleteLocalTable（删本地文件 + ZK assignment 节点）/ invalidateClientCache / transferTable（流式传输 4KB DataChunk） / copyTableData（写入指定 offset）。
-- **ReplicaSyncServiceImpl**：内存 WAL（ConcurrentSkipListMap）+ commitLog 回放 SQL 到副本 MiniSQL。
+- `MiniSqlProcess` 已支持崩溃后自动重启和显式 restart。
+- 持久化 WAL 基础能力：按表写入 `.wal` 文件，启动时扫描 WAL 恢复全局 LSN。
+- WriteGuard：per-table 写入暂停/恢复（用于迁移中的 MOVING 保护）。
+- ReplicaManager：主侧通过 Thrift 并发 sync 到副本，支持半同步等待与异步 commit。
+- RegionServiceImpl 已实现基础写路径：WriteGuard 检查、WAL append、副本 sync、本地 MiniSQL 执行、异步 commit、checkpoint 计数。
+- RegionServiceImpl 已实现基础读路径：直接 MiniSQL 执行，跳过 WAL 与 replica sync。
+- executeBatch：按序执行，遇错即停。
+- RegionAdminServiceImpl 已实现 pause/resume、deleteLocalTable、invalidateClientCache、transferTable、copyTableData 的基础路径。
+- ReplicaSyncServiceImpl 已支持内存/本地结合的基础同步路径、pullLog 与 commitLog 回放。
+
+当前限制：
+- WAL、ReplicaManager 与 ReplicaSyncService 还没有完全达到计划中的 Crash Recovery 与多数派复制最终形态。
+- Region 迁移、主副本晋升、恢复 3 副本等自治能力还未打通完整闭环。
+- transfer/copyTableData 已有基础实现，但尚未形成完整迁移协议。
 
 ## 3. Client 侧已实现内容
 
@@ -57,56 +65,79 @@
 - java-client/src/main/java/edu/zju/supersql/client/RegionRpcClient.java
 
 已落地能力：
-- **MasterRpcClient**：AutoCloseable Thrift 封装，`fromAddress("host:port", timeoutMs)`，支持 getTableLocation / createTable / dropTable / listTables / listRegionServers / getActiveMaster。
-- **RegionRpcClient**：AutoCloseable Thrift 封装，`fromInfo(RegionServerInfo, timeoutMs)` / `fromAddress(hostPort, timeoutMs)`，支持 execute / executeBatch / createIndex / dropIndex / ping。
-- **SqlClient REPL 完整路由**：
-  - DDL → MasterRpcClient（createTable / dropTable，其他 DDL 转发到 RegionRpcClient）
-  - DML → RouteCache 查 TableLocation → RegionRpcClient.execute；REDIRECT 时自动失效缓存重试；MOVING 时提示用户重试。
-  - SHOW TABLES → MasterRpcClient.listTables()，格式化打印表列表。
-- printQueryResult 支持打印列名、分隔符、行数据、affected rows。
-- 路由缓存 TTL = 30 秒，版本失效支持。
+- MasterRpcClient：已封装 getTableLocation / createTable / dropTable / listTables / listRegionServers / getActiveMaster。
+- RegionRpcClient：已封装 execute / executeBatch / createIndex / dropIndex / ping。
+- SqlClient REPL 已具备基础真实路由：
+  - DDL -> MasterRpcClient（createTable / dropTable）
+  - DML -> RouteCache -> RegionRpcClient.execute
+  - SHOW TABLES -> MasterRpcClient.listTables
+- 已支持 Master `NOT_LEADER` 自动重定向。
+- 路由缓存支持 TTL 与版本失效。
+- 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
+
+当前限制：
+- MOVING 时目前仍偏基础重试/提示逻辑，尚未达到完整迁移透明体验。
+- 主副本不可达后的读故障转移、缓存主动失效广播仍未落地。
 
 ## 4. 已落地测试
 
-Master（14 个测试）：
-- LeaderElectorTest, MasterHeartbeatIntegrationTest, MasterServerHttpPayloadTest
-- MasterServiceImplTest, MasterServiceMetadataIntegrationTest
+Master：
+- LeaderElectorTest
+- MasterHeartbeatIntegrationTest
+- MasterServerHttpPayloadTest
+- MasterServiceImplTest
+- MasterServiceMetadataIntegrationTest
+- MasterRuntimeContextIntegrationTest
+- RegionServerWatcherIntegrationTest
+- MetaManagerIntegrationTest
+- LoadBalancerTest
+- MasterRegionDdlForwardingIntegrationTest
+- RebalanceLoggingConsistencyTest
 
-RegionServer（41 个测试）：
-- WalManagerTest（round-trip / LSN 恢复 / checkpoint 检测 / per-table 隔离）
-- WriteGuardTest（pause/resume / awaitWritable 解除阻塞）
-- ReplicaManagerTest（内嵌 Thrift 服务端 / ACK 计数 / 超时处理）
-- RegionServiceImplTest（写路径 WAL+sync+execute / 读路径跳过 WAL / MOVING / LSN 单调 / batch）
-- RegionAdminServiceImplTest（pause/resume / 文件删除 / copyTableData offset 写入）
-- ReplicaSyncServiceImplTest（syncLog / commitLog SQL 回放 / pullLog 排序）
+RegionServer：
+- MiniSqlProcessTest
+- WalManagerTest
+- WriteGuardTest
+- ReplicaManagerTest
+- RegionServiceImplTest
+- RegionAdminServiceImplTest
+- ReplicaSyncServiceImplTest
 - RegionServerRegistrarIntegrationTest
+- OutputParserTest
 
-Client（15 个测试）：
-- MasterRpcClientTest（内嵌 Thrift 服务端验证所有方法）
-- RegionRpcClientTest（ping / execute / executeBatch / fromInfo）
-- SqlClientRoutingTest（classifySql / extractTableName / ZK active-master 读取 / RouteCache TTL）
+Client：
+- ClientConfigTest
+- MasterRpcClientTest
+- RegionRpcClientTest
+- SqlClientRedirectTest
+- CreateInsertSelectFunctionalTest
+- SqlClientRoutingTest
+- RouteCacheAndDiscoveryTest
+
+新增 TDD 规格测试（默认 `@Disabled`）：
+- java-master/src/test/java/edu/zju/supersql/master/rpc/MasterPlannedFeaturesTddTest.java
+- java-regionserver/src/test/java/edu/zju/supersql/regionserver/rpc/RegionPlannedFeaturesTddTest.java
+- java-client/src/test/java/edu/zju/supersql/client/SqlClientPlannedFeaturesTddTest.java
 
 执行方式：
 ```bash
-# 从仓库根目录运行全部测试（先安装依赖）
-mvn install -N -DskipTests
-mvn install -pl rpc-proto,test-common -DskipTests
-mvn test -pl java-master,java-regionserver,java-client
+# 从仓库根目录运行全部测试
+mvn test -DskipTests=false
 ```
+
+说明：
+- 集成测试使用 Curator TestingServer 启动内嵌 ZooKeeper，验证真实节点读写语义。
+- 2026-04-10 已补充覆盖：active-master bootstrap/回退、三副本元数据分配与 assignments 持久化、OutputParser 成功/错误/结果集解析、RegionService 执行与 checkpoint 触发、Client discovery 回退路径、Master->RS DDL 转发、CREATE->INSERT->SELECT 功能流、rebalance 日志与元数据一致性、MiniSqlProcess 自动重启。
+- 2026-04-10 已新增一批 `@Disabled` 的 TDD 规格测试，用于提前钉住未实现功能的期望行为，包括 rebalance、executeBatch、索引分布式传播、Client redirect/MOVING 重试等。
+- 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
+- 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 
 ## 5. Docker 集群启动
 
 ```bash
 docker compose up -d --build
-docker compose ps   # 检查各容器健康状态
+docker compose ps
 
 # 连接交互式 REPL
 docker exec -it client java -jar /app/client.jar
-
-# REPL 示例命令
-SuperSQL> create table test(id int, name char(20), primary key(id));
-SuperSQL> insert into test values(1, "hello");
-SuperSQL> select * from test where id = 1;
-SuperSQL> show tables;
-SuperSQL> drop table test;
 ```

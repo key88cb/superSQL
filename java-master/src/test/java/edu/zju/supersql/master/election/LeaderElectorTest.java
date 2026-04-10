@@ -113,6 +113,14 @@ class LeaderElectorTest {
         try {
             e1.start();
             waitUntil(Duration.ofSeconds(5), e1::isLeader);
+            waitUntil(Duration.ofSeconds(5), () -> {
+                try {
+                    Map<?, ?> active = readActiveMaster(zk1);
+                    return ((Number) active.get("epoch")).longValue() == 10L;
+                } catch (Exception ignored) {
+                    return false;
+                }
+            });
 
             Map<?, ?> active = readActiveMaster(zk1);
             long epoch = ((Number) active.get("epoch")).longValue();
