@@ -200,13 +200,60 @@ public class WalManager {
     }
 
     /**
+     * S4-05: Recovers state from WAL files after a crash.
+     * Replays entries with LSN > checkpointLsn.
+     */
+    public void recover(MiniSqlProcess process) {
+        log.info("Starting Crash Recovery from WAL logs...");
+        try {
+            long checkpointLsn = process.checkpoint(); // Gets the persisted safe watermark from engine
+            log.info("Current persisted PageLSN (watermark) is: {}", checkpointLsn);
+
+            File dir = new File(walDir);
+            File[] files = dir.listFiles((d, name) -> name.endsWith(".wal"));
+            
+            if (files == null || files.length == 0) {
+                log.info("No WAL files found. Recovery complete.");
+                return;
+            }
+
+            int recoveredCount = 0;
+            // Iterate over all table files
+            for (File file : files) {
+                String tableName = file.getName().replace(".wal", "");
+                List<WalEntry> entriesToReplay = readEntriesAfter(tableName, checkpointLsn + 1);
+                
+                for (WalEntry entry : entriesToReplay) {
+                    if (entry.getAfterRow() != null) {
+                        String rawSql = new String(entry.getAfterRow(), StandardCharsets.UTF_8);
+                        log.info("REDO LSN {}: {}", entry.getLsn(), rawSql);
+                        process.execute(rawSql);
+                        recoveredCount++;
+                    }
+                }
+            }
+
+            log.info("Crash Recovery finished. Replayed {} missing entries.", recoveredCount);
+
+            if (recoveredCount > 0) {
+                // Force sync the newly recovered state back to disk
+                log.info("Triggering checkpoint to persist recovered state...");
+                performCheckpoint(process);
+            }
+
+        } catch (Exception e) {
+            log.error("Critical error during Crash Recovery: ", e);
+        }
+    }
+
+    /**
      * Performs a WAL checkpoint:
      * <ol>
      *   <li>Calls C++ engine {@code checkpoint;} to flush dirty pages and get the current LSN.</li>
      *   <li>Physically deletes WAL files whose max LSN is below the checkpoint LSN.</li>
      * </ol>
      */
-    public void performCheckpoint(MiniSqlProcess process) {
+    public synchronized void performCheckpoint(MiniSqlProcess process) {
         log.info("Starting WAL checkpoint (writeCount={})...", writeCount.get());
         try {
             long checkpointLsn = process.checkpoint();
