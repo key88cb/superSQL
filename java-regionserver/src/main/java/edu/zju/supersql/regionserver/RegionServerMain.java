@@ -95,9 +95,11 @@ public class RegionServerMain {
         MiniSqlProcess miniSql = new MiniSqlProcess(miniSqlBin, dataDir);
         try {
             miniSql.start();
+            // S4-05: 触发核心崩溃恢复 (Crash Recovery) 重放机制
+            walManager.recover(miniSql);
             log.info("RegionServer engine recovery sequence completed.");
         } catch (Exception e) {
-            log.error("CRITICAL: Failed to start MiniSql engine during recovery: {}", e.getMessage());
+            log.error("CRITICAL: Failed to start MiniSql engine or recover data: {}", e.getMessage());
             System.exit(1);
         }
 
