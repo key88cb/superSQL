@@ -35,6 +35,7 @@ COPY rpc-proto/${THRIFT_IDL} rpc-proto/${THRIFT_IDL}
 COPY java-master/pom.xml java-master/pom.xml
 COPY java-regionserver/pom.xml java-regionserver/pom.xml
 COPY java-client/pom.xml java-client/pom.xml
+COPY test-common/pom.xml test-common/pom.xml
 
 # 把生成的 stubs 复制进来
 COPY --from=thrift-gen /gen/src/main/java/ rpc-proto/src/main/java/
@@ -42,15 +43,16 @@ COPY --from=thrift-gen /gen/src/main/java/ rpc-proto/src/main/java/
 # 先安装父 pom（-N = 非递归，只安装 parent，不构建子模块）
 RUN mvn -N install -DskipTests -B --no-transfer-progress
 
-# 编译 rpc-proto 并安装到本地 Maven 仓库
+# 编译 rpc-proto 与 test-common 并安装到本地 Maven 仓库
 RUN mvn -pl rpc-proto install -DskipTests -B --no-transfer-progress
+RUN mvn -pl test-common install -DskipTests -B --no-transfer-progress
 
 # java-master 依赖下载（利用 layer cache）
 RUN mvn -pl ${MODULE_NAME} dependency:go-offline -B --no-transfer-progress 2>/dev/null || true
 
 # 编译打包
 COPY ${MODULE_NAME}/src ${MODULE_NAME}/src
-RUN mvn -pl ${MODULE_NAME} package -DskipTests -B --no-transfer-progress
+RUN mvn -pl ${MODULE_NAME} package -Dmaven.test.skip=true -B --no-transfer-progress
 
 # -------- Stage 3: 运行时镜像 ------------------------------------
 FROM eclipse-temurin:17-jre-noble

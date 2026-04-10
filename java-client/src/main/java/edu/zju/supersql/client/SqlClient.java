@@ -1,7 +1,7 @@
 package edu.zju.supersql.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import edu.zju.supersql.rpc.TableLocation;
+import edu.zju.supersql.rpc.*;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.regex.Matcher;
@@ -19,12 +20,12 @@ import java.util.regex.Pattern;
 /**
  * SuperSQL interactive REPL client.
  *
- * Startup sequence:
- *   1. Connect to ZooKeeper; read /active-master to discover Active Master.
- *   2. REPL loop: DDL → MasterRpcClient, DML → RegionRpcClient via RouteCache.
- *
- * Sprint 3 will implement full routing; this skeleton keeps the process alive
- * and confirms ZK connectivity so the Docker environment can be validated.
+ * <p>Routing rules:
+ * <ul>
+ *   <li>DDL (CREATE TABLE / DROP TABLE) → MasterService</li>
+ *   <li>DML (SELECT / INSERT / UPDATE / DELETE) → RegionService via RouteCache</li>
+ *   <li>SHOW TABLES → MasterService.listTables()</li>
+ * </ul>
  */
 public class SqlClient {
 
@@ -32,61 +33,37 @@ public class SqlClient {
     private static final Pattern TABLE_NAME_PATTERN =
             Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final int MASTER_TIMEOUT_MS  = 5_000;
+    private static final int REGION_TIMEOUT_MS  = 10_000;
 
-    enum SqlKind {
-        DDL,
-        DML,
-        UNKNOWN
-    }
+    enum SqlKind { DDL, DML, SHOW_TABLES, UNKNOWN }
 
     static SqlKind classifySql(String sql) {
-        if (sql == null || sql.isBlank()) {
-            return SqlKind.UNKNOWN;
-        }
-        String normalized = sql.trim().toLowerCase();
-        if (normalized.startsWith("create")
-                || normalized.startsWith("drop")
-                || normalized.startsWith("alter")
-                || normalized.startsWith("truncate")) {
-            return SqlKind.DDL;
-        }
-        if (normalized.startsWith("select")
-                || normalized.startsWith("insert")
-                || normalized.startsWith("update")
-                || normalized.startsWith("delete")) {
-            return SqlKind.DML;
-        }
+        if (sql == null || sql.isBlank()) return SqlKind.UNKNOWN;
+        String s = sql.trim().toLowerCase();
+        if (s.startsWith("show tables")) return SqlKind.SHOW_TABLES;
+        if (s.startsWith("create") || s.startsWith("drop") || s.startsWith("alter")
+                || s.startsWith("truncate")) return SqlKind.DDL;
+        if (s.startsWith("select") || s.startsWith("insert")
+                || s.startsWith("update") || s.startsWith("delete")) return SqlKind.DML;
         return SqlKind.UNKNOWN;
     }
 
     static String extractTableName(String sql) {
-        if (sql == null) {
-            return null;
-        }
-        Matcher matcher = TABLE_NAME_PATTERN.matcher(sql.trim());
-        if (matcher.find()) {
-            return matcher.group(2);
-        }
-        return null;
+        if (sql == null) return null;
+        Matcher m = TABLE_NAME_PATTERN.matcher(sql.trim());
+        return m.find() ? m.group(2) : null;
     }
 
     static String readActiveMaster(CuratorFramework zkClient, String fallback) {
-        if (zkClient == null) {
-            return fallback;
-        }
+        if (zkClient == null) return fallback;
         try {
-            if (zkClient.checkExists().forPath("/active-master") == null) {
-                return fallback;
-            }
+            if (zkClient.checkExists().forPath("/active-master") == null) return fallback;
             byte[] bytes = zkClient.getData().forPath("/active-master");
-            if (bytes == null || bytes.length == 0) {
-                return fallback;
-            }
+            if (bytes == null || bytes.length == 0) return fallback;
             Map<?, ?> node = MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
             Object address = node.get("address");
-            if (address != null && !String.valueOf(address).isBlank()) {
-                return String.valueOf(address);
-            }
+            if (address != null && !String.valueOf(address).isBlank()) return String.valueOf(address);
             Object id = node.get("masterId");
             return id == null ? fallback : String.valueOf(id);
         } catch (Exception e) {
@@ -96,14 +73,14 @@ public class SqlClient {
     }
 
     public static void main(String[] args) throws IOException {
-        String zkConnect = System.getenv().getOrDefault("ZK_CONNECT", "zk1:2181,zk2:2181,zk3:2181");
+        String zkConnect      = System.getenv().getOrDefault("ZK_CONNECT",  "zk1:2181,zk2:2181,zk3:2181");
         String masterFallback = System.getenv().getOrDefault("MASTER_ADDR", "master-1:8080");
         log.info("SuperSQL Client starting, ZK={}", zkConnect);
 
-        // ── ZooKeeper connection ───────────────────────────────────────────────
         CuratorFramework zkClient = null;
         RouteCache routeCache = new RouteCache(30_000);
         String activeMaster = masterFallback;
+
         try {
             RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
             zkClient = CuratorFrameworkFactory.builder()
@@ -117,74 +94,220 @@ public class SqlClient {
             boolean connected = zkClient.blockUntilConnected(20, java.util.concurrent.TimeUnit.SECONDS);
             if (connected) {
                 log.info("ZooKeeper connected");
+                activeMaster = readActiveMaster(zkClient, masterFallback);
+                log.info("Discovered active master: {}", activeMaster);
             } else {
-                log.warn("ZooKeeper connection timed out — some features may be unavailable");
+                log.warn("ZooKeeper connection timed out — using fallback master: {}", masterFallback);
             }
-            activeMaster = readActiveMaster(zkClient, masterFallback);
-            log.info("Discovered active master: {}", activeMaster);
         } catch (Exception e) {
             log.warn("ZooKeeper init failed: {} — running in offline mode", e.getMessage());
         }
 
-        // ── REPL ──────────────────────────────────────────────────────────────
-        // Check if running interactively (stdin is a terminal) or as daemon
         boolean interactive = System.console() != null || System.in.available() > 0;
         if (!interactive) {
             log.info("No interactive terminal detected — running in daemon/standby mode");
-            log.info("Attach with: docker exec -it client java -jar /app/client.jar");
-            // Keep alive so Docker considers the container running
             try { Thread.currentThread().join(); } catch (InterruptedException ignored) {}
             return;
         }
 
-        System.out.println("SuperSQL> Connected to cluster (stub mode — SQL execution not yet implemented)");
-        System.out.println("SuperSQL> Type 'exit' or 'quit' to disconnect.");
+        System.out.println("SuperSQL Client connected. Type 'exit' to quit.");
         System.out.print("SuperSQL> ");
         System.out.flush();
+
+        final String finalActiveMaster = activeMaster;
+        final CuratorFramework finalZkClient = zkClient;
 
         try (Scanner sc = new Scanner(System.in)) {
             while (sc.hasNextLine()) {
                 String line = sc.nextLine().trim();
-                if (line.isEmpty()) {
-                    System.out.print("SuperSQL> ");
-                    System.out.flush();
-                    continue;
-                }
+                if (line.isEmpty()) { printPrompt(); continue; }
                 if ("exit".equalsIgnoreCase(line) || "quit".equalsIgnoreCase(line)) {
                     System.out.println("Bye.");
                     break;
                 }
 
-                SqlKind kind = classifySql(line);
-                String tableName = extractTableName(line);
-
-                if (kind == SqlKind.DDL) {
-                    System.out.println("[route] DDL -> Master " + activeMaster + " (not yet executed)");
-                } else if (kind == SqlKind.DML) {
-                    if (tableName == null) {
-                        System.out.println("[route] DML -> unable to infer table name");
-                    } else {
-                        TableLocation loc = routeCache.get(tableName);
-                        if (loc == null) {
-                            System.out.println("[route] cache miss for table '" + tableName + "', query Master "
-                                    + activeMaster + " (not yet executed)");
-                        } else {
-                            System.out.println("[route] cache hit table '" + tableName + "' -> "
-                                    + loc.getPrimaryRS().getHost() + ":" + loc.getPrimaryRS().getPort()
-                                    + " (not yet executed)");
-                        }
-                    }
-                } else {
-                    System.out.println("[route] unknown SQL kind: " + line);
+                try {
+                    handleSql(line, finalActiveMaster, routeCache);
+                } catch (Exception e) {
+                    System.out.println("Error: " + e.getMessage());
+                    log.debug("SQL execution error", e);
                 }
 
-                System.out.print("SuperSQL> ");
-                System.out.flush();
+                printPrompt();
             }
         }
 
-        if (zkClient != null) {
-            zkClient.close();
+        if (zkClient != null) zkClient.close();
+    }
+
+    // ─────────────────────── routing ──────────────────────────────────────────
+
+    static void handleSql(String sql, String activeMaster, RouteCache routeCache) throws Exception {
+        SqlKind kind = classifySql(sql);
+
+        switch (kind) {
+            case SHOW_TABLES -> handleShowTables(activeMaster);
+            case DDL         -> handleDdl(sql, activeMaster, routeCache);
+            case DML         -> handleDml(sql, activeMaster, routeCache);
+            default          -> System.out.println("Unknown SQL: " + sql);
         }
+    }
+
+    private static void handleShowTables(String activeMaster) throws Exception {
+        try (MasterRpcClient master = MasterRpcClient.fromAddress(activeMaster, MASTER_TIMEOUT_MS)) {
+            List<TableLocation> tables = master.listTables();
+            if (tables == null || tables.isEmpty()) {
+                System.out.println("(no tables)");
+            } else {
+                System.out.println("Tables:");
+                for (TableLocation t : tables) {
+                    System.out.printf("  %-30s  primary=%s:%d%n",
+                            t.getTableName(),
+                            t.getPrimaryRS().getHost(),
+                            t.getPrimaryRS().getPort());
+                }
+            }
+        }
+    }
+
+    private static void handleDdl(String sql, String activeMaster, RouteCache routeCache) throws Exception {
+        String normalized = sql.trim().toLowerCase();
+        try (MasterRpcClient master = MasterRpcClient.fromAddress(activeMaster, MASTER_TIMEOUT_MS)) {
+            Response r;
+            if (normalized.startsWith("create table")) {
+                r = master.createTable(sql);
+            } else if (normalized.startsWith("drop table")) {
+                String tableName = extractTableName(sql);
+                if (tableName != null) routeCache.invalidate(tableName);
+                r = master.dropTable(tableName != null ? tableName : sql);
+            } else {
+                // Other DDL (CREATE INDEX, DROP INDEX) — forward to region if table name known
+                String tableName = extractTableName(sql);
+                if (tableName != null) {
+                    TableLocation loc = resolveLocation(tableName, activeMaster, routeCache);
+                    try (RegionRpcClient region = RegionRpcClient.fromInfo(loc.getPrimaryRS(), REGION_TIMEOUT_MS)) {
+                        if (normalized.startsWith("drop index")) {
+                            String indexName = extractIndexName(sql);
+                            r = region.dropIndex(tableName, indexName != null ? indexName : sql);
+                        } else {
+                            r = region.createIndex(tableName, sql);
+                        }
+                    }
+                } else {
+                    r = master.createTable(sql); // best-effort fallback
+                }
+            }
+            printResponse(r);
+        }
+    }
+
+    private static void handleDml(String sql, String activeMaster, RouteCache routeCache)
+            throws Exception {
+        String tableName = extractTableName(sql);
+        if (tableName == null) {
+            System.out.println("Error: could not determine table name from: " + sql);
+            return;
+        }
+
+        TableLocation loc = resolveLocation(tableName, activeMaster, routeCache);
+
+        try (RegionRpcClient region = RegionRpcClient.fromInfo(loc.getPrimaryRS(), REGION_TIMEOUT_MS)) {
+            QueryResult result = region.execute(tableName, sql);
+
+            // Handle redirect: primary RS has moved
+            if (result.getStatus().getCode() == StatusCode.REDIRECT) {
+                log.info("REDIRECT received for table={}, invalidating cache", tableName);
+                routeCache.invalidate(tableName);
+                loc = resolveLocation(tableName, activeMaster, routeCache);
+                try (RegionRpcClient retry = RegionRpcClient.fromInfo(loc.getPrimaryRS(), REGION_TIMEOUT_MS)) {
+                    result = retry.execute(tableName, sql);
+                }
+            }
+
+            // Handle MOVING: region migration in progress
+            if (result.getStatus().getCode() == StatusCode.MOVING) {
+                System.out.println("Table is being migrated, please retry shortly.");
+                return;
+            }
+
+            printQueryResult(result);
+        }
+    }
+
+    private static TableLocation resolveLocation(String tableName, String activeMaster,
+                                                   RouteCache routeCache) throws Exception {
+        TableLocation loc = routeCache.get(tableName);
+        if (loc == null) {
+            try (MasterRpcClient master = MasterRpcClient.fromAddress(activeMaster, MASTER_TIMEOUT_MS)) {
+                loc = master.getTableLocation(tableName);
+            }
+            if (loc != null) {
+                routeCache.put(tableName, loc);
+            } else {
+                throw new RuntimeException("Table not found: " + tableName);
+            }
+        }
+        return loc;
+    }
+
+    // ─────────────────────── output ───────────────────────────────────────────
+
+    static void printQueryResult(QueryResult result) {
+        if (result == null) { System.out.println("(null result)"); return; }
+
+        StatusCode code = result.getStatus().getCode();
+        if (code != StatusCode.OK) {
+            System.out.println("Error [" + code + "]: " + result.getStatus().getMessage());
+            return;
+        }
+
+        boolean hasRows = result.isSetRows() && !result.getRows().isEmpty();
+        boolean hasColumns = result.isSetColumnNames() && !result.getColumnNames().isEmpty();
+
+        if (hasColumns) {
+            // Print header
+            List<String> cols = result.getColumnNames();
+            String header = String.join(" | ", cols);
+            System.out.println(header);
+            System.out.println("-".repeat(header.length()));
+        }
+
+        if (hasRows) {
+            for (Row row : result.getRows()) {
+                System.out.println(String.join(" | ", row.getValues()));
+            }
+            System.out.printf("(%d row%s)%n", result.getRows().size(),
+                    result.getRows().size() == 1 ? "" : "s");
+        } else if (result.isSetAffectedRows()) {
+            System.out.printf("(%d row%s affected)%n", result.getAffectedRows(),
+                    result.getAffectedRows() == 1 ? "" : "s");
+        } else {
+            System.out.println("OK");
+        }
+    }
+
+    private static void printResponse(Response r) {
+        if (r == null) { System.out.println("(null response)"); return; }
+        if (r.getCode() == StatusCode.OK) {
+            String msg = r.isSetMessage() ? r.getMessage() : "OK";
+            System.out.println(msg);
+        } else {
+            System.out.println("Error [" + r.getCode() + "]: " + r.getMessage());
+        }
+    }
+
+    private static void printPrompt() {
+        System.out.print("SuperSQL> ");
+        System.out.flush();
+    }
+
+    // ─────────────────────── helpers ──────────────────────────────────────────
+
+    private static final Pattern INDEX_NAME_PATTERN =
+            Pattern.compile("(?i)\\bdrop\\s+index\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
+
+    private static String extractIndexName(String sql) {
+        Matcher m = INDEX_NAME_PATTERN.matcher(sql.trim());
+        return m.find() ? m.group(1) : null;
     }
 }

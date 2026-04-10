@@ -1,0 +1,132 @@
+package edu.zju.supersql.regionserver.rpc;
+
+import edu.zju.supersql.regionserver.WriteGuard;
+import edu.zju.supersql.rpc.DataChunk;
+import edu.zju.supersql.rpc.Response;
+import edu.zju.supersql.rpc.StatusCode;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+/**
+ * Unit tests for RegionAdminServiceImpl.
+ * ZkClient is null for all tests (no ZK cluster needed).
+ */
+class RegionAdminServiceImplTest {
+
+    @TempDir
+    Path dataDir;
+
+    private WriteGuard writeGuard;
+    private RegionAdminServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        writeGuard = new WriteGuard();
+        service = new RegionAdminServiceImpl(writeGuard, null, dataDir.toString(), "rs-test");
+    }
+
+    // ── pause / resume ─────────────────────────────────────────────────────────
+
+    @Test
+    void pauseAndResumeReturnOk() throws Exception {
+        Response pause = service.pauseTableWrite("orders");
+        Assertions.assertEquals(StatusCode.OK, pause.getCode());
+        Assertions.assertTrue(writeGuard.isPaused("orders"));
+
+        Response resume = service.resumeTableWrite("orders");
+        Assertions.assertEquals(StatusCode.OK, resume.getCode());
+        Assertions.assertFalse(writeGuard.isPaused("orders"));
+    }
+
+    @Test
+    void pauseOnlyAffectsTargetTable() throws Exception {
+        service.pauseTableWrite("t1");
+        Assertions.assertTrue(writeGuard.isPaused("t1"));
+        Assertions.assertFalse(writeGuard.isPaused("t2"));
+    }
+
+    // ── deleteLocalTable ───────────────────────────────────────────────────────
+
+    @Test
+    void deleteLocalTableRemovesMatchingFiles() throws Exception {
+        // Create some files that should be deleted
+        Files.writeString(dataDir.resolve("orders"), "data");
+        Files.writeString(dataDir.resolve("orders_index"), "idx");
+        // This file should NOT be deleted
+        Files.writeString(dataDir.resolve("other_table"), "other");
+
+        Response r = service.deleteLocalTable("orders");
+        Assertions.assertEquals(StatusCode.OK, r.getCode());
+
+        Assertions.assertFalse(dataDir.resolve("orders").toFile().exists());
+        Assertions.assertFalse(dataDir.resolve("orders_index").toFile().exists());
+        Assertions.assertTrue(dataDir.resolve("other_table").toFile().exists());
+    }
+
+    @Test
+    void deleteLocalTableReturnOkWhenNoFiles() throws Exception {
+        Response r = service.deleteLocalTable("nonexistent");
+        Assertions.assertEquals(StatusCode.OK, r.getCode());
+    }
+
+    // ── invalidateClientCache ─────────────────────────────────────────────────
+
+    @Test
+    void invalidateClientCacheReturnsOk() throws Exception {
+        Response r = service.invalidateClientCache("orders");
+        Assertions.assertEquals(StatusCode.OK, r.getCode());
+    }
+
+    // ── copyTableData ─────────────────────────────────────────────────────────
+
+    @Test
+    void copyTableDataWritesChunkAtOffset() throws Exception {
+        byte[] data = "hello world".getBytes(StandardCharsets.UTF_8);
+        DataChunk chunk = new DataChunk("test_table", "test_table", 0L,
+                ByteBuffer.wrap(data), true);
+        Response r = service.copyTableData(chunk);
+
+        Assertions.assertEquals(StatusCode.OK, r.getCode());
+
+        File written = dataDir.resolve("test_table").toFile();
+        Assertions.assertTrue(written.exists());
+        Assertions.assertArrayEquals(data, Files.readAllBytes(written.toPath()));
+    }
+
+    @Test
+    void copyTableDataAppendsAtCorrectOffset() throws Exception {
+        byte[] first  = "hello".getBytes(StandardCharsets.UTF_8);
+        byte[] second = " world".getBytes(StandardCharsets.UTF_8);
+
+        service.copyTableData(new DataChunk("file2", "file2", 0L, ByteBuffer.wrap(first), false));
+        service.copyTableData(new DataChunk("file2", "file2", 5L, ByteBuffer.wrap(second), true));
+
+        byte[] combined = Files.readAllBytes(dataDir.resolve("file2"));
+        Assertions.assertArrayEquals("hello world".getBytes(StandardCharsets.UTF_8), combined);
+    }
+
+    @Test
+    void copyTableDataReturnsErrorOnNullChunk() throws Exception {
+        Response r = service.copyTableData(new DataChunk());
+        Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+    }
+
+    // ── heartbeat / registerRegionServer ──────────────────────────────────────
+
+    @Test
+    void heartbeatAndRegisterReturnOk() throws Exception {
+        edu.zju.supersql.rpc.RegionServerInfo info =
+                new edu.zju.supersql.rpc.RegionServerInfo("rs-test", "localhost", 9090);
+        Assertions.assertEquals(StatusCode.OK, service.heartbeat(info).getCode());
+        Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(info).getCode());
+    }
+}

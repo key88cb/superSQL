@@ -48,7 +48,7 @@ class SqlClientRoutingTest {
     void classifySqlShouldDetectDdlAndDml() {
         Assertions.assertEquals(SqlClient.SqlKind.DDL, SqlClient.classifySql("create table t1(id int);"));
         Assertions.assertEquals(SqlClient.SqlKind.DML, SqlClient.classifySql("insert into t1 values (1);"));
-        Assertions.assertEquals(SqlClient.SqlKind.UNKNOWN, SqlClient.classifySql("show tables;"));
+        Assertions.assertEquals(SqlClient.SqlKind.SHOW_TABLES, SqlClient.classifySql("show tables;"));
     }
 
     @Test

@@ -1,117 +1,277 @@
 package edu.zju.supersql.regionserver;
 
+import edu.zju.supersql.rpc.WalEntry;
+import edu.zju.supersql.rpc.WalOpType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Manages the WAL (Write-Ahead Log) directory and associated metadata.
+ * WAL (Write-Ahead Log) manager.
+ *
+ * <p>File layout: one file per table at {@code {walDir}/{tableName}.wal}
+ *
+ * <p>Binary entry format per record:
+ * <pre>
+ *   [8B lsn][8B txnId][1B opType][4B sqlLen][sqlBytes]
+ * </pre>
+ *
+ * <p>Durability: {@link FileChannel#force(boolean) FileChannel.force(false)} after every write.
  */
 public class WalManager {
+
     private static final Logger log = LoggerFactory.getLogger(WalManager.class);
-    
-    // Checkpoint 触发阈值：1000 条写操作
+
+    // Entry header: lsn(8) + txnId(8) + opType(1) + sqlLen(4) = 21 bytes
+    private static final int HEADER_SIZE = 21;
+
+    /** Checkpoint trigger threshold (write operations). */
     private static final int CHECKPOINT_THRESHOLD = 1000;
-    private final java.util.concurrent.atomic.AtomicInteger writeCount = new java.util.concurrent.atomic.AtomicInteger(0);
-    
-    private String walDir;
+
+    private final String walDir;
+    private final AtomicLong globalLsn = new AtomicLong(0);
+    private final AtomicInteger writeCount = new AtomicInteger(0);
+
+    /** Per-table append lock to prevent interleaved writes. */
+    private final ConcurrentHashMap<String, ReentrantLock> tableLocks = new ConcurrentHashMap<>();
 
     public WalManager(String walDir) {
         this.walDir = walDir;
     }
 
+    // ─────────────────────── lifecycle ────────────────────────────────────────
+
     /**
-     * Initializes the WAL directory.
+     * Initialises the WAL directory and recovers the maximum LSN from existing files.
      */
     public void init() {
-        log.info("Initializing WalManager with directory: {}", walDir);
         File dir = new File(walDir);
         if (!dir.exists()) {
             if (dir.mkdirs()) {
                 log.info("Created WAL directory: {}", walDir);
             } else {
                 log.error("Failed to create WAL directory: {}", walDir);
+                return;
             }
+        }
+
+        // Recover max LSN from all existing .wal files
+        long maxLsn = 0L;
+        File[] walFiles = dir.listFiles((d, name) -> name.endsWith(".wal"));
+        if (walFiles != null) {
+            for (File f : walFiles) {
+                try {
+                    long fileLsn = scanMaxLsn(f);
+                    if (fileLsn > maxLsn) {
+                        maxLsn = fileLsn;
+                    }
+                } catch (IOException e) {
+                    log.warn("Failed to scan WAL file for max LSN: {}", f.getName());
+                }
+            }
+        }
+        globalLsn.set(maxLsn);
+        log.info("WalManager initialized: dir={} recoveredMaxLsn={}", walDir, maxLsn);
+    }
+
+    // ─────────────────────── write ────────────────────────────────────────────
+
+    /** Returns a globally monotonic LSN. */
+    public long nextLsn() {
+        return globalLsn.incrementAndGet();
+    }
+
+    /**
+     * Appends one entry to {@code {walDir}/{tableName}.wal}.
+     *
+     * @param tableName target table
+     * @param lsn       monotonic LSN (obtain via {@link #nextLsn()})
+     * @param txnId     transaction / statement ID
+     * @param opType    operation type enum
+     * @param sql       SQL statement (stored as UTF-8 payload)
+     * @throws IOException on file I/O failure
+     */
+    public void appendEntry(String tableName, long lsn, long txnId, WalOpType opType, String sql)
+            throws IOException {
+        byte[] sqlBytes = sql.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.allocate(HEADER_SIZE + sqlBytes.length);
+        buf.putLong(lsn);
+        buf.putLong(txnId);
+        buf.put((byte) opType.getValue());
+        buf.putInt(sqlBytes.length);
+        buf.put(sqlBytes);
+        buf.flip();
+
+        Path walFile = walFilePath(tableName);
+        ReentrantLock lock = tableLocks.computeIfAbsent(tableName, k -> new ReentrantLock());
+        lock.lock();
+        try (FileChannel ch = FileChannel.open(walFile,
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+            while (buf.hasRemaining()) {
+                ch.write(buf);
+            }
+            ch.force(false);
+        } finally {
+            lock.unlock();
         }
     }
 
-    public String getWalDir() {
-        return walDir;
-    }
+    // ─────────────────────── read ─────────────────────────────────────────────
 
     /**
-     * Increments the write counter and checks if checkpoint should be triggered.
-     * @return true if threshold reached
+     * Reads all entries whose LSN >= {@code startLsn} from the table's WAL file.
+     *
+     * @param tableName target table
+     * @param startLsn  inclusive lower bound
+     * @return ordered list of matching {@link WalEntry} objects
+     * @throws IOException on file I/O failure
+     */
+    public List<WalEntry> readEntriesAfter(String tableName, long startLsn) throws IOException {
+        List<WalEntry> result = new ArrayList<>();
+        Path walFile = walFilePath(tableName);
+        if (!Files.exists(walFile)) {
+            return result;
+        }
+
+        try (RandomAccessFile raf = new RandomAccessFile(walFile.toFile(), "r")) {
+            long fileLen = raf.length();
+            while (raf.getFilePointer() < fileLen) {
+                if (fileLen - raf.getFilePointer() < HEADER_SIZE) {
+                    break; // truncated header — stop reading
+                }
+                long lsn    = raf.readLong();
+                long txnId  = raf.readLong();
+                byte opByte = raf.readByte();
+                int sqlLen  = raf.readInt();
+
+                if (sqlLen < 0 || sqlLen > 1_048_576) {
+                    log.warn("WAL entry has invalid sqlLen={} at table={}, stopping read", sqlLen, tableName);
+                    break;
+                }
+                byte[] sqlBytes = new byte[sqlLen];
+                int read = raf.read(sqlBytes);
+                if (read != sqlLen) {
+                    break; // truncated payload
+                }
+
+                if (lsn >= startLsn) {
+                    WalOpType opType = WalOpType.findByValue(opByte);
+                    WalEntry entry = new WalEntry(lsn, txnId, tableName,
+                            opType != null ? opType : WalOpType.INSERT,
+                            System.currentTimeMillis());
+                    entry.setAfterRow(sqlBytes);
+                    result.add(entry);
+                }
+            }
+        }
+        return result;
+    }
+
+    // ─────────────────────── checkpoint & cleanup ─────────────────────────────
+
+    /**
+     * Increments the write counter.
+     *
+     * @return {@code true} if the checkpoint threshold has been reached
      */
     public boolean incrementWriteCount() {
-        int count = writeCount.incrementAndGet();
-        return count >= CHECKPOINT_THRESHOLD;
+        return writeCount.incrementAndGet() >= CHECKPOINT_THRESHOLD;
     }
 
-    /**
-     * Resets the write counter after a successful checkpoint.
-     */
+    /** Resets the write counter after a successful checkpoint. */
     public void resetWriteCount() {
         writeCount.set(0);
     }
 
     /**
-     * Performs a WAL checkpoint.
-     * 1. Tells C++ engine to flush all dirty pages.
-     * 2. Clears the WAL log file since all data is persisted.
+     * Performs a WAL checkpoint:
+     * <ol>
+     *   <li>Calls C++ engine {@code checkpoint;} to flush dirty pages and get the current LSN.</li>
+     *   <li>Physically deletes WAL files whose max LSN is below the checkpoint LSN.</li>
+     * </ol>
      */
     public void performCheckpoint(MiniSqlProcess process) {
-        log.info("Starting WAL checkpoint (Current write count: {})...", writeCount.get());
+        log.info("Starting WAL checkpoint (writeCount={})...", writeCount.get());
         try {
-            // 1. 调用 C++ 引擎进行强制刷盘，获取当前持久化的最大 LSN
             long checkpointLsn = process.checkpoint();
-            if (checkpointLsn >= 0) {
-                log.info("C++ engine checkpointed at LSN: {}. Cleaning WAL logs...", checkpointLsn);
-                
-                // 2. 清理 C++ 内部日志文件（如果存在）
-                process.execute("clear log;");
-                
-                // 3. 物理清理 Java 侧的 WAL 日志文件
-                // 约定格式：wal-{tableName}-{startLSN}.log
-                File dir = new File(walDir);
-                File[] files = dir.listFiles((d, name) -> name.startsWith("wal-") && name.endsWith(".log"));
-                
-                if (files != null) {
-                    int deleteCount = 0;
-                    for (File f : files) {
-                        try {
-                            // 解析文件名获取起始 LSN
-                            // 示例: wal-reg-100.log -> 100
-                            String name = f.getName();
-                            String[] parts = name.split("-");
-                            if (parts.length >= 3) {
-                                String lsnPart = parts[2].replace(".log", "");
-                                long fileStartLsn = Long.parseLong(lsnPart);
-                                
-                                // 如果该文件记录的起始 LSN 小于当前 Checkpoint LSN，说明该文件中的数据大部分（或全部）已落盘
-                                // 注意：为了安全，通常保留最近的一个文件，或者增加一定的水位线
-                                if (fileStartLsn < checkpointLsn) {
-                                    if (f.delete()) {
-                                        deleteCount++;
-                                    }
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.warn("Failed to parse or delete WAL file: {}", f.getName());
-                        }
-                    }
-                    log.info("Physical WAL cleanup finished. Deleted {} files.", deleteCount);
-                }
-
-                // 4. 重置计数器
-                resetWriteCount();
-                log.info("WAL checkpoint completed successfully.");
-            } else {
+            if (checkpointLsn < 0) {
                 log.error("C++ engine failed to perform checkpoint.");
+                return;
             }
+            log.info("C++ engine checkpointed at LSN={}. Cleaning WAL logs...", checkpointLsn);
+
+            File dir = new File(walDir);
+            File[] files = dir.listFiles((d, name) -> name.endsWith(".wal"));
+            if (files != null) {
+                int deleted = 0;
+                for (File f : files) {
+                    try {
+                        long fileLsn = scanMaxLsn(f);
+                        if (fileLsn < checkpointLsn) {
+                            if (f.delete()) {
+                                deleted++;
+                            }
+                        }
+                    } catch (IOException e) {
+                        log.warn("Failed to inspect/delete WAL file: {}", f.getName());
+                    }
+                }
+                log.info("Physical WAL cleanup: deleted {} file(s) (checkpoint LSN={})",
+                        deleted, checkpointLsn);
+            }
+
+            resetWriteCount();
+            log.info("WAL checkpoint completed successfully.");
         } catch (Exception e) {
-            log.error("Error during WAL checkpoint: ", e);
+            log.error("Error during WAL checkpoint", e);
         }
+    }
+
+    // ─────────────────────── helpers ──────────────────────────────────────────
+
+    public String getWalDir() {
+        return walDir;
+    }
+
+    private Path walFilePath(String tableName) {
+        return Paths.get(walDir, tableName + ".wal");
+    }
+
+    /**
+     * Scans a WAL file to find the maximum LSN stored in it.
+     * Returns 0 if the file is empty or unreadable.
+     */
+    long scanMaxLsn(File f) throws IOException {
+        long maxLsn = 0L;
+        try (RandomAccessFile raf = new RandomAccessFile(f, "r")) {
+            long fileLen = raf.length();
+            while (raf.getFilePointer() < fileLen) {
+                if (fileLen - raf.getFilePointer() < HEADER_SIZE) break;
+                long lsn   = raf.readLong();
+                raf.readLong();              // txnId
+                raf.readByte();              // opType
+                int sqlLen = raf.readInt();
+                if (sqlLen < 0 || sqlLen > 1_048_576) break;
+                raf.skipBytes(sqlLen);
+                if (lsn > maxLsn) maxLsn = lsn;
+            }
+        }
+        return maxLsn;
     }
 }

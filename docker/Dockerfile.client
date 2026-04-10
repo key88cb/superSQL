@@ -35,17 +35,19 @@ COPY rpc-proto/${THRIFT_IDL} rpc-proto/${THRIFT_IDL}
 COPY java-master/pom.xml java-master/pom.xml
 COPY java-regionserver/pom.xml java-regionserver/pom.xml
 COPY java-client/pom.xml java-client/pom.xml
+COPY test-common/pom.xml test-common/pom.xml
 
 COPY --from=thrift-gen /gen/src/main/java/ rpc-proto/src/main/java/
 
 RUN mvn -N install -DskipTests -B --no-transfer-progress
 
 RUN mvn -pl rpc-proto install -DskipTests -B --no-transfer-progress
+RUN mvn -pl test-common install -DskipTests -B --no-transfer-progress
 
 RUN mvn -pl ${MODULE_NAME} dependency:go-offline -B --no-transfer-progress 2>/dev/null || true
 
 COPY ${MODULE_NAME}/src ${MODULE_NAME}/src
-RUN mvn -pl ${MODULE_NAME} package -DskipTests -B --no-transfer-progress
+RUN mvn -pl ${MODULE_NAME} package -Dmaven.test.skip=true -B --no-transfer-progress
 
 # -------- Stage 3: 运行时镜像 ------------------------------------
 FROM eclipse-temurin:17-jre-noble

@@ -4,6 +4,8 @@ import com.sun.net.httpserver.HttpServer;
 import edu.zju.supersql.regionserver.rpc.RegionAdminServiceImpl;
 import edu.zju.supersql.regionserver.rpc.RegionServiceImpl;
 import edu.zju.supersql.regionserver.rpc.ReplicaSyncServiceImpl;
+import edu.zju.supersql.regionserver.ReplicaManager;
+import edu.zju.supersql.regionserver.WriteGuard;
 import edu.zju.supersql.rpc.RegionAdminService;
 import edu.zju.supersql.rpc.RegionService;
 import edu.zju.supersql.rpc.ReplicaSyncService;
@@ -108,14 +110,25 @@ public class RegionServerMain {
         healthServer.start();
         log.info("Health endpoint listening on :{}/health", httpPort);
 
+        // ── Service wiring ────────────────────────────────────────────────────
+        WriteGuard writeGuard = new WriteGuard();
+        ReplicaManager replicaManager = new ReplicaManager();
+        String selfAddress = rsHost + ":" + thriftPort;
+
+        ReplicaSyncServiceImpl replicaSync = new ReplicaSyncServiceImpl(miniSql);
+        RegionServiceImpl regionService = new RegionServiceImpl(
+                miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress);
+        RegionAdminServiceImpl adminService = new RegionAdminServiceImpl(
+                writeGuard, zkClient, dataDir, rsId);
+
         // ── Thrift TMultiplexedProcessor ──────────────────────────────────────
         TMultiplexedProcessor processor = new TMultiplexedProcessor();
         processor.registerProcessor("RegionService",
-                new RegionService.Processor<>(new RegionServiceImpl(miniSql, walManager)));
+                new RegionService.Processor<>(regionService));
         processor.registerProcessor("RegionAdminService",
-                new RegionAdminService.Processor<>(new RegionAdminServiceImpl()));
+                new RegionAdminService.Processor<>(adminService));
         processor.registerProcessor("ReplicaSyncService",
-                new ReplicaSyncService.Processor<>(new ReplicaSyncServiceImpl()));
+                new ReplicaSyncService.Processor<>(replicaSync));
 
         TServerSocket serverTransport = new TServerSocket(thriftPort);
         TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(serverTransport)
