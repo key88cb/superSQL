@@ -47,6 +47,8 @@ RUN mvn -N install -DskipTests -B --no-transfer-progress
 
 RUN mvn -pl rpc-proto install -DskipTests -B --no-transfer-progress
 RUN mvn -pl test-common install -DskipTests -B --no-transfer-progress
+RUN mvn -pl java-master install -DskipTests -B --no-transfer-progress
+RUN mvn -pl java-regionserver install -DskipTests -B --no-transfer-progress
 
 RUN mvn -pl ${MODULE_NAME} dependency:go-offline -B --no-transfer-progress 2>/dev/null || true
 

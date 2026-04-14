@@ -253,7 +253,7 @@ docker exec zk1 zkCli.sh ls /meta/tables
 
 ```bash
 # 进入交互式 SQL 客户端
-docker exec -it client java -jar /app/client.jar
+docker exec -it client java -jar /app/app.jar
 
 # 示例操作
 SuperSQL> create table users(id int, name char(32), age int, primary key(id));
