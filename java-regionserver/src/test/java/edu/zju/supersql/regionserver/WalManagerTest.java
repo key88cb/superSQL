@@ -33,10 +33,13 @@ class WalManagerTest {
     void appendAndReadEntriesAfterRoundTrip() throws IOException {
         wal.appendEntry("t_orders", 1L, 100L, WalOpType.INSERT,
                 "insert into t_orders values(1,'a');");
+        wal.commit("t_orders", 1L);
         wal.appendEntry("t_orders", 2L, 101L, WalOpType.UPDATE,
                 "update t_orders set name='b' where id=1;");
+        wal.commit("t_orders", 2L);
         wal.appendEntry("t_orders", 3L, 102L, WalOpType.DELETE,
                 "delete from t_orders where id=1;");
+        wal.commit("t_orders", 3L);
 
         List<WalEntry> all = wal.readEntriesAfter("t_orders", 1L);
         Assertions.assertEquals(3, all.size());
@@ -53,6 +56,7 @@ class WalManagerTest {
     void sqlPayloadPreservedInAfterRow() throws IOException {
         String sql = "insert into t_user values(42,'hello world');";
         wal.appendEntry("t_user", 10L, 1L, WalOpType.INSERT, sql);
+        wal.commit("t_user", 10L);
 
         List<WalEntry> entries = wal.readEntriesAfter("t_user", 10L);
         Assertions.assertEquals(1, entries.size());
@@ -117,7 +121,9 @@ class WalManagerTest {
     @Test
     void entriesAreScopedPerTable() throws IOException {
         wal.appendEntry("table_a", 1L, 1L, WalOpType.INSERT, "insert into table_a values(1);");
+        wal.commit("table_a", 1L);
         wal.appendEntry("table_b", 2L, 2L, WalOpType.INSERT, "insert into table_b values(2);");
+        wal.commit("table_b", 2L);
 
         List<WalEntry> a = wal.readEntriesAfter("table_a", 0L);
         List<WalEntry> b = wal.readEntriesAfter("table_b", 0L);
@@ -126,5 +132,14 @@ class WalManagerTest {
         Assertions.assertEquals(1L, a.get(0).getLsn());
         Assertions.assertEquals(1, b.size());
         Assertions.assertEquals(2L, b.get(0).getLsn());
+    }
+
+    @Test
+    void uncommittedEntriesAreIgnoredDuringRead() throws IOException {
+        wal.appendEntry("t_uncommitted", 100L, 1L, WalOpType.INSERT, "insert into t_uncommitted values(1);");
+        // No commit called
+
+        List<WalEntry> entries = wal.readEntriesAfter("t_uncommitted", 0L);
+        Assertions.assertTrue(entries.isEmpty(), "Uncommitted entries should be ignored by readEntriesAfter");
     }
 }
