@@ -29,7 +29,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <p>Binary entry format per record:
  * <pre>
- *   [8B lsn][8B txnId][1B opType][4B sqlLen][sqlBytes]
+ *   [8B lsn][8B txnId][1B opType][1B status][4B sqlLen][sqlBytes]
  * </pre>
  *
  * <p>Durability: {@link FileChannel#force(boolean) FileChannel.force(false)} after every write.
@@ -38,8 +38,8 @@ public class WalManager {
 
     private static final Logger log = LoggerFactory.getLogger(WalManager.class);
 
-    // Entry header: lsn(8) + txnId(8) + opType(1) + sqlLen(4) = 21 bytes
-    private static final int HEADER_SIZE = 21;
+    // Entry header: lsn(8) + txnId(8) + opType(1) + status(1) + sqlLen(4) = 22 bytes
+    private static final int HEADER_SIZE = 22;
 
     /** Checkpoint trigger threshold (write operations). */
     private static final int CHECKPOINT_THRESHOLD = 1000;
@@ -50,6 +50,9 @@ public class WalManager {
 
     /** Per-table append lock to prevent interleaved writes. */
     private final ConcurrentHashMap<String, ReentrantLock> tableLocks = new ConcurrentHashMap<>();
+
+    /** For uncommitted entries: tableName -> (lsn -> statusByteFileOffset) */
+    private final ConcurrentHashMap<String, ConcurrentHashMap<Long, Long>> uncommittedOffsets = new ConcurrentHashMap<>();
 
     public WalManager(String walDir) {
         this.walDir = walDir;
@@ -114,6 +117,7 @@ public class WalManager {
         buf.putLong(lsn);
         buf.putLong(txnId);
         buf.put((byte) opType.getValue());
+        buf.put((byte) 0); // STATUS: 0 = PREPARE
         buf.putInt(sqlBytes.length);
         buf.put(sqlBytes);
         buf.flip();
@@ -123,12 +127,34 @@ public class WalManager {
         lock.lock();
         try (FileChannel ch = FileChannel.open(walFile,
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+            long statusOffset = ch.size() + 17; // lsn(8) + txnId(8) + opType(1) = 17
             while (buf.hasRemaining()) {
                 ch.write(buf);
             }
             ch.force(false);
+            
+            uncommittedOffsets.computeIfAbsent(tableName, k -> new ConcurrentHashMap<>())
+                              .put(lsn, statusOffset);
         } finally {
             lock.unlock();
+        }
+    }
+
+    /**
+     * S4-05: Updates the status of the specified LSN to COMMITTED in the WAL file.
+     */
+    public void commit(String tableName, long lsn) {
+        ConcurrentHashMap<Long, Long> offsets = uncommittedOffsets.get(tableName);
+        if (offsets == null) return;
+        Long offset = offsets.remove(lsn);
+        if (offset == null) return;
+
+        Path walFile = walFilePath(tableName);
+        try (RandomAccessFile raf = new RandomAccessFile(walFile.toFile(), "rw")) {
+            raf.seek(offset);
+            raf.writeByte(1); // STATUS: 1 = COMMITTED
+        } catch (IOException e) {
+            log.error("Failed to commit WAL entry for table={} lsn={}", tableName, lsn, e);
         }
     }
 
@@ -158,6 +184,7 @@ public class WalManager {
                 long lsn    = raf.readLong();
                 long txnId  = raf.readLong();
                 byte opByte = raf.readByte();
+                byte status = raf.readByte();
                 int sqlLen  = raf.readInt();
 
                 if (sqlLen < 0 || sqlLen > 1_048_576) {
@@ -170,7 +197,8 @@ public class WalManager {
                     break; // truncated payload
                 }
 
-                if (lsn >= startLsn) {
+                // S4-05: Only replay COMMITTED entries. If status == 0 (PREPARE), ignore/rollback
+                if (lsn >= startLsn && status == 1) {
                     WalOpType opType = WalOpType.findByValue(opByte);
                     WalEntry entry = new WalEntry(lsn, txnId, tableName,
                             opType != null ? opType : WalOpType.INSERT,
@@ -313,6 +341,7 @@ public class WalManager {
                 long lsn   = raf.readLong();
                 raf.readLong();              // txnId
                 raf.readByte();              // opType
+                raf.readByte();              // status
                 int sqlLen = raf.readInt();
                 if (sqlLen < 0 || sqlLen > 1_048_576) break;
                 raf.skipBytes(sqlLen);

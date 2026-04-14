@@ -168,6 +168,9 @@ public class RegionServiceImpl implements RegionService.Iface {
                         lsn, tableName);
             }
 
+            // 3.5. Commit WAL entry locally (S4-05)
+            walManager.commit(tableName, lsn);
+
             // 4. Execute on local engine
             String raw = miniSql.execute(sql);
             QueryResult result = OutputParser.parse(raw);
