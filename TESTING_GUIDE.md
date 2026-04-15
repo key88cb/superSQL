@@ -163,5 +163,33 @@ cd java-regionserver
 mvn test
 ```
 
-> [!TIP]
-> **测试建议**：优先运行 `test_wal_crash_recovery`。如果该测试通过，说明你的存储引擎在意外断电等极端情况下也能保证数据不丢失。
+# 6. 分布式混沌测试 (Chaos Testing)
+ 
+混沌测试用于验证系统在分布式故障（主节点宕机、RS 崩溃、网络分区）下的鲁棒性。
+ 
+### 脚本位置：
+`scripts/chaos_test.sh`
+ 
+### 运行前提：
+- 集群已通过 `docker compose up -d` 启动并处于 Healthy 状态。
+- 环境具备 `bash` 和 `curl`。
+ 
+### 执行指令：
+```bash
+# 运行全量测试
+chmod +x scripts/chaos_test.sh
+./scripts/chaos_test.sh all
+ 
+# 仅测试 Master 选主切换
+./scripts/chaos_test.sh master_failover
+ 
+# 仅测试 RS 宕机恢复与数据一致性
+./scripts/chaos_test.sh rs_crash
+```
+ 
+### 验证项：
+1. **Master Failover**：停止 Active Master 后，Standby 节点应在 20s 内接管。
+2. **RS Crash Recovery**：
+   - 即使其中一个副本宕机，查询仍应能从剩余副本成功返回。
+   - 宕机节点重启后，应能通过 WAL 回放恢复丢失的数据。
+3. **数据完整性**：对比故障前后的 `SELECT` 结果，确保无数据丢失。
