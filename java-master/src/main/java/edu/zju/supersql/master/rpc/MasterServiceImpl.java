@@ -88,13 +88,12 @@ public class MasterServiceImpl implements MasterService.Iface {
     private volatile String routeRepairLastError;
 
     public MasterServiceImpl() {
-        MasterConfig config = MasterConfig.fromSystemEnv();
         this(new MetaManager(MasterRuntimeContext.getZkClient()),
                 new AssignmentManager(MasterRuntimeContext.getZkClient()),
                 new LoadBalancer(),
                 new RegionServiceDdlExecutor(10_000),
-            new ThriftRegionAdminExecutor(10_000),
-            config.migrationStuckTimeoutMs());
+                new ThriftRegionAdminExecutor(10_000),
+                MasterConfig.fromSystemEnv().migrationStuckTimeoutMs());
     }
 
     public MasterServiceImpl(MetaManager metaManager,
