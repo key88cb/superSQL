@@ -523,6 +523,11 @@ public class MasterServiceImpl implements MasterService.Iface {
             return null;
         }
         for (TableLocation table : metaManager.listTables()) {
+            if (!"ACTIVE".equalsIgnoreCase(table.getTableStatus())) {
+                log.info("triggerRebalance skip non-active table={} status={}",
+                        table.getTableName(), table.getTableStatus());
+                continue;
+            }
             if (table.getReplicas().stream().anyMatch(rs -> hot.getId().equals(rs.getId()))
                     && !hot.getId().equals(table.getPrimaryRS().getId())) {
                 return table;

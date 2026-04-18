@@ -395,6 +395,35 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertTrue(finalTs >= movingTs.get());
     }
 
+    @Test
+    void triggerRebalanceShouldSkipTableWhenStatusIsNotActive() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_non_active(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_non_active").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "MOVING");
+        zkClient.setData().forPath("/meta/tables/t_non_active",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 10);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        Response rebalance = service.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+        Assertions.assertTrue(rebalance.getMessage().startsWith("Rebalance skipped:"));
+        Assertions.assertTrue(adminExecutor.operations.isEmpty());
+    }
+
     private static long toLong(Object value) {
         if (value instanceof Number number) {
             return number.longValue();
