@@ -88,8 +88,21 @@ public class SqlClient {
 
         CuratorFramework zkClient = null;
         RouteInvalidationWatcher routeInvalidationWatcher = null;
+        ClientMetricsHttpServer metricsHttpServer = null;
         RouteCache routeCache = new RouteCache(config.cacheTtlMs());
         String activeMaster = masterFallback;
+
+        try {
+            metricsHttpServer = ClientMetricsHttpServer.startFromEnv(
+                System.getenv(),
+                () -> formatRoutingMetricsPrometheus(snapshotRoutingMetrics()));
+            if (metricsHttpServer != null) {
+            log.info("Client routing metrics endpoint started at /metrics on port {}",
+                metricsHttpServer.getPort());
+            }
+        } catch (Exception e) {
+            log.warn("Client metrics endpoint init failed: {}", e.getMessage());
+        }
 
         try {
             RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
@@ -158,6 +171,7 @@ public class SqlClient {
         } finally {
             closeQuietly(routeInvalidationWatcher, "route invalidation watcher");
             closeQuietly(zkClient, "zk client");
+            closeQuietly(metricsHttpServer, "client metrics http server");
         }
     }
 
