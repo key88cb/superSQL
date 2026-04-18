@@ -23,6 +23,7 @@
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
 - Master `/status` 已输出 RebalanceScheduler 运行快照（tick/trigger/throttle/success/failure、最近执行时间、最近触发原因）。
 - RegionServer 上下线事件已接入调度器外部触发（`rs_up` / `rs_down`），在节流保护下可即时请求一次 rebalance。
+- RebalanceScheduler 已覆盖外部触发节流测试：连续 membership 事件会受 `minGapMs` 保护，避免抖动时触发风暴。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
 - `getTableLocation` 在检测到主副本离线且存在在线副本时，会自动晋升在线副本并回写元数据（lazy failover）。
 - `listTables` 同样会在返回前执行主副本离线检测与 lazy failover，减少批量查询场景下的陈旧主路由。

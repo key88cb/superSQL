@@ -112,6 +112,35 @@ class RebalanceSchedulerTest {
     }
 
     @Test
+    void requestTriggerShouldRespectMinGapThrottle() {
+        AtomicLong clock = new AtomicLong(1_000L);
+        AtomicInteger calls = new AtomicInteger(0);
+        RebalanceScheduler scheduler = new RebalanceScheduler(
+                true,
+                30_000L,
+                10_000L,
+                () -> {
+                    calls.incrementAndGet();
+                    return ok();
+                },
+                clock::get
+        );
+
+        scheduler.requestTrigger("rs_down:rs-1");
+        clock.set(5_000L);
+        scheduler.requestTrigger("rs_down:rs-1");
+        clock.set(11_500L);
+        scheduler.requestTrigger("rs_down:rs-1");
+
+        Assertions.assertEquals(2, calls.get());
+        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+        Assertions.assertEquals(3L, snapshot.externalRequestCount());
+        Assertions.assertEquals(3L, snapshot.tickCount());
+        Assertions.assertEquals(2L, snapshot.triggerCount());
+        Assertions.assertEquals(1L, snapshot.throttledCount());
+    }
+
+    @Test
     void tickShouldRecordFailureWhenTriggerThrows() {
         AtomicLong clock = new AtomicLong(2_000L);
         RebalanceScheduler scheduler = new RebalanceScheduler(
