@@ -251,7 +251,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     public int repairTableRoutesBestEffort() {
-        if (!isLeader() || zk() == null) {
+        if (!isLeader() || isZkUnavailable(zk())) {
             return 0;
         }
         long runAt = clockMs.getAsLong();
@@ -340,8 +340,10 @@ public class MasterServiceImpl implements MasterService.Iface {
     public TableLocation getTableLocation(String tableName) throws TException {
         if (!isLeader()) {
             String redirect = MasterRuntimeContext.readActiveMasterAddress();
-            RegionServerInfo placeholder = new RegionServerInfo("redirect", redirect, 0);
-            TableLocation location = new TableLocation(tableName, placeholder, Collections.singletonList(placeholder));
+            RegionServerInfo redirectRegion = new RegionServerInfo("redirect", redirect, 0);
+            TableLocation location = new TableLocation(tableName,
+                    redirectRegion,
+                    Collections.singletonList(redirectRegion));
             location.setTableStatus("NOT_LEADER");
             location.setVersion(-1L);
             return location;
@@ -386,7 +388,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         CuratorFramework zk = zk();
-        if (zk == null) {
+        if (isZkUnavailable(zk)) {
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("ZooKeeper is unavailable");
             return r;
@@ -444,7 +446,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         CuratorFramework zk = zk();
-        if (zk == null) {
+        if (isZkUnavailable(zk)) {
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("ZooKeeper is unavailable");
             return r;
@@ -493,7 +495,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     @Override
     public List<RegionServerInfo> listRegionServers() throws TException {
         CuratorFramework zk = zk();
-        if (zk == null) {
+        if (isZkUnavailable(zk)) {
             return Collections.emptyList();
         }
 
@@ -517,7 +519,8 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     @Override
     public List<TableLocation> listTables() throws TException {
-        if (zk() == null) {
+        CuratorFramework zk = zk();
+        if (isZkUnavailable(zk)) {
             return Collections.emptyList();
         }
 
@@ -538,7 +541,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         if (!isLeader()) {
             return notLeaderResponse("triggerRebalance");
         }
-        if (zk() == null) {
+        if (isZkUnavailable(zk())) {
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("ZooKeeper is unavailable");
             return r;
@@ -1014,22 +1017,23 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     @SuppressWarnings("unchecked")
     private void setMigrationAttemptIdBestEffort(String tableName, String migrationAttemptId) {
-        if (migrationAttemptId == null || migrationAttemptId.isBlank() || zk() == null) {
+        CuratorFramework zk = zk();
+        if (migrationAttemptId == null || migrationAttemptId.isBlank() || isZkUnavailable(zk)) {
             return;
         }
         try {
             String path = tableMetaPath(tableName);
-            if (zk().checkExists().forPath(path) == null) {
+            if (zk.checkExists().forPath(path) == null) {
                 return;
             }
-            byte[] data = zk().getData().forPath(path);
+            byte[] data = zk.getData().forPath(path);
             if (data == null || data.length == 0) {
                 return;
             }
             Map<String, Object> root = MAPPER.readValue(data, Map.class);
             if (!Objects.equals(root.get("migrationAttemptId"), migrationAttemptId)) {
                 root.put("migrationAttemptId", migrationAttemptId);
-                zk().setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
+                zk.setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
             }
         } catch (Exception e) {
             log.warn("triggerRebalance set migrationAttemptId failed table={} cause={}",
@@ -1039,21 +1043,22 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     @SuppressWarnings("unchecked")
     private void clearMigrationAttemptIdBestEffort(String tableName) {
-        if (zk() == null) {
+        CuratorFramework zk = zk();
+        if (isZkUnavailable(zk)) {
             return;
         }
         try {
             String path = tableMetaPath(tableName);
-            if (zk().checkExists().forPath(path) == null) {
+            if (zk.checkExists().forPath(path) == null) {
                 return;
             }
-            byte[] data = zk().getData().forPath(path);
+            byte[] data = zk.getData().forPath(path);
             if (data == null || data.length == 0) {
                 return;
             }
             Map<String, Object> root = MAPPER.readValue(data, Map.class);
             if (root.remove("migrationAttemptId") != null) {
-                zk().setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
+                zk.setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
             }
         } catch (Exception e) {
             log.warn("triggerRebalance clear migrationAttemptId failed table={} cause={}",
