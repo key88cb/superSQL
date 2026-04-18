@@ -95,6 +95,7 @@
 Master：
 - LeaderElectorTest
 - MasterHeartbeatIntegrationTest
+- MasterConfigTest
 - MasterServerHttpPayloadTest
 - MasterServiceImplTest
 - MasterServiceMetadataIntegrationTest
@@ -108,10 +109,12 @@ Master：
 RegionServer：
 - MiniSqlProcessTest
 - WalManagerTest
+- RegionServerConfigTest
 - WriteGuardTest
 - ReplicaManagerTest
 - RegionServiceImplTest
 - RegionAdminServiceImplTest
+- RegionAdminServiceAssignmentIntegrationTest
 - ReplicaSyncServiceImplTest
 - RegionServerRegistrarIntegrationTest
 - OutputParserTest
@@ -138,6 +141,7 @@ mvn test -DskipTests=false
 ```
 
 说明：
+- 2026-04-18 已完成文档与实现状态逐项对照校验，并修正文档中历史遗留的过时结论。
 - 集成测试使用 Curator TestingServer 启动内嵌 ZooKeeper，验证真实节点读写语义。
 - 2026-04-10 已补充覆盖：active-master bootstrap/回退、三副本元数据分配与 assignments 持久化、OutputParser 成功/错误/结果集解析、RegionService 执行与 checkpoint 触发、Client discovery 回退路径、Master->RS DDL 转发、CREATE->INSERT->SELECT 功能流、rebalance 日志与元数据一致性、MiniSqlProcess 自动重启。
 - 2026-04-18 已补充覆盖：rebalance 在 source 清理失败时的元数据回滚一致性、以及缓存失效失败场景下的 best-effort 语义验证。
