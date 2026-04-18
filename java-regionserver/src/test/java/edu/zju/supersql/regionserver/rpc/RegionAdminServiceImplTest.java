@@ -239,6 +239,25 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void copyTableDataShouldRejectConflictingDuplicateWithoutResettingProgress() throws Exception {
+        byte[] first = "hello".getBytes(StandardCharsets.UTF_8);
+        byte[] conflicting = "HELLO".getBytes(StandardCharsets.UTF_8);
+        byte[] second = " world".getBytes(StandardCharsets.UTF_8);
+
+        Response firstResp = service.copyTableData(new DataChunk("dup3", "dup3_file", 0L, ByteBuffer.wrap(first), false));
+        Assertions.assertEquals(StatusCode.OK, firstResp.getCode());
+
+        Response conflictingResp = service.copyTableData(new DataChunk("dup3", "dup3_file", 0L, ByteBuffer.wrap(conflicting), false));
+        Assertions.assertEquals(StatusCode.ERROR, conflictingResp.getCode());
+        Assertions.assertTrue(conflictingResp.getMessage().contains("conflicting duplicate offset"));
+        Assertions.assertTrue(Files.exists(dataDir.resolve("dup3_file.part")));
+
+        Response lastResp = service.copyTableData(new DataChunk("dup3", "dup3_file", 5L, ByteBuffer.wrap(second), true));
+        Assertions.assertEquals(StatusCode.OK, lastResp.getCode());
+        Assertions.assertArrayEquals("hello world".getBytes(StandardCharsets.UTF_8), Files.readAllBytes(dataDir.resolve("dup3_file")));
+    }
+
+    @Test
     void copyTableDataShouldAcceptDuplicateLastChunkAfterPublish() throws Exception {
         byte[] first = "hello".getBytes(StandardCharsets.UTF_8);
         byte[] second = " world".getBytes(StandardCharsets.UTF_8);

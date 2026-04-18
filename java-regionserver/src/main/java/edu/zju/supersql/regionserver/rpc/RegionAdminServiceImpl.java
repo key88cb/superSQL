@@ -277,6 +277,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 return r;
             }
 
+            // Duplicate offset but different content likely means a stale/corrupted retry.
+            // Reject it explicitly and keep current in-flight progress for subsequent valid chunks.
+            if (chunk.getOffset() < expectedOffset) {
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("Invalid chunk: conflicting duplicate offset, expected=" + expectedOffset
+                        + ", actual=" + chunk.getOffset());
+                return r;
+            }
+
             if (chunk.getOffset() == 0L && expectedOffset > 0L) {
                 // Restarting from offset 0 resets unfinished transfer state.
                 expectedOffset = 0L;
