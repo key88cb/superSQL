@@ -282,6 +282,40 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertTrue(replicaIds.contains("rs-2"));
         Assertions.assertTrue(replicaIds.contains("rs-3"));
         Assertions.assertTrue(replicaIds.contains("rs-4"));
+        Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op ->
+            "transfer".equals(op.method)
+                && "t_failover_refill".equals(op.tableName)
+                && op.targetReplicaId != null));
+    }
+
+    @Test
+    void getTableLocationShouldKeepReducedReplicasWhenTransferFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_refill_transfer_fail(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        adminExecutor.failAnyTransfer();
+        zkClient.delete().forPath("/region_servers/rs-1");
+
+        TableLocation after = service.getTableLocation("t_refill_transfer_fail");
+        List<String> replicaIds = after.getReplicas().stream().map(RegionServerInfo::getId).toList();
+
+        Assertions.assertEquals("ACTIVE", after.getTableStatus());
+        Assertions.assertEquals(2, after.getReplicasSize());
+        Assertions.assertFalse(replicaIds.contains("rs-1"));
+        Assertions.assertTrue(replicaIds.contains(after.getPrimaryRS().getId()));
+        Assertions.assertTrue(replicaIds.stream().allMatch(id -> List.of("rs-2", "rs-3", "rs-4").contains(id)));
+        Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op ->
+            "transfer".equals(op.method)
+                && "t_refill_transfer_fail".equals(op.tableName)));
+
+        Map<?, ?> meta = readJson("/meta/tables/t_refill_transfer_fail");
+        List<?> persistedReplicas = (List<?>) meta.get("replicas");
+        Assertions.assertEquals(2, persistedReplicas.size());
     }
 
     @Test
@@ -840,6 +874,16 @@ class MasterServiceMetadataIntegrationTest {
     private static class RecordingRegionAdminExecutor implements RegionAdminExecutor {
 
         private final List<AdminOperation> operations = new ArrayList<>();
+        private String failTransferTargetId;
+        private boolean failAnyTransfer;
+
+        void failTransferTo(String targetReplicaId) {
+            this.failTransferTargetId = targetReplicaId;
+        }
+
+        void failAnyTransfer() {
+            this.failAnyTransfer = true;
+        }
 
         @Override
         public Response pauseTableWrite(RegionServerInfo regionServer, String tableName) {
@@ -856,6 +900,11 @@ class MasterServiceMetadataIntegrationTest {
         @Override
         public Response transferTable(RegionServerInfo source, String tableName, RegionServerInfo target) {
             operations.add(new AdminOperation("transfer", source.getId(), tableName, target.getId()));
+            if (failAnyTransfer || target.getId().equals(failTransferTargetId)) {
+                Response fail = new Response(StatusCode.ERROR);
+                fail.setMessage("simulated transfer failure to target " + target.getId());
+                return fail;
+            }
             return new Response(StatusCode.OK);
         }
 

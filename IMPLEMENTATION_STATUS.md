@@ -30,7 +30,8 @@
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
 - `getTableLocation` 在检测到主副本离线且存在在线副本时，会自动晋升在线副本并回写元数据（lazy failover）。
 - `listTables` 同样会在返回前执行主副本离线检测与 lazy failover，减少批量查询场景下的陈旧主路由。
-- lazy failover 过程中会在在线节点足够时自动补齐副本列表（最多恢复到 3 副本），并同步回写 assignment。
+- lazy failover 补副本已升级为“先数据迁移后元数据落盘”：Master 会先触发 RegionAdmin `transferTable` 把表数据复制到新副本，成功后才回写 `/meta/tables` 与 `/assignments`。
+- lazy failover 的补副本迁移失败时会保持降副本状态并清理目标残留（best-effort），避免出现“元数据已宣告副本存在但数据未到位”的假副本。
 - 当表的所有副本都离线时，路由自愈会将表状态标记为 `UNAVAILABLE`；有副本恢复在线后会自动回升到 `ACTIVE`。
 - 路由自愈写回已增加按表去抖节流（相同目标拓扑在最小间隔内不重复写 ZK），降低高频查询下写放大。
 

@@ -55,6 +55,7 @@
 - `getTableLocation` 已支持 lazy failover：主副本离线时自动晋升在线副本并回写元数据。
 - `listTables` 也已支持 lazy failover：批量路由查询时会同步修复离线主副本路由。
 - lazy failover 已支持在在线节点充足时自动补齐副本列表（最多 3 副本）并同步 assignment。
+- lazy failover 的副本补齐已收敛为“transfer 成功后再写元数据”：补副本会先执行 RegionAdmin `transferTable`，失败时保持降副本并清理目标残留，避免假副本路由。
 - 当所有副本离线时，表状态会自动降级为 `UNAVAILABLE`，副本恢复后可自动回升 `ACTIVE`。
 - 路由自愈写回已支持按表去抖节流，避免高频查询场景重复写 ZooKeeper。
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。

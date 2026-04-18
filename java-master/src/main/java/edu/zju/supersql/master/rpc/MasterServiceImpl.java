@@ -908,6 +908,7 @@ public class MasterServiceImpl implements MasterService.Iface {
 
         List<RegionServerInfo> healedReplicas = new ArrayList<>(onlineReplicas);
         int targetReplicaCount = Math.min(3, onlineIds.size());
+        List<RegionServerInfo> refillTargets = List.of();
         if (healedReplicas.size() < targetReplicaCount) {
             List<RegionServerInfo> candidates = new ArrayList<>();
             Set<String> existingIds = new HashSet<>();
@@ -919,9 +920,9 @@ public class MasterServiceImpl implements MasterService.Iface {
                     candidates.add(online);
                 }
             }
-            for (RegionServerInfo candidate : loadBalancer.selectReplicas(candidates,
-                    targetReplicaCount - healedReplicas.size())) {
-                healedReplicas.add(candidate);
+            refillTargets = loadBalancer.selectReplicas(candidates,
+                    targetReplicaCount - healedReplicas.size());
+            if (!refillTargets.isEmpty()) {
                 changed = true;
             }
         }
@@ -940,13 +941,50 @@ public class MasterServiceImpl implements MasterService.Iface {
             return location;
         }
 
+        long now = clockMs.getAsLong();
+        List<RegionServerInfo> plannedReplicas = new ArrayList<>(healedReplicas);
+        for (RegionServerInfo target : refillTargets) {
+            if (target != null && target.isSetId()) {
+                plannedReplicas.add(target);
+            }
+        }
+        ensurePrimaryIncluded(plannedReplicas, newPrimary);
+        TableLocation plannedLocation = new TableLocation(location.getTableName(), newPrimary, plannedReplicas);
+        plannedLocation.setVersion(System.currentTimeMillis());
+        plannedLocation.setTableStatus("ACTIVE");
+        String signature = healSignature(plannedLocation);
+        if (isHealPersistThrottled(plannedLocation.getTableName(), signature, now)) {
+            TableLocation transientLocation = new TableLocation(location.getTableName(), newPrimary, healedReplicas);
+            transientLocation.setVersion(System.currentTimeMillis());
+            transientLocation.setTableStatus("ACTIVE");
+            return transientLocation;
+        }
+
+        List<RegionServerInfo> clonedTargets = new ArrayList<>();
+        for (RegionServerInfo target : refillTargets) {
+            RegionServerInfo source = chooseReplicaCloneSource(newPrimary, healedReplicas, target);
+            if (source == null) {
+                log.warn("healTableLocation skipped replica refill table={} target={} reason=no_online_source",
+                        location.getTableName(), target.getId());
+                continue;
+            }
+            if (cloneReplicaBestEffort(location.getTableName(), source, target)) {
+                healedReplicas.add(target);
+                clonedTargets.add(target);
+                log.info("healTableLocation refilled replica table={} source={} target={}",
+                        location.getTableName(), source.getId(), target.getId());
+            }
+        }
+
+        ensurePrimaryIncluded(healedReplicas, newPrimary);
+
         TableLocation promotedLocation = new TableLocation(location.getTableName(), newPrimary, healedReplicas);
         promotedLocation.setVersion(System.currentTimeMillis());
         promotedLocation.setTableStatus("ACTIVE");
-        long now = clockMs.getAsLong();
-        String signature = healSignature(promotedLocation);
-        if (isHealPersistThrottled(promotedLocation.getTableName(), signature, now)) {
-            return promotedLocation;
+
+        if (promotedLocation.getReplicas().size() < targetReplicaCount) {
+            log.warn("healTableLocation recovered with reduced replicas table={} expected={} actual={}",
+                    promotedLocation.getTableName(), targetReplicaCount, promotedLocation.getReplicas().size());
         }
 
         try {
@@ -960,10 +998,78 @@ public class MasterServiceImpl implements MasterService.Iface {
                     healedReplicas.stream().map(RegionServerInfo::getId).toList());
             return promotedLocation;
         } catch (Exception e) {
+            for (RegionServerInfo clonedTarget : clonedTargets) {
+                cleanupTargetReplicaBestEffort(clonedTarget,
+                        promotedLocation.getTableName(),
+                        "heal_metadata_persist_failed");
+            }
             log.error("healTableLocation failed to persist update table={} primary={} cause={}",
                     promotedLocation.getTableName(), promotedLocation.getPrimaryRS().getId(), e.getMessage());
             return location;
         }
+    }
+
+    private void ensurePrimaryIncluded(List<RegionServerInfo> replicas, RegionServerInfo primary) {
+        if (replicas == null || primary == null || !primary.isSetId()) {
+            return;
+        }
+        String primaryId = primary.getId();
+        boolean hasPrimary = replicas.stream()
+                .anyMatch(rs -> rs != null && rs.isSetId() && primaryId.equals(rs.getId()));
+        if (!hasPrimary) {
+            replicas.add(0, primary);
+        }
+    }
+
+    private RegionServerInfo chooseReplicaCloneSource(RegionServerInfo preferredPrimary,
+                                                      List<RegionServerInfo> onlineReplicas,
+                                                      RegionServerInfo target) {
+        if (target == null || !target.isSetId()) {
+            return null;
+        }
+        if (preferredPrimary != null && preferredPrimary.isSetId()) {
+            String preferredPrimaryId = preferredPrimary.getId();
+            if (!preferredPrimaryId.equals(target.getId())) {
+                boolean hasPreferred = onlineReplicas.stream()
+                        .anyMatch(rs -> rs != null && rs.isSetId() && preferredPrimaryId.equals(rs.getId()));
+                if (hasPreferred) {
+                    return preferredPrimary;
+                }
+            }
+        }
+        for (RegionServerInfo replica : onlineReplicas) {
+            if (replica != null
+                    && replica.isSetId()
+                    && !replica.getId().equals(target.getId())) {
+                return replica;
+            }
+        }
+        return null;
+    }
+
+    private boolean cloneReplicaBestEffort(String tableName,
+                                           RegionServerInfo source,
+                                           RegionServerInfo target) {
+        try {
+            Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
+            if (transfer.getCode() == StatusCode.OK) {
+                return true;
+            }
+            log.warn("healTableLocation transfer failed table={} source={} target={} code={} msg={}",
+                    tableName,
+                    source.getId(),
+                    target.getId(),
+                    transfer.getCode(),
+                    transfer.getMessage());
+        } catch (Exception e) {
+            log.warn("healTableLocation transfer exception table={} source={} target={} cause={}",
+                    tableName,
+                    source.getId(),
+                    target.getId(),
+                    e.getMessage());
+        }
+        cleanupTargetReplicaBestEffort(target, tableName, "heal_transfer_failed");
+        return false;
     }
 
     private String healSignature(TableLocation location) {
