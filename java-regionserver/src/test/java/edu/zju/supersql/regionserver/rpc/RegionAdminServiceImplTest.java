@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests for RegionAdminServiceImpl.
@@ -234,6 +235,27 @@ class RegionAdminServiceImplTest {
         }
     }
 
+    @Test
+    void transferTableShouldRetryChunkOnTransientTargetFailure() throws Exception {
+        Files.writeString(dataDir.resolve("orders_retry"), "payload");
+
+        int port = freePort();
+        FlakyCopyService flaky = new FlakyCopyService();
+        TServer server = buildServer(port, flaky);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        pool.submit(server::serve);
+        Thread.sleep(200);
+
+        try {
+            Response r = service.transferTable("orders", "127.0.0.1", port);
+            Assertions.assertEquals(StatusCode.OK, r.getCode());
+            Assertions.assertEquals(2, flaky.attemptCount.get());
+        } finally {
+            server.stop();
+            pool.shutdownNow();
+        }
+    }
+
     // ── heartbeat / registerRegionServer ──────────────────────────────────────
 
     @Test
@@ -330,6 +352,60 @@ class RegionAdminServiceImplTest {
         @Override
         public Response copyTableData(DataChunk chunk) {
             chunks.add(chunk.deepCopy());
+            return ok();
+        }
+
+        @Override
+        public Response deleteLocalTable(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response registerRegionServer(RegionServerInfo info) {
+            return ok();
+        }
+
+        @Override
+        public Response heartbeat(RegionServerInfo info) {
+            return ok();
+        }
+
+        @Override
+        public Response invalidateClientCache(String tableName) {
+            return ok();
+        }
+
+        private static Response ok() {
+            return new Response(StatusCode.OK);
+        }
+    }
+
+    private static final class FlakyCopyService implements RegionAdminService.Iface {
+        private final AtomicInteger attemptCount = new AtomicInteger();
+
+        @Override
+        public Response pauseTableWrite(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response resumeTableWrite(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response transferTable(String tableName, String targetHost, int targetPort) {
+            return ok();
+        }
+
+        @Override
+        public Response copyTableData(DataChunk chunk) {
+            int current = attemptCount.incrementAndGet();
+            if (current == 1) {
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("transient failure");
+                return r;
+            }
             return ok();
         }
 

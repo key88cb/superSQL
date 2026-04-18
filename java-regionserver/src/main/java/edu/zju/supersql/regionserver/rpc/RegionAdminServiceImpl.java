@@ -35,6 +35,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private static final Logger log = LoggerFactory.getLogger(RegionAdminServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int CHUNK_SIZE = 4096;
+    private static final int COPY_CHUNK_MAX_RETRIES = 3;
     private static final String STAGING_SUFFIX = ".part";
 
     private final WriteGuard writeGuard;
@@ -318,15 +319,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private void streamFile(RegionAdminService.Client client, String tableName, File file) throws Exception {
         long fileSize = file.length();
         if (fileSize == 0) {
-            DataChunk emptyChunk = new DataChunk(tableName, file.getName(), 0L,
-                    ByteBuffer.wrap(new byte[0]), true);
-            Response response = client.copyTableData(emptyChunk);
-            if (response.getCode() != StatusCode.OK) {
-                throw new IOException("copyTableData rejected file=" + file.getName()
-                        + " offset=0"
-                        + " code=" + response.getCode()
-                        + " msg=" + response.getMessage());
-            }
+            sendChunkWithRetry(client, tableName, file.getName(), 0L, new byte[0], true);
             return;
         }
 
@@ -342,19 +335,56 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 long nextOffset = offset + bytesRead;
                 boolean isLast = (nextOffset >= fileSize);
 
-                DataChunk chunk = new DataChunk(tableName, file.getName(), offset,
-                        ByteBuffer.wrap(data), isLast);
-                Response response = client.copyTableData(chunk);
-                if (response.getCode() != StatusCode.OK) {
-                    throw new IOException("copyTableData rejected file=" + file.getName()
-                            + " offset=" + offset
-                            + " code=" + response.getCode()
-                            + " msg=" + response.getMessage());
-                }
+                sendChunkWithRetry(client, tableName, file.getName(), offset, data, isLast);
 
                 offset = nextOffset;
             }
         }
+    }
+
+    private void sendChunkWithRetry(RegionAdminService.Client client,
+                                    String tableName,
+                                    String fileName,
+                                    long offset,
+                                    byte[] data,
+                                    boolean isLast) throws Exception {
+        Response lastResponse = null;
+        Exception lastException = null;
+
+        for (int attempt = 1; attempt <= COPY_CHUNK_MAX_RETRIES; attempt++) {
+            DataChunk chunk = new DataChunk(tableName, fileName, offset, ByteBuffer.wrap(data), isLast);
+            try {
+                Response response = client.copyTableData(chunk);
+                if (response.getCode() == StatusCode.OK) {
+                    return;
+                }
+                lastResponse = response;
+                log.warn("copyTableData attempt failed file={} offset={} attempt={}/{} code={} msg={}",
+                        fileName, offset, attempt, COPY_CHUNK_MAX_RETRIES,
+                        response.getCode(), response.getMessage());
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("copyTableData attempt exception file={} offset={} attempt={}/{} cause={}",
+                        fileName, offset, attempt, COPY_CHUNK_MAX_RETRIES, e.getMessage());
+            }
+        }
+
+        if (lastResponse != null) {
+            throw new IOException("copyTableData rejected file=" + fileName
+                    + " offset=" + offset
+                    + " code=" + lastResponse.getCode()
+                    + " msg=" + lastResponse.getMessage()
+                    + " after retries=" + COPY_CHUNK_MAX_RETRIES);
+        }
+        if (lastException != null) {
+            throw new IOException("copyTableData failed file=" + fileName
+                    + " offset=" + offset
+                    + " after retries=" + COPY_CHUNK_MAX_RETRIES,
+                    lastException);
+        }
+        throw new IOException("copyTableData failed file=" + fileName
+                + " offset=" + offset
+                + " after retries=" + COPY_CHUNK_MAX_RETRIES);
     }
 
     private static byte[] copyOf(byte[] src, int len) {
