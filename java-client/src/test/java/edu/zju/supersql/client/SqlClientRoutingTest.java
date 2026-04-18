@@ -51,6 +51,8 @@ class SqlClientRoutingTest {
         Assertions.assertEquals(SqlClient.SqlKind.SHOW_TABLES, SqlClient.classifySql("show tables;"));
         Assertions.assertEquals(SqlClient.SqlKind.SHOW_ROUTING_METRICS,
                 SqlClient.classifySql("show routing metrics;"));
+        Assertions.assertEquals(SqlClient.SqlKind.SHOW_ROUTING_METRICS,
+            SqlClient.classifySql("show routing metrics json;"));
     }
 
     @Test

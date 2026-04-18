@@ -154,17 +154,26 @@ public class SqlClient {
 
         switch (kind) {
             case SHOW_TABLES -> handleShowTables(activeMaster, config);
-            case SHOW_ROUTING_METRICS -> handleShowRoutingMetrics();
+            case SHOW_ROUTING_METRICS -> handleShowRoutingMetrics(sql);
             case DDL         -> handleDdl(sql, activeMaster, routeCache, config);
             case DML         -> handleDml(sql, activeMaster, routeCache, config);
             default          -> System.out.println("Unknown SQL: " + sql);
         }
     }
 
-    private static void handleShowRoutingMetrics() {
+    private static void handleShowRoutingMetrics(String sql) {
+        Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot = snapshotRoutingMetrics();
+        if (isRoutingMetricsJsonCommand(sql)) {
+            System.out.println(formatRoutingMetricsJson(snapshot));
+            return;
+        }
         for (String line : formatRoutingMetricsLines(snapshotRoutingMetrics())) {
             System.out.println(line);
         }
+    }
+
+    private static boolean isRoutingMetricsJsonCommand(String sql) {
+        return sql != null && sql.trim().toLowerCase().startsWith("show routing metrics json");
     }
 
     private static void handleShowTables(String activeMaster, ClientConfig config) throws Exception {
@@ -451,6 +460,39 @@ public class SqlClient {
             lines.add("(no routing metrics)");
         }
         return lines;
+    }
+
+    static String formatRoutingMetricsJson(Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot) {
+        Map<String, Object> root = new LinkedHashMap<>();
+        List<Map<String, Object>> tables = new ArrayList<>();
+
+        if (snapshot != null && !snapshot.isEmpty()) {
+            List<String> names = new ArrayList<>(snapshot.keySet());
+            names.sort(String::compareTo);
+            for (String name : names) {
+                ClientRoutingMetrics.MetricsSnapshot metrics = snapshot.get(name);
+                if (metrics == null) {
+                    continue;
+                }
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("table", name);
+                row.put("redirects", metrics.redirectCount());
+                row.put("movingRetries", metrics.movingRetryCount());
+                row.put("exceptionRetries", metrics.retryOnExceptionCount());
+                row.put("locationFetches", metrics.locationFetchCount());
+                row.put("readFallbacks", metrics.readFallbackCount());
+                tables.add(row);
+            }
+        }
+
+        root.put("tableCount", tables.size());
+        root.put("tables", tables);
+        try {
+            return MAPPER.writeValueAsString(root);
+        } catch (Exception e) {
+            log.warn("Failed to render routing metrics json: {}", e.getMessage());
+            return "{\"tableCount\":0,\"tables\":[]}";
+        }
     }
 
     static void resetRoutingMetricsForTests() {
