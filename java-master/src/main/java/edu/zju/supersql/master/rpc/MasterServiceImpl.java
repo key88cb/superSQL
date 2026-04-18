@@ -566,6 +566,7 @@ public class MasterServiceImpl implements MasterService.Iface {
 
             Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
             if (transfer.getCode() != StatusCode.OK) {
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
                 cleanupTargetReplicaBestEffort(target, tableName, "transfer_failed");
                 return transfer;
             }

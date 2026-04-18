@@ -147,6 +147,7 @@ class RebalanceLoggingConsistencyTest {
         TableLocation locationAfter = service.getTableLocation("t_rollback");
         List<String> replicasAfter = locationAfter.getReplicas().stream().map(RegionServerInfo::getId).toList();
         Assertions.assertEquals(replicasBefore, replicasAfter);
+        Assertions.assertEquals("ACTIVE", locationAfter.getTableStatus());
         Assertions.assertTrue(adminExecutor.hasOp("delete:rs-4"));
 
         List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
@@ -208,6 +209,7 @@ class RebalanceLoggingConsistencyTest {
         TableLocation locationAfter = service.getTableLocation("t_transfer_fail");
         Assertions.assertEquals(replicasBefore,
                 locationAfter.getReplicas().stream().map(RegionServerInfo::getId).toList());
+        Assertions.assertEquals("ACTIVE", locationAfter.getTableStatus());
         Assertions.assertTrue(adminExecutor.hasOp("delete:rs-4"));
 
         List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
