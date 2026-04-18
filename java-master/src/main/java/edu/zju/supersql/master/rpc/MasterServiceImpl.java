@@ -560,6 +560,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         try {
             Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
             if (transfer.getCode() != StatusCode.OK) {
+                cleanupTargetReplicaBestEffort(target, tableName, "transfer_failed");
                 return transfer;
             }
 
@@ -579,6 +580,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                         originalReplicas.stream().map(RegionServerInfo::getId).toList(),
                         metadataError.getMessage());
                 rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
+                    cleanupTargetReplicaBestEffort(target, tableName, "metadata_persist_failed");
                 throw metadataError;
             }
             log.info("triggerRebalance metadata updated table={} replicasAfter={}",
@@ -589,6 +591,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 log.warn("triggerRebalance deleteLocalTable failed table={} source={} code={}",
                         tableName, source.getId(), delete.getCode());
                 rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
+                cleanupTargetReplicaBestEffort(target, tableName, "source_delete_failed");
                 return delete;
             }
 
@@ -633,6 +636,22 @@ public class MasterServiceImpl implements MasterService.Iface {
         } catch (Exception e) {
             log.warn("triggerRebalance cache invalidation exception table={} rs={} cause={}",
                     tableName, regionServer.getId(), e.getMessage());
+        }
+    }
+
+    private void cleanupTargetReplicaBestEffort(RegionServerInfo target, String tableName, String reason) {
+        try {
+            Response response = regionAdminExecutor.deleteLocalTable(target, tableName);
+            if (response.getCode() == StatusCode.OK || response.getCode() == StatusCode.TABLE_NOT_FOUND) {
+                log.info("triggerRebalance cleanup target replica table={} target={} reason={} code={}",
+                        tableName, target.getId(), reason, response.getCode());
+            } else {
+                log.warn("triggerRebalance cleanup target replica failed table={} target={} reason={} code={} msg={}",
+                        tableName, target.getId(), reason, response.getCode(), response.getMessage());
+            }
+        } catch (Exception e) {
+            log.warn("triggerRebalance cleanup target replica exception table={} target={} reason={} cause={}",
+                    tableName, target.getId(), reason, e.getMessage());
         }
     }
 

@@ -147,10 +147,12 @@ class RebalanceLoggingConsistencyTest {
         TableLocation locationAfter = service.getTableLocation("t_rollback");
         List<String> replicasAfter = locationAfter.getReplicas().stream().map(RegionServerInfo::getId).toList();
         Assertions.assertEquals(replicasBefore, replicasAfter);
+        Assertions.assertTrue(adminExecutor.hasOp("delete:rs-4"));
 
         List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
         Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance deleteLocalTable failed table=t_rollback source=rs-2 code=ERROR")));
         Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance metadata rollback completed table=t_rollback")));
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cleanup target replica table=t_rollback target=rs-4 reason=source_delete_failed code=OK")));
     }
 
     @Test
@@ -179,6 +181,37 @@ class RebalanceLoggingConsistencyTest {
         List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
         Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cache invalidation failed table=t_invalidate rs=rs-4 code=ERROR")));
         Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance success table=t_invalidate source=rs-2 target=rs-4")));
+    }
+
+    @Test
+    void rebalanceShouldCleanupTargetWhenTransferFails() throws Exception {
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 2);
+        registerRegionServer("rs-3", 1);
+        registerRegionServer("rs-4", 3);
+
+        Response create = service.createTable("create table t_transfer_fail(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        List<String> replicasBefore = service.getTableLocation("t_transfer_fail")
+                .getReplicas().stream().map(RegionServerInfo::getId).toList();
+
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 9);
+        registerRegionServer("rs-3", 1);
+        registerRegionServer("rs-4", 2);
+        adminExecutor.failTransferOn("rs-2");
+
+        Response rebalance = service.triggerRebalance();
+        Assertions.assertEquals(StatusCode.ERROR, rebalance.getCode());
+
+        TableLocation locationAfter = service.getTableLocation("t_transfer_fail");
+        Assertions.assertEquals(replicasBefore,
+                locationAfter.getReplicas().stream().map(RegionServerInfo::getId).toList());
+        Assertions.assertTrue(adminExecutor.hasOp("delete:rs-4"));
+
+        List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cleanup target replica table=t_transfer_fail target=rs-4 reason=transfer_failed code=OK")));
     }
 
     private void createPathIfMissing(String path) throws Exception {
@@ -229,6 +262,7 @@ class RebalanceLoggingConsistencyTest {
         private final List<String> ops = new ArrayList<>();
         private String failDeleteRsId;
         private String failInvalidateRsId;
+        private String failTransferRsId;
 
         void failDeleteOn(String rsId) {
             this.failDeleteRsId = rsId;
@@ -236,6 +270,14 @@ class RebalanceLoggingConsistencyTest {
 
         void failInvalidateOn(String rsId) {
             this.failInvalidateRsId = rsId;
+        }
+
+        void failTransferOn(String rsId) {
+            this.failTransferRsId = rsId;
+        }
+
+        boolean hasOp(String opPrefix) {
+            return ops.stream().anyMatch(op -> op.startsWith(opPrefix));
         }
 
         @Override
@@ -253,6 +295,11 @@ class RebalanceLoggingConsistencyTest {
         @Override
         public Response transferTable(RegionServerInfo source, String tableName, RegionServerInfo target) {
             ops.add("transfer:" + source.getId() + "->" + target.getId());
+            if (source.getId().equals(failTransferRsId)) {
+                Response fail = new Response(StatusCode.ERROR);
+                fail.setMessage("simulated transfer failure");
+                return fail;
+            }
             return new Response(StatusCode.OK);
         }
 
