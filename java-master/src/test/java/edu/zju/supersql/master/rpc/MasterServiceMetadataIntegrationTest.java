@@ -615,6 +615,44 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void triggerRebalanceShouldProactivelyRecoverStuckMovingStatus() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 1);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+
+        Response create = service.createTable("create table t_stuck_recover_trigger(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_recover_trigger").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "MOVING");
+        meta.put("migrationAttemptId", "attempt-stuck-trigger");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_recover_trigger",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        MasterServiceImpl recoveringService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                adminExecutor,
+                clock::get,
+                1_000L,
+                10,
+                5_000L);
+
+        Response rebalance = recoveringService.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_recover_trigger");
+        Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
+    }
+
+    @Test
     void triggerRebalanceShouldExposePreparingStatusBeforePause() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);

@@ -18,6 +18,7 @@
 - `triggerRebalance()` 在 `pauseTableWrite` 失败路径也会回滚元数据，避免停留在 `PREPARING` 中间态。
 - `triggerRebalance()` 在 `deleteLocalTable` 前会进入 `FINALIZING`，使“数据迁移已完成、待源端清理”阶段可观测。
 - `getTableLocation/listTables/repairTableRoutesBestEffort` 已接入卡死迁移自恢复：当 `PREPARING/MOVING/FINALIZING/ROLLBACK` 状态超时且存在 `migrationAttemptId` 时，自动回收为 `ACTIVE` 并清理尝试标记。
+- `triggerRebalance()` 调度入口已接入卡死迁移预恢复：即使本轮负载均衡最终被跳过，也会先回收超时迁移状态，降低“长期无人读写表”卡死风险。
 - `triggerRebalance()` 状态推进会刷新 `/meta/tables/{table}` 的 `statusUpdatedAt` 时间戳，便于观测迁移阶段更新时间。
 - `triggerRebalance()` 迁移中会写入 `migrationAttemptId`（PREPARING/MOVING 可观测），成功与回滚后会清理该字段，便于后续幂等恢复扩展。
 - `triggerRebalance()` 候选选择已限制为 `ACTIVE` 表，避免对 `PREPARING/MOVING` 表重复触发迁移。
@@ -197,6 +198,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：rebalance `FINALIZING` 阶段可观测性，以及超时 `MOVING` 状态在读路径触发下自动恢复为 `ACTIVE` 的自恢复语义。
 - 2026-04-19 已补充覆盖：checkpoint 与 recover 对陈旧 PREPARE 的自动裁剪（`LSN<=checkpointLsn`）语义，避免悬挂 PREPARE 污染后续恢复与统计。
 - 2026-04-19 已补充覆盖：`copyTableData` 在“进行中重复 chunk”与“完成后重复末块”场景下的幂等确认语义，避免误触发 offset reset。
+- 2026-04-19 已补充覆盖：`triggerRebalance` 在“集群已平衡”返回前会先执行卡死迁移预恢复，验证调度路径不再依赖读路径才能回收超时状态。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 

@@ -610,6 +610,9 @@ public class MasterServiceImpl implements MasterService.Iface {
                 r.setMessage("Rebalance skipped: fewer than 2 region servers");
                 return r;
             }
+
+            recoverStuckMigrationsForRebalanceBestEffort();
+
             if (loadBalancer.isBalanced(regionServers, MasterConfig.fromSystemEnv().rebalanceRatio())) {
                 log.info("triggerRebalance skipped: cluster already balanced");
                 Response r = new Response(StatusCode.OK);
@@ -653,6 +656,23 @@ public class MasterServiceImpl implements MasterService.Iface {
             return rebalanceReplica(candidate, source, target);
         } catch (Exception e) {
             throw new TException("Failed to trigger rebalance", e);
+        }
+    }
+
+    private void recoverStuckMigrationsForRebalanceBestEffort() {
+        try {
+            int recovered = 0;
+            for (TableLocation location : metaManager.listTables()) {
+                TableLocation recoveredLocation = recoverStuckMigrationBestEffort(location);
+                if (recoveredLocation != location) {
+                    recovered++;
+                }
+            }
+            if (recovered > 0) {
+                log.warn("triggerRebalance proactively recovered {} stuck migration table(s)", recovered);
+            }
+        } catch (Exception e) {
+            log.warn("triggerRebalance stuck migration pre-recovery failed: {}", e.getMessage());
         }
     }
 
