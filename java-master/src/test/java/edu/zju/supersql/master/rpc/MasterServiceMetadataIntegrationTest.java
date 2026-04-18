@@ -358,6 +358,48 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void getTableLocationShouldThrottleRepeatedHealWrites() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_heal_throttle(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        AtomicLong clock = new AtomicLong(1_000L);
+        MasterServiceImpl throttledService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                adminExecutor,
+                clock::get,
+                10_000L);
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+        TableLocation firstHeal = throttledService.getTableLocation("t_heal_throttle");
+        Assertions.assertEquals("rs-2", firstHeal.getPrimaryRS().getId());
+
+        forcePrimaryInMeta("t_heal_throttle", "rs-1", 9090);
+
+        clock.set(2_000L);
+        TableLocation secondHeal = throttledService.getTableLocation("t_heal_throttle");
+        Assertions.assertEquals("rs-2", secondHeal.getPrimaryRS().getId());
+
+        Map<?, ?> throttledMeta = readJson("/meta/tables/t_heal_throttle");
+        Map<?, ?> throttledPrimary = (Map<?, ?>) throttledMeta.get("primaryRS");
+        Assertions.assertEquals("rs-1", String.valueOf(throttledPrimary.get("id")));
+
+        clock.set(20_000L);
+        TableLocation thirdHeal = throttledService.getTableLocation("t_heal_throttle");
+        Assertions.assertEquals("rs-2", thirdHeal.getPrimaryRS().getId());
+
+        Map<?, ?> persistedMeta = readJson("/meta/tables/t_heal_throttle");
+        Map<?, ?> persistedPrimary = (Map<?, ?>) persistedMeta.get("primaryRS");
+        Assertions.assertEquals("rs-2", String.valueOf(persistedPrimary.get("id")));
+    }
+
+    @Test
     void triggerRebalanceShouldMoveNonPrimaryReplicaToLeastLoadedNode() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
@@ -707,6 +749,24 @@ class MasterServiceMetadataIntegrationTest {
         } else {
             zkClient.setData().forPath(path, bytes);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void forcePrimaryInMeta(String tableName, String primaryId, int port) throws Exception {
+        String path = "/meta/tables/" + tableName;
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson(path).entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+
+        Map<String, Object> forcedPrimary = new HashMap<>();
+        forcedPrimary.put("id", primaryId);
+        forcedPrimary.put("host", "127.0.0.1");
+        forcedPrimary.put("port", port);
+        meta.put("primaryRS", forcedPrimary);
+        meta.put("tableStatus", "ACTIVE");
+
+        zkClient.setData().forPath(path, MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
     }
 
     private Map<?, ?> readJson(String path) throws Exception {

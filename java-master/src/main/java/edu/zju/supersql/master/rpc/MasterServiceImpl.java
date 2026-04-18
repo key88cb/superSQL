@@ -23,6 +23,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,6 +37,7 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     private static final Logger log = LoggerFactory.getLogger(MasterServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final long DEFAULT_ROUTE_HEAL_MIN_GAP_MS = 1_000L;
     private static final Pattern CREATE_TABLE_PATTERN =
             Pattern.compile("(?i)^\\s*create\\s+table\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
 
@@ -42,6 +46,9 @@ public class MasterServiceImpl implements MasterService.Iface {
     private final LoadBalancer loadBalancer;
     private final RegionDdlExecutor regionDdlExecutor;
     private final RegionAdminExecutor regionAdminExecutor;
+    private final LongSupplier clockMs;
+    private final long routeHealMinGapMs;
+    private final ConcurrentMap<String, HealPersistState> lastHealPersistByTable = new ConcurrentHashMap<>();
 
     public MasterServiceImpl() {
         this(new MetaManager(MasterRuntimeContext.getZkClient()),
@@ -56,11 +63,29 @@ public class MasterServiceImpl implements MasterService.Iface {
                              LoadBalancer loadBalancer,
                              RegionDdlExecutor regionDdlExecutor,
                              RegionAdminExecutor regionAdminExecutor) {
+        this(metaManager,
+                assignmentManager,
+                loadBalancer,
+                regionDdlExecutor,
+                regionAdminExecutor,
+                System::currentTimeMillis,
+                DEFAULT_ROUTE_HEAL_MIN_GAP_MS);
+    }
+
+    MasterServiceImpl(MetaManager metaManager,
+                             AssignmentManager assignmentManager,
+                             LoadBalancer loadBalancer,
+                             RegionDdlExecutor regionDdlExecutor,
+                             RegionAdminExecutor regionAdminExecutor,
+                             LongSupplier clockMs,
+                             long routeHealMinGapMs) {
         this.metaManager = metaManager;
         this.assignmentManager = assignmentManager;
         this.loadBalancer = loadBalancer;
         this.regionDdlExecutor = regionDdlExecutor;
         this.regionAdminExecutor = regionAdminExecutor;
+        this.clockMs = clockMs;
+        this.routeHealMinGapMs = Math.max(0L, routeHealMinGapMs);
     }
 
     private static Response notImplemented(String method) {
@@ -783,10 +808,16 @@ public class MasterServiceImpl implements MasterService.Iface {
                 TableLocation unavailable = new TableLocation(location);
                 unavailable.setTableStatus("UNAVAILABLE");
                 unavailable.setVersion(System.currentTimeMillis());
+                long now = clockMs.getAsLong();
+                String signature = healSignature(unavailable);
+                if (isHealPersistThrottled(unavailable.getTableName(), signature, now)) {
+                    return unavailable;
+                }
                 try {
                     metaManager.saveTableLocation(unavailable);
                     assignmentManager.saveAssignment(unavailable.getTableName(), unavailable.getReplicas());
                     touchStatusUpdatedAtBestEffort(unavailable.getTableName());
+                    recordHealPersist(unavailable.getTableName(), signature, now);
                     log.warn("healTableLocation marked table unavailable table={} primary={}",
                             unavailable.getTableName(), currentPrimaryId);
                     return unavailable;
@@ -846,11 +877,17 @@ public class MasterServiceImpl implements MasterService.Iface {
         TableLocation promotedLocation = new TableLocation(location.getTableName(), newPrimary, healedReplicas);
         promotedLocation.setVersion(System.currentTimeMillis());
         promotedLocation.setTableStatus("ACTIVE");
+        long now = clockMs.getAsLong();
+        String signature = healSignature(promotedLocation);
+        if (isHealPersistThrottled(promotedLocation.getTableName(), signature, now)) {
+            return promotedLocation;
+        }
 
         try {
             metaManager.saveTableLocation(promotedLocation);
             assignmentManager.saveAssignment(promotedLocation.getTableName(), healedReplicas);
             touchStatusUpdatedAtBestEffort(promotedLocation.getTableName());
+            recordHealPersist(promotedLocation.getTableName(), signature, now);
             log.info("healTableLocation updated table={} primary={} replicas={}",
                     promotedLocation.getTableName(),
                     promotedLocation.getPrimaryRS().getId(),
@@ -860,6 +897,50 @@ public class MasterServiceImpl implements MasterService.Iface {
             log.error("healTableLocation failed to persist update table={} primary={} cause={}",
                     promotedLocation.getTableName(), promotedLocation.getPrimaryRS().getId(), e.getMessage());
             return location;
+        }
+    }
+
+    private String healSignature(TableLocation location) {
+        List<String> replicaIds = new ArrayList<>();
+        if (location.isSetReplicas()) {
+            for (RegionServerInfo replica : location.getReplicas()) {
+                if (replica != null && replica.isSetId()) {
+                    replicaIds.add(replica.getId());
+                }
+            }
+        }
+        replicaIds.sort(String::compareTo);
+        String primary = location.isSetPrimaryRS() && location.getPrimaryRS().isSetId()
+                ? location.getPrimaryRS().getId()
+                : "";
+        String status = location.isSetTableStatus() ? location.getTableStatus() : "";
+        return status + "|" + primary + "|" + String.join(",", replicaIds);
+    }
+
+    private boolean isHealPersistThrottled(String tableName, String signature, long now) {
+        HealPersistState previous = lastHealPersistByTable.get(tableName);
+        if (previous == null || !Objects.equals(previous.signature, signature)) {
+            return false;
+        }
+        if (now - previous.persistedAtMs < routeHealMinGapMs) {
+            log.debug("healTableLocation throttled table={} signature={} gap={}ms < minGap={}ms",
+                    tableName, signature, now - previous.persistedAtMs, routeHealMinGapMs);
+            return true;
+        }
+        return false;
+    }
+
+    private void recordHealPersist(String tableName, String signature, long now) {
+        lastHealPersistByTable.put(tableName, new HealPersistState(signature, now));
+    }
+
+    private static final class HealPersistState {
+        private final String signature;
+        private final long persistedAtMs;
+
+        private HealPersistState(String signature, long persistedAtMs) {
+            this.signature = signature;
+            this.persistedAtMs = persistedAtMs;
         }
     }
 
