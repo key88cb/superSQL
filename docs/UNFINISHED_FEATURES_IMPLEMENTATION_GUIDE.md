@@ -86,6 +86,7 @@
 - ACK 不足拒绝写入时会将对应 WAL 条目标记为 ABORT，避免 PREPARE 长期滞留。
 - WAL 状态（PREPARE/COMMITTED/ABORTED）语义已在实现层显式化，并通过恢复边界测试验证仅回放 COMMITTED。
 - WAL checkpoint 已支持按文件压缩清理 ABORT 与已持久化旧 COMMITTED 记录，同时保留 PREPARE 以支持后续提交流转。
+- WAL 清理语义已增强：checkpoint/recover 会裁剪 `LSN<=checkpointLsn` 的陈旧 PREPARE，降低悬挂 PREPARE 对恢复路径的干扰。
 - WAL 文件基础读写与恢复、ReplicaSync 基础同步与回放。
 - ReplicaSync `commitLog` 已具备幂等提交语义，重复提交不会重复回放 SQL。
 - 主副本对副本 `commitLog` 通知已补充有界重试（best-effort），提升短时故障下的收敛稳定性。
@@ -103,7 +104,7 @@
 
 ### 仍待实现
 
-- WAL 最终协议：崩溃恢复阶段对 PREPARE/ABORT 的清理与重放边界仍需进一步收敛。
+- WAL 最终协议：虽已补齐陈旧 PREPARE 裁剪，但 PREPARE 在跨节点提交确认超时后的处置策略仍需与复制层协议进一步对齐。
 - 多数派复制最终语义：失败重试、超时降级、追赶一致性与幂等保障。
 - 迁移协议完善：更强完整性校验（如校验和/块序号签名）、断点续传/重试、完成确认与回滚协议。
 - 自治恢复：主副本晋升、补副本、恢复后自动追赶到一致状态。

@@ -331,6 +331,8 @@ public class WalManager {
                 }
             }
 
+            cleanupWalFiles(checkpointLsn);
+
             log.info("Crash Recovery finished. Replayed {} missing entries.", recoveredCount);
 
             if (recoveredCount > 0) {
@@ -360,37 +362,7 @@ public class WalManager {
                 return;
             }
             log.info("C++ engine checkpointed at LSN={}. Cleaning WAL logs...", checkpointLsn);
-
-            File dir = new File(walDir);
-            File[] files = dir.listFiles((d, name) -> name.endsWith(".wal"));
-            if (files != null) {
-                int deleted = 0;
-                int compacted = 0;
-                for (File f : files) {
-                    String tableName = tableNameFromWalFile(f.getName());
-                    ReentrantLock lock = tableLocks.computeIfAbsent(tableName, k -> new ReentrantLock());
-                    lock.lock();
-                    try {
-                        long fileLsn = scanMaxLsn(f);
-                        if (fileLsn < checkpointLsn) {
-                            if (f.delete()) {
-                                deleted++;
-                                uncommittedOffsets.remove(tableName);
-                            }
-                            continue;
-                        }
-                        if (compactWalFile(f, checkpointLsn)) {
-                            compacted++;
-                        }
-                    } catch (IOException e) {
-                        log.warn("Failed to inspect/delete WAL file: {}", f.getName());
-                    } finally {
-                        lock.unlock();
-                    }
-                }
-                log.info("Physical WAL cleanup: deleted {} file(s), compacted {} file(s) (checkpoint LSN={})",
-                        deleted, compacted, checkpointLsn);
-            }
+            cleanupWalFiles(checkpointLsn);
 
             resetWriteCount();
             log.info("WAL checkpoint completed successfully.");
@@ -432,6 +404,41 @@ public class WalManager {
         return maxLsn;
     }
 
+    private void cleanupWalFiles(long checkpointLsn) {
+        File dir = new File(walDir);
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".wal"));
+        if (files == null) {
+            return;
+        }
+
+        int deleted = 0;
+        int compacted = 0;
+        for (File f : files) {
+            String tableName = tableNameFromWalFile(f.getName());
+            ReentrantLock lock = tableLocks.computeIfAbsent(tableName, k -> new ReentrantLock());
+            lock.lock();
+            try {
+                long fileLsn = scanMaxLsn(f);
+                if (fileLsn < checkpointLsn) {
+                    if (f.delete()) {
+                        deleted++;
+                        uncommittedOffsets.remove(tableName);
+                    }
+                    continue;
+                }
+                if (compactWalFile(f, checkpointLsn)) {
+                    compacted++;
+                }
+            } catch (IOException e) {
+                log.warn("Failed to inspect/delete WAL file: {}", f.getName());
+            } finally {
+                lock.unlock();
+            }
+        }
+        log.info("Physical WAL cleanup: deleted {} file(s), compacted {} file(s) (checkpoint LSN={})",
+                deleted, compacted, checkpointLsn);
+    }
+
     private boolean compactWalFile(File walFile, long checkpointLsn) throws IOException {
         List<WalRawEntry> keptEntries = new ArrayList<>();
         boolean removedAny = false;
@@ -462,7 +469,9 @@ public class WalManager {
                     break;
                 }
 
-                boolean keep = status == STATUS_PREPARE || (status == STATUS_COMMITTED && lsn > checkpointLsn);
+                // PREPARE at/before checkpoint watermark is dangling and can be safely dropped.
+                boolean keep = (status == STATUS_PREPARE && lsn > checkpointLsn)
+                        || (status == STATUS_COMMITTED && lsn > checkpointLsn);
                 if (keep) {
                     keptEntries.add(new WalRawEntry(lsn, txnId, opType, status, sqlBytes));
                 } else {

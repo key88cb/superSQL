@@ -66,6 +66,7 @@
 - ACK 不足拒绝写入时，WAL 条目会标记为 ABORT，避免 PREPARE 条目长期滞留。
 - WAL 状态语义已收敛为明确常量（PREPARE/COMMITTED/ABORTED），恢复路径仅回放 COMMITTED，且已补充边界测试覆盖。
 - WAL checkpoint 已增加按文件压缩：会清理 ABORT 与已持久化的旧 COMMITTED 记录，保留 PREPARE/未持久化 COMMITTED，减少日志膨胀与恢复噪音。
+- WAL checkpoint/recover 清理语义已增强：会剔除 `LSN<=checkpointLsn` 的陈旧 PREPARE 条目，避免异常中断后悬挂 PREPARE 长期滞留。
 - RegionServiceImpl 已实现基础读路径：直接 MiniSQL 执行，跳过 WAL 与 replica sync。
 - executeBatch：按序执行，遇错即停。
 - RegionAdminServiceImpl 已实现 pause/resume、deleteLocalTable、invalidateClientCache、transferTable、copyTableData 的基础路径。
@@ -190,6 +191,7 @@ mvn test -DskipTests=false
 - 2026-04-18 已补充覆盖：RegionAdmin `deleteLocalTable` 对 assignment 的安全更新语义（移除当前 RS / 空列表删节点 / 非成员保持不变）。
 - 2026-04-19 已将 Master/RegionServer 规划 TDD 规格测试切换为可执行测试，覆盖 rebalance 与迁移基础路径的回归检查。
 - 2026-04-19 已补充覆盖：rebalance `FINALIZING` 阶段可观测性，以及超时 `MOVING` 状态在读路径触发下自动恢复为 `ACTIVE` 的自恢复语义。
+- 2026-04-19 已补充覆盖：checkpoint 与 recover 对陈旧 PREPARE 的自动裁剪（`LSN<=checkpointLsn`）语义，避免悬挂 PREPARE 污染后续恢复与统计。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 

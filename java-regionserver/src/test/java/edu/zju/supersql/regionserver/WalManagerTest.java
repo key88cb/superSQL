@@ -223,4 +223,32 @@ class WalManagerTest {
         Assertions.assertEquals(1, uncommitted.size());
         Assertions.assertEquals(12L, uncommitted.get(0).getLsn());
     }
+
+    @Test
+    void performCheckpointShouldPrunePrepareEntriesAtOrBeforeCheckpoint() throws Exception {
+        wal.appendEntry("t_prepare_prune", 10L, 1L, WalOpType.INSERT, "insert into t_prepare_prune values(1);");
+        wal.appendEntry("t_prepare_prune", 12L, 2L, WalOpType.INSERT, "insert into t_prepare_prune values(2);");
+
+        MiniSqlProcess process = Mockito.mock(MiniSqlProcess.class);
+        Mockito.when(process.checkpoint()).thenReturn(10L);
+
+        wal.performCheckpoint(process);
+
+        List<WalEntry> uncommitted = wal.readUncommittedEntries("t_prepare_prune");
+        Assertions.assertEquals(1, uncommitted.size());
+        Assertions.assertEquals(12L, uncommitted.get(0).getLsn());
+    }
+
+    @Test
+    void recoverShouldPruneStalePrepareEntriesWhenNoCommittedReplay() throws Exception {
+        wal.appendEntry("t_recover_prune", 5L, 1L, WalOpType.INSERT, "insert into t_recover_prune values(1);");
+
+        MiniSqlProcess process = Mockito.mock(MiniSqlProcess.class);
+        Mockito.when(process.checkpoint()).thenReturn(10L);
+
+        wal.recover(process);
+
+        List<WalEntry> uncommitted = wal.readUncommittedEntries("t_recover_prune");
+        Assertions.assertTrue(uncommitted.isEmpty());
+    }
 }
