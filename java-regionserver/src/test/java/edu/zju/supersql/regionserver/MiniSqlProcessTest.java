@@ -60,32 +60,58 @@ class MiniSqlProcessTest {
     }
 
     private Path createFakeMiniSqlScript() throws Exception {
-        Path script = tempDir.resolve("fake-minisql.sh");
-        String content = """
+        boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
+        Path script = tempDir.resolve(windows ? "fake-minisql.cmd" : "fake-minisql.sh");
+        String content = windows
+                ? """
+                @echo off
+                if not exist "%MINISQL_DATA_DIR%" mkdir "%MINISQL_DATA_DIR%"
+                echo start>>"%MINISQL_DATA_DIR%\\start_count.log"
+                echo ^>^>^> Welcome to MiniSQL
+                :loop
+                set "line="
+                set /p line=
+                if "%line%"=="exit;" (
+                    echo ^>^>^> Bye bye~
+                    exit /b 0
+                )
+                if "%line%"=="crash;" exit /b 1
+                if "%line%"=="checkpoint;" (
+                    echo ^>^>^> Checkpoint SUCCESS. Data flushed up to LSN: 123
+                    echo ^>^>^>
+                    goto loop
+                )
+                echo ^>^>^> SUCCESS
+                echo ^>^>^>
+                goto loop
+                """
+                : """
                 #!/bin/sh
                 mkdir -p "$MINISQL_DATA_DIR"
                 echo start >> "$MINISQL_DATA_DIR/start_count.log"
                 echo ">>> Welcome to MiniSQL"
                 while IFS= read -r line
                 do
-                  if [ "$line" = "exit;" ]; then
-                    echo ">>> Bye bye~"
-                    exit 0
-                  fi
-                  if [ "$line" = "crash;" ]; then
-                    exit 1
-                  fi
-                  if [ "$line" = "checkpoint;" ]; then
-                    echo ">>> Checkpoint SUCCESS. Data flushed up to LSN: 123"
+                    if [ "$line" = "exit;" ]; then
+                        echo ">>> Bye bye~"
+                        exit 0
+                    fi
+                    if [ "$line" = "crash;" ]; then
+                        exit 1
+                    fi
+                    if [ "$line" = "checkpoint;" ]; then
+                        echo ">>> Checkpoint SUCCESS. Data flushed up to LSN: 123"
+                        echo ">>> "
+                        continue
+                    fi
+                    echo ">>> SUCCESS"
                     echo ">>> "
-                    continue
-                  fi
-                  echo ">>> SUCCESS"
-                  echo ">>> "
                 done
                 """;
         Files.writeString(script, content);
-        script.toFile().setExecutable(true);
+        if (!windows) {
+            script.toFile().setExecutable(true);
+        }
         return script;
     }
 

@@ -610,8 +610,9 @@ public class MasterServiceImpl implements MasterService.Iface {
         for (RegionServerInfo replica : createdReplicas) {
             try {
                 regionDdlExecutor.execute(replica, tableName, rollbackDdl);
-            } catch (Exception ignored) {
-                log.warn("Rollback dropTable failed on replica {}", replica.getId());
+            } catch (Exception e) {
+                log.warn("Rollback dropTable failed on replica {}: {}",
+                        replica.getId(), e.getMessage());
             }
         }
     }

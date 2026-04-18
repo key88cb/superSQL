@@ -210,7 +210,8 @@ public class MiniSqlProcess {
         }
         try {
             closeable.close();
-        } catch (IOException ignored) {
+        } catch (IOException e) {
+            log.debug("Ignore close failure: {}", e.getMessage());
         }
     }
 }

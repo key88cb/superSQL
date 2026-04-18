@@ -489,7 +489,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             Files.move(stagingPath, finalPath,
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException ignored) {
+        } catch (AtomicMoveNotSupportedException e) {
+            log.debug("Atomic move not supported for {} -> {}, fallback to non-atomic move: {}",
+                    stagingPath, finalPath, e.getMessage());
             Files.move(stagingPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
         }
     }
