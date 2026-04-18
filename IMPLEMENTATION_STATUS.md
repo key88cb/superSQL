@@ -16,6 +16,7 @@
 - `triggerRebalance()` 过程中已显式写入 `PREPARING -> MOVING -> ACTIVE` 状态迁移，并在失败时回滚元数据状态。
 - `triggerRebalance()` 在 `transferTable` 失败路径也会立即回滚到原始元数据（含 `ACTIVE` 状态），避免卡在 `MOVING`。
 - `triggerRebalance()` 在 `pauseTableWrite` 失败路径也会回滚元数据，避免停留在 `PREPARING` 中间态。
+- `triggerRebalance()` 状态推进会刷新 `/meta/tables/{table}` 的 `statusUpdatedAt` 时间戳，便于观测迁移阶段更新时间。
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
 - Master `/status` 已输出 RebalanceScheduler 运行快照（tick/trigger/throttle/success/failure、最近执行时间、最近触发原因）。
 - RegionServer 上下线事件已接入调度器外部触发（`rs_up` / `rs_down`），在节流保护下可即时请求一次 rebalance。

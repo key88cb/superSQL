@@ -57,6 +57,24 @@ public class MetaManager {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    public void touchStatusUpdatedAt(String tableName) throws Exception {
+        if (!isReady()) {
+            return;
+        }
+        String path = ZkPaths.tableMeta(tableName);
+        if (zkClient.checkExists().forPath(path) == null) {
+            return;
+        }
+        byte[] data = zkClient.getData().forPath(path);
+        if (data == null || data.length == 0) {
+            return;
+        }
+        Map<String, Object> root = MAPPER.readValue(data, Map.class);
+        root.put("statusUpdatedAt", System.currentTimeMillis());
+        zkClient.setData().forPath(path, MAPPER.writeValueAsString(root).getBytes(StandardCharsets.UTF_8));
+    }
+
     public void deleteTableLocation(String tableName) throws Exception {
         if (!isReady()) {
             return;

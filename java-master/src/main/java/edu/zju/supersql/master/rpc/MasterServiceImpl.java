@@ -589,6 +589,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             try {
                 metaManager.saveTableLocation(updatedLocation);
                 assignmentManager.saveAssignment(tableName, updatedReplicas);
+                touchStatusUpdatedAtBestEffort(tableName);
             } catch (Exception metadataError) {
                 log.error("triggerRebalance metadata persist failed table={}, rolling back to original replicas={} cause={}",
                         tableName,
@@ -623,21 +624,22 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
-        private boolean markTableStatus(String tableName,
-                        RegionServerInfo primary,
-                        List<RegionServerInfo> replicas,
-                        String status) {
+    private boolean markTableStatus(String tableName,
+                                    RegionServerInfo primary,
+                                    List<RegionServerInfo> replicas,
+                                    String status) {
         try {
             TableLocation intermediate = new TableLocation(tableName, primary, replicas);
             intermediate.setTableStatus(status);
             intermediate.setVersion(System.currentTimeMillis());
             metaManager.saveTableLocation(intermediate);
+            touchStatusUpdatedAtBestEffort(tableName);
             log.info("triggerRebalance marked table {} table={} replicas={}",
-                status, tableName, replicas.stream().map(RegionServerInfo::getId).toList());
+                    status, tableName, replicas.stream().map(RegionServerInfo::getId).toList());
             return true;
         } catch (Exception e) {
             log.error("triggerRebalance failed to mark {} table={} cause={}",
-                status, tableName, e.getMessage(), e);
+                    status, tableName, e.getMessage(), e);
             return false;
         }
     }
@@ -648,6 +650,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         try {
             metaManager.saveTableLocation(originalLocation);
             assignmentManager.saveAssignment(tableName, originalReplicas);
+            touchStatusUpdatedAtBestEffort(tableName);
             log.info("triggerRebalance metadata rollback completed table={} replicasRestored={}",
                     tableName,
                     originalReplicas.stream().map(RegionServerInfo::getId).toList());
@@ -657,6 +660,15 @@ public class MasterServiceImpl implements MasterService.Iface {
                     originalReplicas.stream().map(RegionServerInfo::getId).toList(),
                     rollbackError.getMessage(),
                     rollbackError);
+        }
+    }
+
+    private void touchStatusUpdatedAtBestEffort(String tableName) {
+        try {
+            metaManager.touchStatusUpdatedAt(tableName);
+        } catch (Exception e) {
+            log.warn("triggerRebalance touch statusUpdatedAt failed table={} cause={}",
+                    tableName, e.getMessage());
         }
     }
 

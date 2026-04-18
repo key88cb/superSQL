@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 class MasterServiceMetadataIntegrationTest {
@@ -325,6 +326,80 @@ class MasterServiceMetadataIntegrationTest {
 
         TableLocation location = observingService.getTableLocation("t_rebalance_prepare");
         Assertions.assertEquals("ACTIVE", location.getTableStatus());
+    }
+
+    @Test
+    void triggerRebalanceShouldRefreshStatusUpdatedAtAcrossTransitions() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_rebalance_status_ts(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 9);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        AtomicReference<String> preparingStatus = new AtomicReference<>();
+        AtomicReference<String> movingStatus = new AtomicReference<>();
+        AtomicLong preparingTs = new AtomicLong(0L);
+        AtomicLong movingTs = new AtomicLong(0L);
+
+        RecordingRegionAdminExecutor observingAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response pauseTableWrite(RegionServerInfo regionServer, String tableName) {
+                try {
+                    Map<?, ?> meta = readJson("/meta/tables/" + tableName);
+                    preparingStatus.set(String.valueOf(meta.get("tableStatus")));
+                    preparingTs.set(toLong(meta.get("statusUpdatedAt")));
+                } catch (Exception e) {
+                    preparingStatus.set("READ_ERROR");
+                }
+                return super.pauseTableWrite(regionServer, tableName);
+            }
+
+            @Override
+            public Response transferTable(RegionServerInfo source, String tableName, RegionServerInfo target) {
+                try {
+                    Map<?, ?> meta = readJson("/meta/tables/" + tableName);
+                    movingStatus.set(String.valueOf(meta.get("tableStatus")));
+                    movingTs.set(toLong(meta.get("statusUpdatedAt")));
+                } catch (Exception e) {
+                    movingStatus.set("READ_ERROR");
+                }
+                return super.transferTable(source, tableName, target);
+            }
+        };
+
+        MasterServiceImpl observingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                observingAdmin);
+
+        Response rebalance = observingService.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_rebalance_status_ts");
+        long finalTs = toLong(finalMeta.get("statusUpdatedAt"));
+
+        Assertions.assertEquals("PREPARING", preparingStatus.get());
+        Assertions.assertEquals("MOVING", movingStatus.get());
+        Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertTrue(preparingTs.get() > 0L);
+        Assertions.assertTrue(movingTs.get() >= preparingTs.get());
+        Assertions.assertTrue(finalTs >= movingTs.get());
+    }
+
+    private static long toLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.parseLong(String.valueOf(value));
     }
 
     private void createPathIfMissing(String path) throws Exception {
