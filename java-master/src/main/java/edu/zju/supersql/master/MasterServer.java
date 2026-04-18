@@ -143,6 +143,7 @@ public class MasterServer {
         status.put("lastRunAtMs", snapshot.lastRunAtMs());
         status.put("lastRunRepairedCount", snapshot.lastRunRepairedCount());
         status.put("lastRepairedTable", snapshot.lastRepairedTable());
+        status.put("lastError", snapshot.lastError());
         return status;
     }
 

@@ -40,7 +40,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                                       long totalRepairedTables,
                                       long lastRunAtMs,
                                       long lastRunRepairedCount,
-                                      String lastRepairedTable) {
+                                      String lastRepairedTable,
+                                      String lastError) {
     }
 
     private static final Logger log = LoggerFactory.getLogger(MasterServiceImpl.class);
@@ -62,6 +63,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     private final AtomicLong routeRepairLastRunAtMs = new AtomicLong(-1L);
     private final AtomicLong routeRepairLastRunRepairedCount = new AtomicLong(0L);
     private volatile String routeRepairLastRepairedTable;
+    private volatile String routeRepairLastError;
 
     public MasterServiceImpl() {
         this(new MetaManager(MasterRuntimeContext.getZkClient()),
@@ -313,6 +315,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             routeRepairTotalRepairedTables.addAndGet(repaired);
             routeRepairLastRunRepairedCount.set(repaired);
             routeRepairLastRepairedTable = lastRepairedTable;
+            routeRepairLastError = null;
             if (repaired > 0) {
                 log.info("repairTableRoutesBestEffort repaired={} total={}", repaired, tables.size());
             }
@@ -320,6 +323,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         } catch (Exception e) {
             routeRepairLastRunRepairedCount.set(0L);
             routeRepairLastRepairedTable = null;
+            routeRepairLastError = e.getMessage();
             log.warn("repairTableRoutesBestEffort failed: {}", e.getMessage());
             return 0;
         }
@@ -331,7 +335,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                 routeRepairTotalRepairedTables.get(),
                 routeRepairLastRunAtMs.get(),
                 routeRepairLastRunRepairedCount.get(),
-                routeRepairLastRepairedTable);
+                routeRepairLastRepairedTable,
+                routeRepairLastError);
     }
 
     @Override
