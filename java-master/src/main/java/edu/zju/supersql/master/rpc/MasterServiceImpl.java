@@ -550,15 +550,23 @@ public class MasterServiceImpl implements MasterService.Iface {
         log.info("triggerRebalance executing table={} primary={} source={} target={} replicasBefore={}",
                 tableName, primary.getId(), source.getId(), target.getId(), beforeReplicas);
 
+        if (!markTableStatus(tableName, primary, location.getReplicas(), "PREPARING")) {
+            Response error = new Response(StatusCode.ERROR);
+            error.setMessage("Failed to mark table as PREPARING before pause: " + tableName);
+            return error;
+        }
+
         Response pause = regionAdminExecutor.pauseTableWrite(primary, tableName);
         if (pause.getCode() != StatusCode.OK) {
             log.warn("triggerRebalance pause failed table={} primary={} code={}",
                     tableName, primary.getId(), pause.getCode());
+            rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
             return pause;
         }
 
         try {
-            if (!markTableMoving(tableName, primary, location.getReplicas())) {
+            if (!markTableStatus(tableName, primary, location.getReplicas(), "MOVING")) {
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as MOVING before transfer: " + tableName);
                 return error;
@@ -587,7 +595,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                         originalReplicas.stream().map(RegionServerInfo::getId).toList(),
                         metadataError.getMessage());
                 rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
-                    cleanupTargetReplicaBestEffort(target, tableName, "metadata_persist_failed");
+                cleanupTargetReplicaBestEffort(target, tableName, "metadata_persist_failed");
                 throw metadataError;
             }
             log.info("triggerRebalance metadata updated table={} replicasAfter={}",
@@ -615,20 +623,21 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
-    private boolean markTableMoving(String tableName,
-                                    RegionServerInfo primary,
-                                    List<RegionServerInfo> replicas) {
+        private boolean markTableStatus(String tableName,
+                        RegionServerInfo primary,
+                        List<RegionServerInfo> replicas,
+                        String status) {
         try {
-            TableLocation moving = new TableLocation(tableName, primary, replicas);
-            moving.setTableStatus("MOVING");
-            moving.setVersion(System.currentTimeMillis());
-            metaManager.saveTableLocation(moving);
-            log.info("triggerRebalance marked table MOVING table={} replicas={}",
-                    tableName, replicas.stream().map(RegionServerInfo::getId).toList());
+            TableLocation intermediate = new TableLocation(tableName, primary, replicas);
+            intermediate.setTableStatus(status);
+            intermediate.setVersion(System.currentTimeMillis());
+            metaManager.saveTableLocation(intermediate);
+            log.info("triggerRebalance marked table {} table={} replicas={}",
+                status, tableName, replicas.stream().map(RegionServerInfo::getId).toList());
             return true;
         } catch (Exception e) {
-            log.error("triggerRebalance failed to mark MOVING table={} cause={}",
-                    tableName, e.getMessage(), e);
+            log.error("triggerRebalance failed to mark {} table={} cause={}",
+                status, tableName, e.getMessage(), e);
             return false;
         }
     }

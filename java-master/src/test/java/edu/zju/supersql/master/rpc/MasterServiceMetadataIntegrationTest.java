@@ -283,6 +283,50 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertEquals("ACTIVE", location.getTableStatus());
     }
 
+    @Test
+    void triggerRebalanceShouldExposePreparingStatusBeforePause() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_rebalance_prepare(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 9);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        AtomicReference<String> observedStatus = new AtomicReference<>();
+        RecordingRegionAdminExecutor observingAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response pauseTableWrite(RegionServerInfo regionServer, String tableName) {
+                try {
+                    Map<?, ?> meta = readJson("/meta/tables/" + tableName);
+                    observedStatus.set(String.valueOf(meta.get("tableStatus")));
+                } catch (Exception e) {
+                    observedStatus.set("READ_ERROR");
+                }
+                return super.pauseTableWrite(regionServer, tableName);
+            }
+        };
+
+        MasterServiceImpl observingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                observingAdmin);
+
+        Response rebalance = observingService.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+        Assertions.assertEquals("PREPARING", observedStatus.get());
+
+        TableLocation location = observingService.getTableLocation("t_rebalance_prepare");
+        Assertions.assertEquals("ACTIVE", location.getTableStatus());
+    }
+
     private void createPathIfMissing(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);

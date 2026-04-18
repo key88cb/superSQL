@@ -216,6 +216,38 @@ class RebalanceLoggingConsistencyTest {
         Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cleanup target replica table=t_transfer_fail target=rs-4 reason=transfer_failed code=OK")));
     }
 
+    @Test
+    void rebalanceShouldRollbackMetadataWhenPauseFails() throws Exception {
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 2);
+        registerRegionServer("rs-3", 1);
+        registerRegionServer("rs-4", 3);
+
+        Response create = service.createTable("create table t_pause_fail(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        List<String> replicasBefore = service.getTableLocation("t_pause_fail")
+                .getReplicas().stream().map(RegionServerInfo::getId).toList();
+
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 9);
+        registerRegionServer("rs-3", 1);
+        registerRegionServer("rs-4", 2);
+        adminExecutor.failPauseOn("rs-1");
+
+        Response rebalance = service.triggerRebalance();
+        Assertions.assertEquals(StatusCode.ERROR, rebalance.getCode());
+
+        TableLocation locationAfter = service.getTableLocation("t_pause_fail");
+        Assertions.assertEquals(replicasBefore,
+                locationAfter.getReplicas().stream().map(RegionServerInfo::getId).toList());
+        Assertions.assertEquals("ACTIVE", locationAfter.getTableStatus());
+
+        List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance pause failed table=t_pause_fail primary=rs-1 code=ERROR")));
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance metadata rollback completed table=t_pause_fail")));
+    }
+
     private void createPathIfMissing(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
@@ -262,9 +294,14 @@ class RebalanceLoggingConsistencyTest {
 
     private static class RecordingRegionAdminExecutor implements RegionAdminExecutor {
         private final List<String> ops = new ArrayList<>();
+        private String failPauseRsId;
         private String failDeleteRsId;
         private String failInvalidateRsId;
         private String failTransferRsId;
+
+        void failPauseOn(String rsId) {
+            this.failPauseRsId = rsId;
+        }
 
         void failDeleteOn(String rsId) {
             this.failDeleteRsId = rsId;
@@ -285,6 +322,11 @@ class RebalanceLoggingConsistencyTest {
         @Override
         public Response pauseTableWrite(RegionServerInfo regionServer, String tableName) {
             ops.add("pause:" + regionServer.getId());
+            if (regionServer.getId().equals(failPauseRsId)) {
+                Response fail = new Response(StatusCode.ERROR);
+                fail.setMessage("simulated pause failure");
+                return fail;
+            }
             return new Response(StatusCode.OK);
         }
 

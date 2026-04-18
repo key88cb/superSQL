@@ -44,8 +44,9 @@
 - Leader 选举 + `/active-master` epoch CAS + Active 心跳。
 - `createTable/dropTable/getTableLocation/list*` 主链路。
 - `triggerRebalance()` 最小迁移闭环。
-- `triggerRebalance()` 已补充显式 `MOVING -> ACTIVE` 状态迁移与失败回滚。
+- `triggerRebalance()` 已补充显式 `PREPARING -> MOVING -> ACTIVE` 状态迁移与失败回滚。
 - `triggerRebalance()` 在 transfer 失败分支会回滚为原始 ACTIVE 元数据，避免状态卡在 MOVING。
+- `triggerRebalance()` 在 pause 失败分支会回滚为原始 ACTIVE 元数据，避免状态卡在 PREPARING。
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
 - RegionServer 成员变更（up/down）已可触发调度器外部请求（受节流保护）。
