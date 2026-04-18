@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 class MasterServiceMetadataIntegrationTest {
 
@@ -236,6 +237,50 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op -> op.method.equals("transfer")));
         Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op -> op.method.equals("delete")));
         Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op -> op.method.equals("resume")));
+    }
+
+    @Test
+    void triggerRebalanceShouldExposeMovingStatusDuringTransfer() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_rebalance_state(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 9);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        AtomicReference<String> observedStatus = new AtomicReference<>();
+        RecordingRegionAdminExecutor observingAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response transferTable(RegionServerInfo source, String tableName, RegionServerInfo target) {
+                try {
+                    Map<?, ?> meta = readJson("/meta/tables/" + tableName);
+                    observedStatus.set(String.valueOf(meta.get("tableStatus")));
+                } catch (Exception e) {
+                    observedStatus.set("READ_ERROR");
+                }
+                return super.transferTable(source, tableName, target);
+            }
+        };
+
+        MasterServiceImpl observingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                observingAdmin);
+
+        Response rebalance = observingService.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+        Assertions.assertEquals("MOVING", observedStatus.get());
+
+        TableLocation location = observingService.getTableLocation("t_rebalance_state");
+        Assertions.assertEquals("ACTIVE", location.getTableStatus());
     }
 
     private void createPathIfMissing(String path) throws Exception {

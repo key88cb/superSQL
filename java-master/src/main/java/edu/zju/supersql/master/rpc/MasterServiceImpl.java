@@ -558,6 +558,12 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         try {
+            if (!markTableMoving(tableName, primary, location.getReplicas())) {
+                Response error = new Response(StatusCode.ERROR);
+                error.setMessage("Failed to mark table as MOVING before transfer: " + tableName);
+                return error;
+            }
+
             Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
             if (transfer.getCode() != StatusCode.OK) {
                 cleanupTargetReplicaBestEffort(target, tableName, "transfer_failed");
@@ -605,6 +611,24 @@ public class MasterServiceImpl implements MasterService.Iface {
             return ok;
         } finally {
             resumeWriteBestEffort(primary, tableName);
+        }
+    }
+
+    private boolean markTableMoving(String tableName,
+                                    RegionServerInfo primary,
+                                    List<RegionServerInfo> replicas) {
+        try {
+            TableLocation moving = new TableLocation(tableName, primary, replicas);
+            moving.setTableStatus("MOVING");
+            moving.setVersion(System.currentTimeMillis());
+            metaManager.saveTableLocation(moving);
+            log.info("triggerRebalance marked table MOVING table={} replicas={}",
+                    tableName, replicas.stream().map(RegionServerInfo::getId).toList());
+            return true;
+        } catch (Exception e) {
+            log.error("triggerRebalance failed to mark MOVING table={} cause={}",
+                    tableName, e.getMessage(), e);
+            return false;
         }
     }
 
