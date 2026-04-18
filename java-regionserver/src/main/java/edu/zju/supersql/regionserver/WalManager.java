@@ -211,6 +211,54 @@ public class WalManager {
         return result;
     }
 
+    /**
+     * Reads all uncommitted (status=0) entries for a specific table.
+     * Used by secondary replicas during startup to restore pending logs.
+     */
+    public List<WalEntry> readUncommittedEntries(String tableName) throws IOException {
+        List<WalEntry> result = new ArrayList<>();
+        Path walFile = walFilePath(tableName);
+        if (!Files.exists(walFile)) {
+            return result;
+        }
+
+        try (RandomAccessFile raf = new RandomAccessFile(walFile.toFile(), "r")) {
+            long fileLen = raf.length();
+            while (raf.getFilePointer() < fileLen) {
+                if (fileLen - raf.getFilePointer() < HEADER_SIZE) break;
+                
+                long pos = raf.getFilePointer();
+                long lsn    = raf.readLong();
+                long txnId  = raf.readLong();
+                byte opByte = raf.readByte();
+                byte status = raf.readByte();
+                int sqlLen  = raf.readInt();
+
+                if (sqlLen < 0 || sqlLen > 1_048_576) break;
+                
+                byte[] sqlBytes = new byte[sqlLen];
+                int read = raf.read(sqlBytes);
+                if (read != sqlLen) break;
+
+                // Status 0 means PREPARE (uncommitted on the secondary)
+                if (status == 0) {
+                    WalOpType opType = WalOpType.findByValue(opByte);
+                    WalEntry entry = new WalEntry(lsn, txnId, tableName,
+                            opType != null ? opType : WalOpType.INSERT,
+                            System.currentTimeMillis());
+                    entry.setAfterRow(sqlBytes);
+                    result.add(entry);
+                    
+                    // Also restore the offset mapping so it can be committed later
+                    long statusOffset = pos + 17; // lsn(8) + txnId(8) + opType(1) = 17
+                    uncommittedOffsets.computeIfAbsent(tableName, k -> new ConcurrentHashMap<>())
+                                      .put(lsn, statusOffset);
+                }
+            }
+        }
+        return result;
+    }
+
     // ─────────────────────── checkpoint & cleanup ─────────────────────────────
 
     /**

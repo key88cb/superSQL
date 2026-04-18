@@ -5,26 +5,35 @@ import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
 import edu.zju.supersql.rpc.WalEntry;
 import edu.zju.supersql.rpc.WalOpType;
+import edu.zju.supersql.regionserver.WalManager;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
+import java.nio.file.Path;
 import java.util.List;
 
 class ReplicaSyncServiceImplTest {
 
     private MiniSqlProcess mockMiniSql;
+    private WalManager walManager;
+
+    @TempDir
+    Path tempDir;
 
     @BeforeEach
     void setUp() throws Exception {
         ReplicaSyncServiceImpl.resetForTests();
         mockMiniSql = Mockito.mock(MiniSqlProcess.class);
         Mockito.when(mockMiniSql.execute(Mockito.anyString())).thenReturn(">>> SUCCESS\n");
+        walManager = new WalManager(tempDir.toString());
+        walManager.init();
     }
 
     private ReplicaSyncServiceImpl service() {
-        return new ReplicaSyncServiceImpl(mockMiniSql);
+        return new ReplicaSyncServiceImpl(mockMiniSql, walManager);
     }
 
     @Test
@@ -89,6 +98,28 @@ class ReplicaSyncServiceImplTest {
         svc.syncLog(entry);
         svc.commitLog("t_no_sql", 50L);
         Mockito.verify(mockMiniSql, Mockito.never()).execute(Mockito.anyString());
+    }
+
+    @Test
+    void syncShouldPersistToDiskAndInitShouldRestore() throws Exception {
+        ReplicaSyncServiceImpl svc1 = service();
+        String table = "persisted_test";
+        
+        WalEntry entry = walEntry(100L, table, WalOpType.INSERT);
+        entry.setAfterRow("insert into persisted_test values(1);".getBytes());
+        svc1.syncLog(entry);
+        
+        // Create new service instance to simulate restart
+        ReplicaSyncServiceImpl svc2 = new ReplicaSyncServiceImpl(mockMiniSql, walManager);
+        svc2.init(); // Recovery
+        
+        List<WalEntry> entries = svc2.pullLog(table, 50L);
+        Assertions.assertEquals(1, entries.size(), "Uncommitted log should be restored from disk");
+        Assertions.assertEquals(100L, entries.get(0).getLsn());
+        
+        // Verify commit also works after restoration
+        svc2.commitLog(table, 100L);
+        Mockito.verify(mockMiniSql).execute("insert into persisted_test values(1);");
     }
 
     private static WalEntry walEntry(long lsn, String table, WalOpType op) {

@@ -118,7 +118,9 @@ public class RegionServerMain {
         ReplicaManager replicaManager = new ReplicaManager();
         String selfAddress = rsHost + ":" + thriftPort;
 
-        ReplicaSyncServiceImpl replicaSync = new ReplicaSyncServiceImpl(miniSql);
+        ReplicaSyncServiceImpl replicaSync = new ReplicaSyncServiceImpl(miniSql, walManager);
+        replicaSync.init();
+        
         RegionServiceImpl regionService = new RegionServiceImpl(
                 miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress);
         RegionAdminServiceImpl adminService = new RegionAdminServiceImpl(

@@ -43,8 +43,9 @@ class ReplicaManagerTest {
 
         port1 = freePort();
         port2 = freePort();
-        server1 = buildServer(port1, new ReplicaSyncServiceImpl(mockMiniSql));
-        server2 = buildServer(port2, new ReplicaSyncServiceImpl(mockMiniSql));
+        WalManager mockWal = Mockito.mock(WalManager.class);
+        server1 = buildServer(port1, new ReplicaSyncServiceImpl(mockMiniSql, mockWal));
+        server2 = buildServer(port2, new ReplicaSyncServiceImpl(mockMiniSql, mockWal));
 
         serverPool = Executors.newFixedThreadPool(2);
         serverPool.submit(server1::serve);
