@@ -48,10 +48,11 @@ public class RegionServerMain {
         String dataDir = config.dataDir();
         String walDir = config.walDir();
         String miniSqlBin = config.miniSqlBin();
+        int minReplicaAcks = config.minReplicaAcks();
 
         log.info("Starting SuperSQL RegionServer: id={} host={} thriftPort={} httpPort={} zk={}",
                 rsId, rsHost, thriftPort, httpPort, zkConnect);
-        log.info("  data={} wal={} minisql={}", dataDir, walDir, miniSqlBin);
+        log.info("  data={} wal={} minisql={} minReplicaAcks={}", dataDir, walDir, miniSqlBin, minReplicaAcks);
 
         // ── ZooKeeper connection ───────────────────────────────────────────────
         CuratorFramework zkClient = null;
@@ -122,7 +123,7 @@ public class RegionServerMain {
         replicaSync.init();
         
         RegionServiceImpl regionService = new RegionServiceImpl(
-                miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress);
+            miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, minReplicaAcks);
         RegionAdminServiceImpl adminService = new RegionAdminServiceImpl(
                 writeGuard, zkClient, dataDir, rsId);
 

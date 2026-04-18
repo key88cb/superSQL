@@ -15,6 +15,7 @@ class RegionServerConfigTest {
         Assertions.assertEquals("rs-1", config.rsHost());
         Assertions.assertEquals(9090, config.thriftPort());
         Assertions.assertEquals(10_000L, config.heartbeatIntervalMs());
+        Assertions.assertEquals(1, config.minReplicaAcks());
     }
 
     @Test
@@ -22,10 +23,12 @@ class RegionServerConfigTest {
         RegionServerConfig config = RegionServerConfig.fromEnv(Map.of(
                 "ZK_CONNECT", "zk-live:2181",
                 "RS_ZK_CONNECT", "zk-legacy:2181",
-                "RS_HEARTBEAT_INTERVAL_MS", "3000"
+            "RS_HEARTBEAT_INTERVAL_MS", "3000",
+            "RS_MIN_REPLICA_ACKS", "2"
         ));
 
         Assertions.assertEquals("zk-live:2181", config.zkConnect());
         Assertions.assertEquals(3_000L, config.heartbeatIntervalMs());
+        Assertions.assertEquals(2, config.minReplicaAcks());
     }
 }

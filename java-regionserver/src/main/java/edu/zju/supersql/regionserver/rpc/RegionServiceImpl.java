@@ -25,7 +25,7 @@ import java.util.Map;
  * <ol>
  *   <li>Check {@link WriteGuard}: return MOVING if table is paused.</li>
  *   <li>Append WAL entry (binary file) via {@link WalManager}.</li>
- *   <li>Sync entry to replica RegionServers via {@link ReplicaManager} (semi-sync: ≥1 ACK).</li>
+ *   <li>Sync entry to replica RegionServers via {@link ReplicaManager} (requires configured minimum ACKs).</li>
  *   <li>Execute SQL on local MiniSQL engine.</li>
  *   <li>Commit on replicas asynchronously.</li>
  * </ol>
@@ -44,6 +44,7 @@ public class RegionServiceImpl implements RegionService.Iface {
     private final CuratorFramework zkClient;
     /** This RS's own address (host:port) — excluded from replica list to avoid self-sync. */
     private final String selfAddress;
+    private final int minReplicaAcks;
 
     public RegionServiceImpl(MiniSqlProcess miniSql,
                              WalManager walManager,
@@ -51,12 +52,23 @@ public class RegionServiceImpl implements RegionService.Iface {
                              WriteGuard writeGuard,
                              CuratorFramework zkClient,
                              String selfAddress) {
+        this(miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, 1);
+    }
+
+    public RegionServiceImpl(MiniSqlProcess miniSql,
+                             WalManager walManager,
+                             ReplicaManager replicaManager,
+                             WriteGuard writeGuard,
+                             CuratorFramework zkClient,
+                             String selfAddress,
+                             int minReplicaAcks) {
         this.miniSql        = miniSql;
         this.walManager     = walManager;
         this.replicaManager = replicaManager;
         this.writeGuard     = writeGuard;
         this.zkClient       = zkClient;
         this.selfAddress    = selfAddress;
+        this.minReplicaAcks = Math.max(0, minReplicaAcks);
     }
 
     // ─────────────────────── RegionService.Iface ──────────────────────────────
@@ -160,12 +172,16 @@ public class RegionServiceImpl implements RegionService.Iface {
                     System.currentTimeMillis());
             entry.setAfterRow(sql.getBytes(StandardCharsets.UTF_8));
 
-            // 3. Sync to replicas (semi-sync: ≥1 ACK)
+            // 3. Sync to replicas
             List<String> replicas = getReplicaAddresses(tableName);
             int acks = replicaManager.syncToReplicas(entry, replicas);
-            if (acks == 0 && !replicas.isEmpty()) {
-                log.warn("executeWrite: no replica ACK for lsn={} table={} — proceeding anyway",
-                        lsn, tableName);
+            int requiredAcks = Math.min(replicas.size(), minReplicaAcks);
+            if (acks < requiredAcks) {
+                log.warn("executeWrite: insufficient replica ACKs lsn={} table={} required={} actual={} replicas={}",
+                        lsn, tableName, requiredAcks, acks, replicas.size());
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("Insufficient replica ACKs: required=" + requiredAcks + ", actual=" + acks);
+                return new QueryResult(r);
             }
 
             // 3.5. Commit WAL entry locally (S4-05)

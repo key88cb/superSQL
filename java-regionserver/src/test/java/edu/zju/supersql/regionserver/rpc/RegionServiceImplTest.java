@@ -8,6 +8,8 @@ import edu.zju.supersql.rpc.QueryResult;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
 import edu.zju.supersql.rpc.WalOpType;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.zookeeper.data.Stat;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -111,6 +114,33 @@ class RegionServiceImplTest {
         Assertions.assertTrue(entries.get(1).getLsn() < entries.get(2).getLsn());
     }
 
+    @Test
+    void writeShouldFailWhenReplicaAcksBelowConfiguredMinimum() throws Exception {
+        CuratorFramework zkClient = mockAssignmentZk("orders", "127.0.0.1", 9091);
+        RegionServiceImpl strictService = new RegionServiceImpl(
+                mockMiniSql, walManager, mockReplicaManager, writeGuard, zkClient, "rs-1:9090", 1);
+        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList())).thenReturn(0);
+
+        QueryResult result = strictService.execute("orders", "insert into orders values(1,'x');");
+
+        Assertions.assertEquals(StatusCode.ERROR, result.getStatus().getCode());
+        Assertions.assertTrue(result.getStatus().getMessage().contains("Insufficient replica ACKs"));
+        Mockito.verify(mockMiniSql, Mockito.never()).execute("insert into orders values(1,'x');");
+    }
+
+    @Test
+    void writeShouldSucceedWhenReplicaAcksMeetConfiguredMinimum() throws Exception {
+        CuratorFramework zkClient = mockAssignmentZk("orders", "127.0.0.1", 9091);
+        RegionServiceImpl strictService = new RegionServiceImpl(
+                mockMiniSql, walManager, mockReplicaManager, writeGuard, zkClient, "rs-1:9090", 1);
+        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList())).thenReturn(1);
+
+        QueryResult result = strictService.execute("orders", "insert into orders values(2,'y');");
+
+        Assertions.assertEquals(StatusCode.OK, result.getStatus().getCode());
+        Mockito.verify(mockMiniSql).execute("insert into orders values(2,'y');");
+    }
+
     // ── executeBatch ─────────────────────────────────────────────────────────
 
     @Test
@@ -162,5 +192,20 @@ class RegionServiceImplTest {
         Response r = service.ping();
         Assertions.assertEquals(StatusCode.OK, r.getCode());
         Assertions.assertEquals("pong", r.getMessage());
+    }
+
+    private static CuratorFramework mockAssignmentZk(String tableName, String host, int port) throws Exception {
+        CuratorFramework zkClient = Mockito.mock(CuratorFramework.class, Mockito.RETURNS_DEEP_STUBS);
+        String path = "/assignments/" + tableName;
+        byte[] payload = ("{" +
+                "\"tableName\":\"" + tableName + "\"," +
+                "\"replicas\":[{" +
+                "\"id\":\"rs-2\"," +
+                "\"host\":\"" + host + "\"," +
+                "\"port\":" + port +
+                "}]}" ).getBytes(StandardCharsets.UTF_8);
+        Mockito.when(zkClient.checkExists().forPath(path)).thenReturn(new Stat());
+        Mockito.when(zkClient.getData().forPath(path)).thenReturn(payload);
+        return zkClient;
     }
 }

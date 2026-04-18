@@ -61,6 +61,7 @@
 
 - 注册/心跳、MiniSQL 进程管理（含自动重启）。
 - `RegionServiceImpl` 读写基础路径、`executeBatch`、索引相关接口。
+- 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`）用于拒绝 ACK 不足写入。
 - WAL 文件基础读写与恢复、ReplicaSync 基础同步与回放。
 - RegionAdmin 基础管理路径；`deleteLocalTable` 对 assignment 已修复为“仅移除当前 RS”。
 

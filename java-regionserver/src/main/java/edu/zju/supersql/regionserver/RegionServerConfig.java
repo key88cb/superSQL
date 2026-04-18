@@ -14,7 +14,8 @@ public record RegionServerConfig(
         String dataDir,
         String walDir,
         String miniSqlBin,
-        long heartbeatIntervalMs
+    long heartbeatIntervalMs,
+    int minReplicaAcks
 ) {
 
     public static RegionServerConfig fromSystemEnv() {
@@ -32,7 +33,8 @@ public record RegionServerConfig(
                 readString(env, "RS_DATA_DIR", "/data/db"),
                 readString(env, "RS_WAL_DIR", "/data/wal"),
                 readString(env, "MINISQL_BIN", "/opt/minisql/main"),
-                readLong(env, "RS_HEARTBEAT_INTERVAL_MS", 10_000L)
+                readLong(env, "RS_HEARTBEAT_INTERVAL_MS", 10_000L),
+                readInt(env, "RS_MIN_REPLICA_ACKS", 1)
         );
     }
 
