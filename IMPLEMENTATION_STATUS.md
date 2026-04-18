@@ -1,4 +1,4 @@
-# SuperSQL 当前实现状态（2026-04-10）
+# SuperSQL 当前实现状态（2026-04-18）
 
 本文档记录已落地并通过测试的 Java 分布式层功能。
 
@@ -21,10 +21,13 @@
 - getTableLocation / createTable / dropTable / listRegionServers / listTables 已支持 ZooKeeper 元数据读写。
 - createTable / dropTable 已通过真实 Thrift 调用把 DDL 转发到 RegionServer，再在成功后更新 ZooKeeper 元数据。
 - `triggerRebalance()` 已具备最小可用迁移闭环：可把热点节点上的一个非主副本迁往更空闲节点，并更新 `/meta/tables` 与 `/assignments`。
+- `triggerRebalance()` 已增强失败一致性：当迁移后置阶段（如 source 清理）失败时，会自动回滚 `/meta/tables` 与 `/assignments` 到迁移前快照，避免路由元数据悬空。
+- `triggerRebalance()` 的缓存失效与恢复写入步骤改为 best-effort，不再因为非关键后置动作失败而破坏主迁移结果返回。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
 
 当前限制：
 - 当前 rebalance 仍是最小可用版本，尚未形成完整定时调度器 + RegionMigrator + 故障恢复闭环。
+- rebalance 对数据面迁移回滚当前仍以元数据回滚为主，尚未覆盖目标副本残留数据自动清理策略。
 - 当前选主与脑裂防护已跑通基础路径，尚未补全网络分区/抖动场景下的混沌验证。
 
 ## 2. RegionServer 侧已实现内容
@@ -135,6 +138,7 @@ mvn test -DskipTests=false
 说明：
 - 集成测试使用 Curator TestingServer 启动内嵌 ZooKeeper，验证真实节点读写语义。
 - 2026-04-10 已补充覆盖：active-master bootstrap/回退、三副本元数据分配与 assignments 持久化、OutputParser 成功/错误/结果集解析、RegionService 执行与 checkpoint 触发、Client discovery 回退路径、Master->RS DDL 转发、CREATE->INSERT->SELECT 功能流、rebalance 日志与元数据一致性、MiniSqlProcess 自动重启。
+- 2026-04-18 已补充覆盖：rebalance 在 source 清理失败时的元数据回滚一致性、以及缓存失效失败场景下的 best-effort 语义验证。
 - 2026-04-10 已新增一批 `@Disabled` 的 TDD 规格测试，用于提前钉住未实现功能的期望行为，包括 rebalance、executeBatch、索引分布式传播、Client redirect/MOVING 重试等。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。

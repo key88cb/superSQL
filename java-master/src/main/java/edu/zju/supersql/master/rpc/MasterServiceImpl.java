@@ -544,6 +544,8 @@ public class MasterServiceImpl implements MasterService.Iface {
     private Response rebalanceReplica(TableLocation location, RegionServerInfo source, RegionServerInfo target) throws Exception {
         RegionServerInfo primary = location.getPrimaryRS();
         String tableName = location.getTableName();
+        TableLocation originalLocation = new TableLocation(location);
+        List<RegionServerInfo> originalReplicas = new ArrayList<>(location.getReplicas());
         List<String> beforeReplicas = location.getReplicas().stream().map(RegionServerInfo::getId).toList();
         log.info("triggerRebalance executing table={} primary={} source={} target={} replicasBefore={}",
                 tableName, primary.getId(), source.getId(), target.getId(), beforeReplicas);
@@ -568,8 +570,17 @@ public class MasterServiceImpl implements MasterService.Iface {
             TableLocation updatedLocation = new TableLocation(tableName, primary, updatedReplicas);
             updatedLocation.setTableStatus("ACTIVE");
             updatedLocation.setVersion(System.currentTimeMillis());
-            metaManager.saveTableLocation(updatedLocation);
-            assignmentManager.saveAssignment(tableName, updatedReplicas);
+            try {
+                metaManager.saveTableLocation(updatedLocation);
+                assignmentManager.saveAssignment(tableName, updatedReplicas);
+            } catch (Exception metadataError) {
+                log.error("triggerRebalance metadata persist failed table={}, rolling back to original replicas={} cause={}",
+                        tableName,
+                        originalReplicas.stream().map(RegionServerInfo::getId).toList(),
+                        metadataError.getMessage());
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
+                throw metadataError;
+            }
             log.info("triggerRebalance metadata updated table={} replicasAfter={}",
                     tableName, updatedReplicas.stream().map(RegionServerInfo::getId).toList());
 
@@ -577,19 +588,66 @@ public class MasterServiceImpl implements MasterService.Iface {
             if (delete.getCode() != StatusCode.OK) {
                 log.warn("triggerRebalance deleteLocalTable failed table={} source={} code={}",
                         tableName, source.getId(), delete.getCode());
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
                 return delete;
             }
 
-            regionAdminExecutor.invalidateClientCache(primary, tableName);
-            regionAdminExecutor.invalidateClientCache(target, tableName);
+            invalidateClientCacheBestEffort(primary, tableName);
+            invalidateClientCacheBestEffort(target, tableName);
+            invalidateClientCacheBestEffort(source, tableName);
 
             Response ok = new Response(StatusCode.OK);
             ok.setMessage("Rebalanced table " + tableName + " from " + source.getId() + " to " + target.getId());
             log.info("triggerRebalance success table={} source={} target={}", tableName, source.getId(), target.getId());
             return ok;
         } finally {
-            regionAdminExecutor.resumeTableWrite(primary, tableName);
-            log.info("triggerRebalance resume writes table={} primary={}", tableName, primary.getId());
+            resumeWriteBestEffort(primary, tableName);
+        }
+    }
+
+    private void rollbackRebalanceMetadata(String tableName,
+                                           TableLocation originalLocation,
+                                           List<RegionServerInfo> originalReplicas) {
+        try {
+            metaManager.saveTableLocation(originalLocation);
+            assignmentManager.saveAssignment(tableName, originalReplicas);
+            log.info("triggerRebalance metadata rollback completed table={} replicasRestored={}",
+                    tableName,
+                    originalReplicas.stream().map(RegionServerInfo::getId).toList());
+        } catch (Exception rollbackError) {
+            log.error("triggerRebalance metadata rollback failed table={} replicas={} cause={}",
+                    tableName,
+                    originalReplicas.stream().map(RegionServerInfo::getId).toList(),
+                    rollbackError.getMessage(),
+                    rollbackError);
+        }
+    }
+
+    private void invalidateClientCacheBestEffort(RegionServerInfo regionServer, String tableName) {
+        try {
+            Response response = regionAdminExecutor.invalidateClientCache(regionServer, tableName);
+            if (response.getCode() != StatusCode.OK) {
+                log.warn("triggerRebalance cache invalidation failed table={} rs={} code={} msg={}",
+                        tableName, regionServer.getId(), response.getCode(), response.getMessage());
+            }
+        } catch (Exception e) {
+            log.warn("triggerRebalance cache invalidation exception table={} rs={} cause={}",
+                    tableName, regionServer.getId(), e.getMessage());
+        }
+    }
+
+    private void resumeWriteBestEffort(RegionServerInfo primary, String tableName) {
+        try {
+            Response response = regionAdminExecutor.resumeTableWrite(primary, tableName);
+            if (response.getCode() != StatusCode.OK) {
+                log.warn("triggerRebalance resume writes failed table={} primary={} code={} msg={}",
+                        tableName, primary.getId(), response.getCode(), response.getMessage());
+            } else {
+                log.info("triggerRebalance resume writes table={} primary={}", tableName, primary.getId());
+            }
+        } catch (Exception e) {
+            log.warn("triggerRebalance resume writes exception table={} primary={} cause={}",
+                    tableName, primary.getId(), e.getMessage());
         }
     }
 }

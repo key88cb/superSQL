@@ -122,6 +122,65 @@ class RebalanceLoggingConsistencyTest {
                 location.getReplicas().stream().map(RegionServerInfo::getId).toList());
     }
 
+    @Test
+    void rebalanceShouldRollbackMetadataWhenDeleteSourceFails() throws Exception {
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 2);
+        registerRegionServer("rs-3", 1);
+        registerRegionServer("rs-4", 3);
+
+        Response create = service.createTable("create table t_rollback(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        List<String> replicasBefore = service.getTableLocation("t_rollback")
+                .getReplicas().stream().map(RegionServerInfo::getId).toList();
+
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 9);
+        registerRegionServer("rs-3", 1);
+        registerRegionServer("rs-4", 2);
+        adminExecutor.failDeleteOn("rs-2");
+
+        Response rebalance = service.triggerRebalance();
+        Assertions.assertEquals(StatusCode.ERROR, rebalance.getCode());
+
+        TableLocation locationAfter = service.getTableLocation("t_rollback");
+        List<String> replicasAfter = locationAfter.getReplicas().stream().map(RegionServerInfo::getId).toList();
+        Assertions.assertEquals(replicasBefore, replicasAfter);
+
+        List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance deleteLocalTable failed table=t_rollback source=rs-2 code=ERROR")));
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance metadata rollback completed table=t_rollback")));
+    }
+
+    @Test
+    void rebalanceShouldSucceedWhenCacheInvalidationFailsBestEffort() throws Exception {
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 2);
+        registerRegionServer("rs-3", 1);
+        registerRegionServer("rs-4", 3);
+
+        Response create = service.createTable("create table t_invalidate(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 10);
+        registerRegionServer("rs-3", 1);
+        registerRegionServer("rs-4", 2);
+        adminExecutor.failInvalidateOn("rs-4");
+
+        Response rebalance = service.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+
+        TableLocation locationAfter = service.getTableLocation("t_invalidate");
+        Assertions.assertEquals(List.of("rs-1", "rs-3", "rs-4"),
+                locationAfter.getReplicas().stream().map(RegionServerInfo::getId).toList());
+
+        List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cache invalidation failed table=t_invalidate rs=rs-4 code=ERROR")));
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance success table=t_invalidate source=rs-2 target=rs-4")));
+    }
+
     private void createPathIfMissing(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
@@ -168,6 +227,16 @@ class RebalanceLoggingConsistencyTest {
 
     private static class RecordingRegionAdminExecutor implements RegionAdminExecutor {
         private final List<String> ops = new ArrayList<>();
+        private String failDeleteRsId;
+        private String failInvalidateRsId;
+
+        void failDeleteOn(String rsId) {
+            this.failDeleteRsId = rsId;
+        }
+
+        void failInvalidateOn(String rsId) {
+            this.failInvalidateRsId = rsId;
+        }
 
         @Override
         public Response pauseTableWrite(RegionServerInfo regionServer, String tableName) {
@@ -190,12 +259,22 @@ class RebalanceLoggingConsistencyTest {
         @Override
         public Response deleteLocalTable(RegionServerInfo regionServer, String tableName) {
             ops.add("delete:" + regionServer.getId());
+            if (regionServer.getId().equals(failDeleteRsId)) {
+                Response fail = new Response(StatusCode.ERROR);
+                fail.setMessage("simulated delete failure");
+                return fail;
+            }
             return new Response(StatusCode.OK);
         }
 
         @Override
         public Response invalidateClientCache(RegionServerInfo regionServer, String tableName) {
             ops.add("invalidate:" + regionServer.getId());
+            if (regionServer.getId().equals(failInvalidateRsId)) {
+                Response fail = new Response(StatusCode.ERROR);
+                fail.setMessage("simulated invalidate failure");
+                return fail;
+            }
             return new Response(StatusCode.OK);
         }
     }
