@@ -27,6 +27,7 @@ public final class RebalanceScheduler implements AutoCloseable {
         private final long throttledCount;
         private final long successCount;
         private final long failureCount;
+        private final long externalRequestCount;
         private final long lastAttemptAtMs;
         private final long lastSuccessAtMs;
         private final long lastFailureAtMs;
@@ -41,6 +42,7 @@ public final class RebalanceScheduler implements AutoCloseable {
                  long throttledCount,
                  long successCount,
                  long failureCount,
+                 long externalRequestCount,
                  long lastAttemptAtMs,
                  long lastSuccessAtMs,
                  long lastFailureAtMs,
@@ -54,6 +56,7 @@ public final class RebalanceScheduler implements AutoCloseable {
             this.throttledCount = throttledCount;
             this.successCount = successCount;
             this.failureCount = failureCount;
+            this.externalRequestCount = externalRequestCount;
             this.lastAttemptAtMs = lastAttemptAtMs;
             this.lastSuccessAtMs = lastSuccessAtMs;
             this.lastFailureAtMs = lastFailureAtMs;
@@ -69,6 +72,7 @@ public final class RebalanceScheduler implements AutoCloseable {
         public long throttledCount() { return throttledCount; }
         public long successCount() { return successCount; }
         public long failureCount() { return failureCount; }
+        public long externalRequestCount() { return externalRequestCount; }
         public long lastAttemptAtMs() { return lastAttemptAtMs; }
         public long lastSuccessAtMs() { return lastSuccessAtMs; }
         public long lastFailureAtMs() { return lastFailureAtMs; }
@@ -94,6 +98,7 @@ public final class RebalanceScheduler implements AutoCloseable {
     private final AtomicLong throttledCount = new AtomicLong(0L);
     private final AtomicLong successCount = new AtomicLong(0L);
     private final AtomicLong failureCount = new AtomicLong(0L);
+    private final AtomicLong externalRequestCount = new AtomicLong(0L);
     private final AtomicLong lastAttemptAtMs = new AtomicLong(-1L);
     private final AtomicLong lastSuccessAtMs = new AtomicLong(-1L);
     private final AtomicLong lastFailureAtMs = new AtomicLong(-1L);
@@ -134,10 +139,24 @@ public final class RebalanceScheduler implements AutoCloseable {
                 throttledCount.get(),
                 successCount.get(),
                 failureCount.get(),
+                externalRequestCount.get(),
                 lastAttemptAtMs.get(),
                 lastSuccessAtMs.get(),
                 lastFailureAtMs.get(),
                 lastError);
+    }
+
+    public void requestTrigger(String reason) {
+        if (!enabled) {
+            return;
+        }
+        externalRequestCount.incrementAndGet();
+        log.info("Rebalance scheduler external request: reason={}", reason);
+        try {
+            tick();
+        } catch (Exception e) {
+            log.warn("Rebalance scheduler external request failed: reason={} cause={}", reason, e.getMessage());
+        }
     }
 
     public void start() {

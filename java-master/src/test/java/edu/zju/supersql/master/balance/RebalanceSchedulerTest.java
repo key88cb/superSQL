@@ -88,6 +88,28 @@ class RebalanceSchedulerTest {
     }
 
     @Test
+    void requestTriggerShouldInvokeTickAndIncreaseExternalCounter() {
+        AtomicInteger calls = new AtomicInteger(0);
+        RebalanceScheduler scheduler = new RebalanceScheduler(
+                true,
+                30_000L,
+                0L,
+                () -> {
+                    calls.incrementAndGet();
+                    return ok();
+                }
+        );
+
+        scheduler.requestTrigger("rs_up:rs-1");
+
+        Assertions.assertEquals(1, calls.get());
+        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+        Assertions.assertEquals(1L, snapshot.externalRequestCount());
+        Assertions.assertEquals(1L, snapshot.tickCount());
+        Assertions.assertEquals(1L, snapshot.triggerCount());
+    }
+
+    @Test
     void tickShouldRecordFailureWhenTriggerThrows() {
         AtomicLong clock = new AtomicLong(2_000L);
         RebalanceScheduler scheduler = new RebalanceScheduler(

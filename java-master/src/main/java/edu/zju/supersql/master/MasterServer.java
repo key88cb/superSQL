@@ -112,11 +112,26 @@ public class MasterServer {
         status.put("throttledCount", snapshot.throttledCount());
         status.put("successCount", snapshot.successCount());
         status.put("failureCount", snapshot.failureCount());
+        status.put("externalRequestCount", snapshot.externalRequestCount());
         status.put("lastAttemptAtMs", snapshot.lastAttemptAtMs());
         status.put("lastSuccessAtMs", snapshot.lastSuccessAtMs());
         status.put("lastFailureAtMs", snapshot.lastFailureAtMs());
         status.put("lastError", snapshot.lastError());
         return status;
+    }
+
+    static RegionServerWatcher.Listener buildMembershipRebalanceListener(RebalanceScheduler rebalanceScheduler) {
+        return new RegionServerWatcher.Listener() {
+            @Override
+            public void onRegionServerUp(String rsId) {
+                rebalanceScheduler.requestTrigger("rs_up:" + rsId);
+            }
+
+            @Override
+            public void onRegionServerDown(String rsId) {
+                rebalanceScheduler.requestTrigger("rs_down:" + rsId);
+            }
+        };
     }
 
     static int preloadMetadataFromZk(CuratorFramework zkClient) {
@@ -184,8 +199,6 @@ public class MasterServer {
 
             leaderElector = new LeaderElector(zkClient, masterId, masterId + ":" + thriftPort);
             leaderElector.start();
-            regionServerWatcher = new RegionServerWatcher(zkClient);
-            regionServerWatcher.start();
             preloadMetadataFromZk(zkClient);
             MasterServiceImpl scheduledService = new MasterServiceImpl();
             rebalanceScheduler = new RebalanceScheduler(
@@ -194,6 +207,9 @@ public class MasterServer {
                     config.rebalanceMinGapMs(),
                     scheduledService::triggerRebalance);
             rebalanceScheduler.start();
+                regionServerWatcher = new RegionServerWatcher(zkClient,
+                    buildMembershipRebalanceListener(rebalanceScheduler));
+                regionServerWatcher.start();
             LeaderElector finalLeaderElector = leaderElector;
             RegionServerWatcher finalRegionServerWatcher = regionServerWatcher;
             RebalanceScheduler finalRebalanceScheduler = rebalanceScheduler;
