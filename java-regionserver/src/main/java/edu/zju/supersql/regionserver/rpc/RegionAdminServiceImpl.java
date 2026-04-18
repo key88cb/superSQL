@@ -131,11 +131,45 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     @Override
     public Response invalidateClientCache(String tableName) throws TException {
-        // Client-side TTL handles most invalidation. This is a no-op hook for future push notification.
-        log.info("invalidateClientCache: table={} (TTL-based invalidation in effect)", tableName);
-        Response r = new Response(StatusCode.OK);
-        r.setMessage("cache invalidation signal sent for " + tableName);
-        return r;
+        try {
+            if (zkClient == null) {
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("cache invalidation skipped (zk unavailable) for " + tableName);
+                return r;
+            }
+
+            String path = ZkPaths.tableMeta(tableName);
+            if (zkClient.checkExists().forPath(path) == null) {
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("cache invalidation skipped (table meta missing) for " + tableName);
+                return r;
+            }
+
+            byte[] data = zkClient.getData().forPath(path);
+            if (data == null || data.length == 0) {
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("table meta is empty for " + tableName);
+                return r;
+            }
+
+            Map<String, Object> root = MAPPER.readValue(data, Map.class);
+            long oldVersion = toLong(root.get("version"), 0L);
+            long newVersion = oldVersion + 1L;
+            root.put("version", newVersion);
+            root.put("cacheInvalidatedAt", System.currentTimeMillis());
+
+            zkClient.setData().forPath(path, MAPPER.writeValueAsString(root).getBytes(StandardCharsets.UTF_8));
+
+            log.info("invalidateClientCache: table={} version {} -> {}", tableName, oldVersion, newVersion);
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("cache invalidation broadcast for " + tableName + " version=" + newVersion);
+            return r;
+        } catch (Exception e) {
+            log.error("invalidateClientCache failed for table={}", tableName, e);
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("invalidateClientCache failed: " + e.getMessage());
+            return r;
+        }
     }
 
     @Override
@@ -267,5 +301,19 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         byte[] dst = new byte[len];
         System.arraycopy(src, 0, dst, 0, len);
         return dst;
+    }
+
+    private static long toLong(Object value, long fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 }

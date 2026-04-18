@@ -23,6 +23,7 @@
 - Master 的 `createTable/dropTable` 已通过真实 Thrift 下发 DDL，不是“仅写 ZK”。
 - Master 的 `triggerRebalance()` 已实现最小可用迁移闭环，并且新增了失败回滚与补偿路径。
 - RegionServer 的 `RegionAdminServiceImpl` 核心管理方法已具备基础实现（pause/resume/delete/transfer/copy/invalidate）。
+- RegionServer 的 `invalidateClientCache` 已从 no-op 升级为元数据 version 广播失效信号。
 - RegionServer 的 `executeBatch/createIndex/dropIndex` 已在 `RegionServiceImpl` 落地基础实现。
 
 ### 1.2 仍未完成且需继续推进的内容

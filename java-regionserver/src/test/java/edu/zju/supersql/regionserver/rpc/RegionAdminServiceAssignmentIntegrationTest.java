@@ -45,6 +45,7 @@ class RegionAdminServiceAssignmentIntegrationTest {
         zkClient.blockUntilConnected();
 
         createPathIfMissing(ZkPaths.ASSIGNMENTS);
+        createPathIfMissing(ZkPaths.META_TABLES);
     }
 
     @AfterEach
@@ -112,6 +113,29 @@ class RegionAdminServiceAssignmentIntegrationTest {
         Assertions.assertEquals(2, replicas.size());
     }
 
+    @Test
+    void invalidateClientCacheShouldBumpTableMetaVersion() throws Exception {
+        writeTableMeta("orders", 5L);
+
+        RegionAdminServiceImpl service = new RegionAdminServiceImpl(
+                new WriteGuard(), zkClient, dataDir.toString(), "rs-1");
+
+        Assertions.assertEquals(StatusCode.OK, service.invalidateClientCache("orders").getCode());
+
+        byte[] bytes = zkClient.getData().forPath(ZkPaths.tableMeta("orders"));
+        Map<?, ?> payload = MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
+        Assertions.assertEquals(6L, ((Number) payload.get("version")).longValue());
+        Assertions.assertTrue(payload.containsKey("cacheInvalidatedAt"));
+    }
+
+    @Test
+    void invalidateClientCacheShouldReturnOkWhenTableMetaMissing() throws Exception {
+        RegionAdminServiceImpl service = new RegionAdminServiceImpl(
+                new WriteGuard(), zkClient, dataDir.toString(), "rs-1");
+
+        Assertions.assertEquals(StatusCode.OK, service.invalidateClientCache("missing_table").getCode());
+    }
+
     private void createPathIfMissing(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
@@ -125,6 +149,23 @@ class RegionAdminServiceAssignmentIntegrationTest {
         byte[] bytes = MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
 
         String path = ZkPaths.assignment(tableName);
+        if (zkClient.checkExists().forPath(path) == null) {
+            zkClient.create().creatingParentsIfNeeded().forPath(path, bytes);
+        } else {
+            zkClient.setData().forPath(path, bytes);
+        }
+    }
+
+    private void writeTableMeta(String tableName, long version) throws Exception {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("tableName", tableName);
+        payload.put("tableStatus", "ACTIVE");
+        payload.put("version", version);
+        payload.put("primaryRS", replica("rs-1", 9090));
+        payload.put("replicas", List.of(replica("rs-1", 9090), replica("rs-2", 9091)));
+
+        byte[] bytes = MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
+        String path = ZkPaths.tableMeta(tableName);
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, bytes);
         } else {
