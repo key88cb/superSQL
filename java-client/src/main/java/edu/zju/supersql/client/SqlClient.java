@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.concurrent.CountDownLatch;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,7 +40,7 @@ public class SqlClient {
             Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final ClientRoutingMetrics ROUTING_METRICS = new ClientRoutingMetrics();
-        private static final String ROUTING_METRICS_EXPORT_PREFIX = "show routing metrics export";
+    private static final String ROUTING_METRICS_EXPORT_PREFIX = "show routing metrics export";
 
     enum SqlKind { DDL, DML, SHOW_TABLES, SHOW_ROUTING_METRICS, UNKNOWN }
 
@@ -113,42 +114,50 @@ public class SqlClient {
             log.warn("ZooKeeper init failed: {} — running in offline mode", e.getMessage());
         }
 
-        boolean interactive = System.console() != null || System.in.available() > 0;
-        if (!interactive) {
-            log.info("No interactive terminal detected — running in daemon/standby mode");
-            try { Thread.currentThread().join(); } catch (InterruptedException ignored) {}
-            return;
-        }
-
-        System.out.println("SuperSQL Client connected. Type 'exit' to quit.");
-        System.out.print("SuperSQL> ");
-        System.out.flush();
-
-        final String finalActiveMaster = activeMaster;
-        try (Scanner sc = new Scanner(System.in)) {
-            while (sc.hasNextLine()) {
-                String line = sc.nextLine().trim();
-                if (line.isEmpty()) { printPrompt(); continue; }
-                if ("exit".equalsIgnoreCase(line) || "quit".equalsIgnoreCase(line)) {
-                    System.out.println("Bye.");
-                    break;
-                }
-
+        try {
+            boolean interactive = System.console() != null || System.in.available() > 0;
+            if (!interactive) {
+                log.info("No interactive terminal detected — running in daemon/standby mode");
+                CountDownLatch shutdownSignal = new CountDownLatch(1);
+                Runtime.getRuntime().addShutdownHook(new Thread(shutdownSignal::countDown,
+                        "supersql-client-shutdown"));
                 try {
-                    handleSql(line, finalActiveMaster, routeCache, config);
-                } catch (Exception e) {
-                    System.out.println("Error: " + e.getMessage());
-                    log.debug("SQL execution error", e);
+                    shutdownSignal.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.info("Daemon/standby mode interrupted, shutting down");
                 }
-
-                printPrompt();
+                return;
             }
-        }
 
-        if (routeInvalidationWatcher != null) {
-            routeInvalidationWatcher.close();
+            System.out.println("SuperSQL Client connected. Type 'exit' to quit.");
+            System.out.print("SuperSQL> ");
+            System.out.flush();
+
+            final String finalActiveMaster = activeMaster;
+            try (Scanner sc = new Scanner(System.in)) {
+                while (sc.hasNextLine()) {
+                    String line = sc.nextLine().trim();
+                    if (line.isEmpty()) { printPrompt(); continue; }
+                    if ("exit".equalsIgnoreCase(line) || "quit".equalsIgnoreCase(line)) {
+                        System.out.println("Bye.");
+                        break;
+                    }
+
+                    try {
+                        handleSql(line, finalActiveMaster, routeCache, config);
+                    } catch (Exception e) {
+                        System.out.println("Error: " + e.getMessage());
+                        log.debug("SQL execution error", e);
+                    }
+
+                    printPrompt();
+                }
+            }
+        } finally {
+            closeQuietly(routeInvalidationWatcher, "route invalidation watcher");
+            closeQuietly(zkClient, "zk client");
         }
-        if (zkClient != null) zkClient.close();
     }
 
     // ─────────────────────── routing ──────────────────────────────────────────
@@ -599,6 +608,17 @@ public class SqlClient {
     private static void printPrompt() {
         System.out.print("SuperSQL> ");
         System.out.flush();
+    }
+
+    private static void closeQuietly(AutoCloseable closeable, String name) {
+        if (closeable == null) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (Exception e) {
+            log.debug("Failed to close {}: {}", name, e.getMessage());
+        }
     }
 
     // ─────────────────────── helpers ──────────────────────────────────────────

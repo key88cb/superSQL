@@ -56,7 +56,6 @@ database/
 **/database/data/*
 **/database/index/*
 **/database/catalog/*
-!**/database/catalog/catalog_file
 *.db
 super_sql.log
 

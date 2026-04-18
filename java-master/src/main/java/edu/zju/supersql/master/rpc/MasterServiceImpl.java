@@ -30,8 +30,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * MasterService stub implementation.
- * All methods return an ERROR response until the real logic is implemented.
+ * Master-side RPC implementation for table metadata, DDL orchestration and rebalance.
  */
 public class MasterServiceImpl implements MasterService.Iface {
 
@@ -150,6 +149,17 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     private static CuratorFramework zk() {
         return MasterRuntimeContext.getZkClient();
+    }
+
+    private static boolean isZkUnavailable(CuratorFramework client) {
+        if (client == null) {
+            return true;
+        }
+        try {
+            return !client.getZookeeperClient().isConnected();
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     private static boolean isLeader() {
@@ -338,12 +348,12 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         CuratorFramework zk = zk();
-        if (zk == null) {
-            RegionServerInfo placeholderPrimary = new RegionServerInfo("local-stub", "127.0.0.1", 9090);
-            TableLocation location = new TableLocation(tableName, placeholderPrimary,
-                    Collections.singletonList(placeholderPrimary));
-            location.setTableStatus("ACTIVE");
-            location.setVersion(0L);
+        if (isZkUnavailable(zk)) {
+            RegionServerInfo unavailable = new RegionServerInfo("unavailable", "0.0.0.0", 0);
+            TableLocation location = new TableLocation(tableName, unavailable,
+                Collections.singletonList(unavailable));
+            location.setTableStatus("ZK_UNAVAILABLE");
+            location.setVersion(-1L);
             return location;
         }
 
