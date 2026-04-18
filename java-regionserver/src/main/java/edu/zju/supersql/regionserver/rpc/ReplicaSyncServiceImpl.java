@@ -53,6 +53,7 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
     public void init() {
         log.info("ReplicaSyncServiceImpl: restoring pending logs from WAL...");
         WAL_BY_TABLE.clear();
+        COMMITTED_LSNS.clear();
         
         File dir = new File(walManager.getWalDir());
         File[] files = dir.listFiles((d, name) -> name.endsWith(".wal"));
@@ -141,6 +142,13 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
 
     @Override
     public Response commitLog(String tableName, long lsn) throws TException {
+        Set<Long> committed = COMMITTED_LSNS.computeIfAbsent(tableName, k -> ConcurrentHashMap.newKeySet());
+        if (committed.contains(lsn)) {
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("ALREADY_COMMITTED lsn=" + lsn);
+            return r;
+        }
+
         ConcurrentSkipListMap<Long, WalEntry> wal = WAL_BY_TABLE.get(tableName);
         if (wal == null || !wal.containsKey(lsn)) {
             Response r = new Response(StatusCode.TABLE_NOT_FOUND);
@@ -169,7 +177,7 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
             walManager.commit(tableName, lsn);
         }
 
-        COMMITTED_LSNS.computeIfAbsent(tableName, k -> ConcurrentHashMap.newKeySet()).add(lsn);
+        committed.add(lsn);
 
         Response r = new Response(StatusCode.OK);
         r.setMessage("COMMITTED lsn=" + lsn);

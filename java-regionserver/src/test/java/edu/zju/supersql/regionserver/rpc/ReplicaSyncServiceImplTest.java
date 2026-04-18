@@ -101,6 +101,40 @@ class ReplicaSyncServiceImplTest {
     }
 
     @Test
+    void commitLogShouldBeIdempotentForRepeatedRequests() throws Exception {
+        ReplicaSyncServiceImpl svc = service();
+        String table = "idempotent_table";
+        String sql = "insert into idempotent_table values(1);";
+
+        WalEntry entry = new WalEntry(60L, 600L, table, WalOpType.INSERT, System.currentTimeMillis());
+        entry.setAfterRow(sql.getBytes());
+        svc.syncLog(entry);
+
+        Response first = svc.commitLog(table, 60L);
+        Response second = svc.commitLog(table, 60L);
+
+        Assertions.assertEquals(StatusCode.OK, first.getCode());
+        Assertions.assertEquals(StatusCode.OK, second.getCode());
+        Assertions.assertTrue(second.getMessage().contains("ALREADY_COMMITTED"));
+        Mockito.verify(mockMiniSql, Mockito.times(1)).execute(sql);
+    }
+
+    @Test
+    void initShouldClearCommittedCache() throws Exception {
+        ReplicaSyncServiceImpl svc = service();
+        WalEntry entry = walEntry(70L, "t_cache", WalOpType.INSERT);
+        svc.syncLog(entry);
+        svc.commitLog("t_cache", 70L);
+
+        Assertions.assertTrue(ReplicaSyncServiceImpl.COMMITTED_LSNS.containsKey("t_cache"));
+        Assertions.assertTrue(ReplicaSyncServiceImpl.COMMITTED_LSNS.get("t_cache").contains(70L));
+
+        svc.init();
+
+        Assertions.assertTrue(ReplicaSyncServiceImpl.COMMITTED_LSNS.isEmpty());
+    }
+
+    @Test
     void syncShouldPersistToDiskAndInitShouldRestore() throws Exception {
         ReplicaSyncServiceImpl svc1 = service();
         String table = "persisted_test";
