@@ -35,6 +35,7 @@ public class SqlClient {
     private static final Pattern TABLE_NAME_PATTERN =
             Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
     private static final ObjectMapper MAPPER = new ObjectMapper();
+        private static final ClientRoutingMetrics ROUTING_METRICS = new ClientRoutingMetrics();
 
     enum SqlKind { DDL, DML, SHOW_TABLES, UNKNOWN }
 
@@ -249,9 +250,13 @@ public class SqlClient {
 
         Exception lastException = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            boolean cacheMissBeforeResolve = routeCache.get(tableName) == null;
             TableLocation loc = locationResolver.resolve(tableName, activeMaster, routeCache, config);
             if (loc == null || !loc.isSetPrimaryRS()) {
                 throw new IOException("Table location is unavailable for " + tableName);
+            }
+            if (cacheMissBeforeResolve) {
+                ROUTING_METRICS.recordLocationFetch(tableName);
             }
 
             try {
@@ -269,6 +274,7 @@ public class SqlClient {
                 if (code == StatusCode.REDIRECT) {
                     log.info("DML REDIRECT: table={}, attempt={}/{}, invalidating cache",
                             tableName, attempt, maxAttempts);
+                    ROUTING_METRICS.recordRedirect(tableName);
                     routeCache.invalidate(tableName);
                     if (attempt < maxAttempts) {
                         continue;
@@ -283,6 +289,7 @@ public class SqlClient {
                     if (attempt >= maxAttempts) {
                         return result;
                     }
+                    ROUTING_METRICS.recordMovingRetry(tableName);
                     long backoffMs = initialBackoffMs + (attempt - 1L) * stepBackoffMs;
                     if (backoffMs > 0) {
                         try {
@@ -299,6 +306,9 @@ public class SqlClient {
             } catch (Exception e) {
                 lastException = e;
                 routeCache.invalidate(tableName);
+                if (attempt < maxAttempts) {
+                    ROUTING_METRICS.recordRetryOnException(tableName);
+                }
                 log.warn("DML execution failed: table={}, attempt={}/{}, reason={}",
                         tableName, attempt, maxAttempts, e.getMessage());
                 if (attempt >= maxAttempts) {
@@ -340,10 +350,16 @@ public class SqlClient {
             try {
                 QueryResult result = executeOnTarget(tableName, sql, target, config, regionClientFactory);
                 if (result == null || !result.isSetStatus()) {
+                    if (!target.getId().equals(loc.getPrimaryRS().getId())) {
+                        ROUTING_METRICS.recordReadFallback(tableName);
+                    }
                     return result;
                 }
                 StatusCode code = result.getStatus().getCode();
                 if (code == StatusCode.OK || code == StatusCode.REDIRECT || code == StatusCode.MOVING) {
+                    if (!target.getId().equals(loc.getPrimaryRS().getId())) {
+                        ROUTING_METRICS.recordReadFallback(tableName);
+                    }
                     return result;
                 }
                 lastNonOk = result;
@@ -393,6 +409,14 @@ public class SqlClient {
             }
         }
         return loc;
+    }
+
+    static Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshotRoutingMetrics() {
+        return ROUTING_METRICS.snapshot();
+    }
+
+    static void resetRoutingMetricsForTests() {
+        ROUTING_METRICS.reset();
     }
 
     // ─────────────────────── output ───────────────────────────────────────────

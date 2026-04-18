@@ -77,6 +77,7 @@
 - 已支持读一致性分级（`CLIENT_READ_CONSISTENCY`）：
   - `EVENTUAL`：允许 SELECT 在主副本失败时降级到副本读取。
   - `STRONG`：SELECT 仅访问主副本，不进行副本降级读取。
+- 已支持按表路由指标统计（内存态）：重定向次数、MOVING 重试次数、异常重试次数、路由回源次数、读降级命中次数。
 - 路由缓存支持 TTL 与版本失效。
 - 已支持基于 ZooKeeper `/meta/tables` 事件的主动 route cache 失效（create/change/delete）。
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
