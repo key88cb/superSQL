@@ -49,7 +49,7 @@ class SqlClientDmlRetryTest {
                 "insert into orders values (1);",
                 "master:8080",
                 cache,
-                config(3, 120, 30),
+                config(3, 120, 30, ClientConfig.ReadConsistency.EVENTUAL),
                 resolver,
                 regionFactory,
                 sleeps::add
@@ -89,7 +89,7 @@ class SqlClientDmlRetryTest {
                 "insert into orders values (1);",
                 "master:8080",
                 cache,
-                config(3, 100, 50),
+                config(3, 100, 50, ClientConfig.ReadConsistency.EVENTUAL),
                 resolver,
                 regionFactory,
                 ms -> {
@@ -130,7 +130,7 @@ class SqlClientDmlRetryTest {
                 "select * from orders;",
                 "master:8080",
                 cache,
-                config(3, 100, 50),
+                config(3, 100, 50, ClientConfig.ReadConsistency.EVENTUAL),
                 resolver,
                 regionFactory,
                 ms -> {
@@ -142,13 +142,52 @@ class SqlClientDmlRetryTest {
         Assertions.assertEquals(1, regionFactory.openCount("rs-2"));
     }
 
+    @Test
+    void shouldNotFallbackToReplicaWhenSelectStrongConsistency() {
+        RegionServerInfo primary = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        RegionServerInfo replica = new RegionServerInfo("rs-2", "127.0.0.1", 9091);
+        TableLocation loc = new TableLocation("orders", primary, List.of(primary, replica));
+
+        RouteCache cache = new RouteCache(60_000);
+        cache.put("orders", loc);
+
+        SqlClient.LocationResolver resolver = (table, activeMaster, routeCache, config) -> {
+            TableLocation cached = routeCache.get(table);
+            if (cached != null) {
+                return cached;
+            }
+            routeCache.put(table, loc);
+            return loc;
+        };
+
+        StubRegionFactory regionFactory = new StubRegionFactory();
+        regionFactory.enqueueException("rs-1", new IOException("primary unavailable"));
+        regionFactory.enqueueResult("rs-2", result(StatusCode.OK, "ok"));
+
+        Assertions.assertThrows(IOException.class, () -> SqlClient.executeDmlWithRetry(
+                "orders",
+                "select * from orders;",
+                "master:8080",
+                cache,
+                config(1, 100, 50, ClientConfig.ReadConsistency.STRONG),
+                resolver,
+                regionFactory,
+                ms -> {
+                }
+        ));
+        Assertions.assertEquals(0, regionFactory.openCount("rs-2"));
+    }
+
     private static QueryResult result(StatusCode code, String msg) {
         Response response = new Response(code);
         response.setMessage(msg);
         return new QueryResult(response);
     }
 
-    private static ClientConfig config(int attempts, int initialBackoffMs, int stepBackoffMs) {
+    private static ClientConfig config(int attempts,
+                                       int initialBackoffMs,
+                                       int stepBackoffMs,
+                                       ClientConfig.ReadConsistency readConsistency) {
         return new ClientConfig(
                 "zk",
                 "master:8080",
@@ -157,7 +196,8 @@ class SqlClientDmlRetryTest {
                 3_000,
                 attempts,
                 initialBackoffMs,
-                stepBackoffMs
+                stepBackoffMs,
+                readConsistency
         );
     }
 

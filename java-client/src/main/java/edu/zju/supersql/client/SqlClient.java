@@ -244,6 +244,8 @@ public class SqlClient {
         long initialBackoffMs = Math.max(0, config.movingRetryInitialBackoffMs());
         long stepBackoffMs = Math.max(0, config.movingRetryBackoffStepMs());
         boolean readOnlyQuery = isReadOnlySql(sql);
+        boolean allowReadFailover = readOnlyQuery
+            && config.readConsistency() == ClientConfig.ReadConsistency.EVENTUAL;
 
         Exception lastException = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -253,7 +255,7 @@ public class SqlClient {
             }
 
             try {
-                QueryResult result = readOnlyQuery
+                QueryResult result = allowReadFailover
                         ? executeReadWithFailover(tableName, sql, loc, config, regionClientFactory)
                         : executeOnTarget(tableName, sql, loc.getPrimaryRS(), config, regionClientFactory);
                 if (result == null || !result.isSetStatus()) {

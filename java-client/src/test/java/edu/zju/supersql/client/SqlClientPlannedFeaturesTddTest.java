@@ -123,7 +123,8 @@ class SqlClientPlannedFeaturesTddTest {
                 3_000,
                 attempts,
                 initialBackoffMs,
-                stepBackoffMs
+                stepBackoffMs,
+                ClientConfig.ReadConsistency.EVENTUAL
         );
     }
 

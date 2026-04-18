@@ -10,11 +10,28 @@ public record ClientConfig(
         String masterFallback,
         long cacheTtlMs,
         int masterRpcTimeoutMs,
-    int regionRpcTimeoutMs,
-    int movingRetryMaxAttempts,
-    int movingRetryInitialBackoffMs,
-    int movingRetryBackoffStepMs
+        int regionRpcTimeoutMs,
+        int movingRetryMaxAttempts,
+        int movingRetryInitialBackoffMs,
+        int movingRetryBackoffStepMs,
+        ReadConsistency readConsistency
 ) {
+
+    public enum ReadConsistency {
+        EVENTUAL,
+        STRONG;
+
+        static ReadConsistency fromValue(String value) {
+            if (value == null || value.isBlank()) {
+                return EVENTUAL;
+            }
+            try {
+                return ReadConsistency.valueOf(value.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return EVENTUAL;
+            }
+        }
+    }
 
     public static ClientConfig fromSystemEnv() {
         return fromEnv(System.getenv());
@@ -27,10 +44,11 @@ public record ClientConfig(
                 readString(env, "MASTER_ADDR", "master-1:8080"),
                 readLong(env, "CLIENT_CACHE_TTL_MS", 30_000L),
                 readInt(env, "CLIENT_MASTER_RPC_TIMEOUT_MS", 5_000),
-            readInt(env, "CLIENT_RS_RPC_TIMEOUT_MS", 10_000),
-            readInt(env, "CLIENT_MOVING_RETRY_MAX_ATTEMPTS", 5),
-            readInt(env, "CLIENT_MOVING_RETRY_INITIAL_BACKOFF_MS", 300),
-            readInt(env, "CLIENT_MOVING_RETRY_BACKOFF_STEP_MS", 200)
+                readInt(env, "CLIENT_RS_RPC_TIMEOUT_MS", 10_000),
+                readInt(env, "CLIENT_MOVING_RETRY_MAX_ATTEMPTS", 5),
+                readInt(env, "CLIENT_MOVING_RETRY_INITIAL_BACKOFF_MS", 300),
+                readInt(env, "CLIENT_MOVING_RETRY_BACKOFF_STEP_MS", 200),
+                ReadConsistency.fromValue(readString(env, "CLIENT_READ_CONSISTENCY", "EVENTUAL"))
         );
     }
 

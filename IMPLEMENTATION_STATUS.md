@@ -74,6 +74,9 @@
   - `CLIENT_MOVING_RETRY_BACKOFF_STEP_MS`
 - 主副本短暂不可达时，DML 可自动失效缓存并重试，提升瞬时抖动下可用性。
 - SELECT 在主副本不可达时支持按副本列表降级读取，降低读请求对单主副本的依赖。
+- 已支持读一致性分级（`CLIENT_READ_CONSISTENCY`）：
+  - `EVENTUAL`：允许 SELECT 在主副本失败时降级到副本读取。
+  - `STRONG`：SELECT 仅访问主副本，不进行副本降级读取。
 - 路由缓存支持 TTL 与版本失效。
 - 已支持基于 ZooKeeper `/meta/tables` 事件的主动 route cache 失效（create/change/delete）。
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
