@@ -2,6 +2,7 @@ package edu.zju.supersql.master.rpc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.zju.supersql.master.MasterRuntimeContext;
+import edu.zju.supersql.rpc.TableLocation;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
 import edu.zju.supersql.testutil.EmbeddedZkServer;
@@ -91,6 +92,28 @@ class MasterPlannedFeaturesTddTest {
         Assertions.assertEquals(StatusCode.OK, response.getCode());
         Map<?, ?> assignment = readJson("/assignments/hot_table");
         Assertions.assertEquals(3, ((java.util.List<?>) assignment.get("replicas")).size());
+    }
+
+    @Test
+    void getTableLocationShouldDowngradeAndRecoverWhenReplicasOfflineThenOnline() throws Exception {
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 1);
+        registerRegionServer("rs-3", 2);
+
+        Response create = service.createTable("create table route_heal(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+        zkClient.delete().forPath("/region_servers/rs-2");
+        zkClient.delete().forPath("/region_servers/rs-3");
+
+        TableLocation unavailable = service.getTableLocation("route_heal");
+        Assertions.assertEquals("UNAVAILABLE", unavailable.getTableStatus());
+
+        registerRegionServer("rs-2", 1);
+        TableLocation recovered = service.getTableLocation("route_heal");
+        Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+        Assertions.assertEquals("rs-2", recovered.getPrimaryRS().getId());
     }
 
     private void createPathIfMissing(String path) throws Exception {
