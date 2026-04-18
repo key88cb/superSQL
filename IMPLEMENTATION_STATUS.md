@@ -55,6 +55,7 @@
 - RegionServiceImpl 已实现基础读路径：直接 MiniSQL 执行，跳过 WAL 与 replica sync。
 - executeBatch：按序执行，遇错即停。
 - RegionAdminServiceImpl 已实现 pause/resume、deleteLocalTable、invalidateClientCache、transferTable、copyTableData 的基础路径。
+- RegionAdminServiceImpl 的 `registerRegionServer/heartbeat` 已支持回写 `/region_servers/{rsId}` 节点负载与 `lastHeartbeat`。
 - RegionAdminServiceImpl 的 `invalidateClientCache` 已支持通过更新 `/meta/tables/{table}` version 广播失效信号，驱动 Client 端主动失效。
 - RegionAdminServiceImpl 的 `deleteLocalTable` 已增强 assignment 安全更新：只移除当前 RS 的副本条目，不再误删整条 `/assignments/{table}`；仅在副本列表为空时删除节点。
 - `transferTable` 已增加逐块响应校验：`copyTableData` 若返回非 OK 会立即中断并返回 ERROR，避免静默迁移失败。

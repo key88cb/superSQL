@@ -44,6 +44,7 @@ class RegionAdminServiceAssignmentIntegrationTest {
         zkClient.start();
         zkClient.blockUntilConnected();
 
+        createPathIfMissing(ZkPaths.REGION_SERVERS);
         createPathIfMissing(ZkPaths.ASSIGNMENTS);
         createPathIfMissing(ZkPaths.META_TABLES);
     }
@@ -136,6 +137,45 @@ class RegionAdminServiceAssignmentIntegrationTest {
         Assertions.assertEquals(StatusCode.OK, service.invalidateClientCache("missing_table").getCode());
     }
 
+    @Test
+    void registerRegionServerShouldPersistNodeInZooKeeper() throws Exception {
+        RegionAdminServiceImpl service = new RegionAdminServiceImpl(
+                new WriteGuard(), zkClient, dataDir.toString(), "rs-1");
+
+        edu.zju.supersql.rpc.RegionServerInfo info = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        info.setTableCount(4);
+
+        Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(info).getCode());
+
+        Map<?, ?> payload = readJson(ZkPaths.regionServer("rs-1"));
+        Assertions.assertEquals("rs-1", payload.get("id"));
+        Assertions.assertEquals("127.0.0.1", payload.get("host"));
+        Assertions.assertEquals(9090, ((Number) payload.get("port")).intValue());
+        Assertions.assertEquals(4, ((Number) payload.get("tableCount")).intValue());
+        Assertions.assertTrue(((Number) payload.get("lastHeartbeat")).longValue() > 0L);
+    }
+
+    @Test
+    void heartbeatShouldRefreshLastHeartbeatAndMetrics() throws Exception {
+        RegionAdminServiceImpl service = new RegionAdminServiceImpl(
+                new WriteGuard(), zkClient, dataDir.toString(), "rs-1");
+
+        edu.zju.supersql.rpc.RegionServerInfo initial = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        initial.setTableCount(1);
+        Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(initial).getCode());
+        long before = ((Number) readJson(ZkPaths.regionServer("rs-1")).get("lastHeartbeat")).longValue();
+
+        edu.zju.supersql.rpc.RegionServerInfo heartbeat = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        heartbeat.setTableCount(6);
+        heartbeat.setQps1min(12.5);
+        Assertions.assertEquals(StatusCode.OK, service.heartbeat(heartbeat).getCode());
+
+        Map<?, ?> payload = readJson(ZkPaths.regionServer("rs-1"));
+        Assertions.assertTrue(((Number) payload.get("lastHeartbeat")).longValue() >= before);
+        Assertions.assertEquals(6, ((Number) payload.get("tableCount")).intValue());
+        Assertions.assertEquals(12.5, ((Number) payload.get("qps1min")).doubleValue(), 0.0001);
+    }
+
     private void createPathIfMissing(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
@@ -179,5 +219,10 @@ class RegionAdminServiceAssignmentIntegrationTest {
         rs.put("host", "127.0.0.1");
         rs.put("port", port);
         return rs;
+    }
+
+    private Map<?, ?> readJson(String path) throws Exception {
+        byte[] bytes = zkClient.getData().forPath(path);
+        return MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
     }
 }

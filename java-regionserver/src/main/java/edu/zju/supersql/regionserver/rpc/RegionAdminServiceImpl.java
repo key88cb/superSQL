@@ -304,16 +304,67 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     @Override
     public Response registerRegionServer(RegionServerInfo info) throws TException {
+        if (info == null || info.getId() == null || info.getId().isBlank()) {
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("registerRegionServer failed: missing region server id");
+            return r;
+        }
         log.info("registerRegionServer: {}", info.getId());
-        Response r = new Response(StatusCode.OK);
-        r.setMessage("registered");
-        return r;
+
+        if (zkClient == null) {
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("register skipped (zk unavailable)");
+            return r;
+        }
+
+        try {
+            String path = ZkPaths.regionServer(info.getId());
+            byte[] payload = regionServerInfoBytes(info, System.currentTimeMillis());
+            if (zkClient.checkExists().forPath(path) == null) {
+                zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
+                        .forPath(path, payload);
+            } else {
+                zkClient.setData().forPath(path, payload);
+            }
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("registered " + info.getId());
+            return r;
+        } catch (Exception e) {
+            log.error("registerRegionServer failed for rs={}", info.getId(), e);
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("registerRegionServer failed: " + e.getMessage());
+            return r;
+        }
     }
 
     @Override
     public Response heartbeat(RegionServerInfo info) throws TException {
-        log.debug("heartbeat from {}", info.getId());
-        return new Response(StatusCode.OK);
+        if (info == null || info.getId() == null || info.getId().isBlank()) {
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("heartbeat failed: missing region server id");
+            return r;
+        }
+
+        if (zkClient == null) {
+            return new Response(StatusCode.OK);
+        }
+
+        try {
+            String path = ZkPaths.regionServer(info.getId());
+            byte[] payload = regionServerInfoBytes(info, System.currentTimeMillis());
+            if (zkClient.checkExists().forPath(path) == null) {
+                zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
+                        .forPath(path, payload);
+            } else {
+                zkClient.setData().forPath(path, payload);
+            }
+            return new Response(StatusCode.OK);
+        } catch (Exception e) {
+            log.error("heartbeat failed for rs={}", info.getId(), e);
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("heartbeat failed: " + e.getMessage());
+            return r;
+        }
     }
 
     // ─────────────────────── helpers ──────────────────────────────────────────
@@ -407,6 +458,19 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         } catch (NumberFormatException e) {
             return fallback;
         }
+    }
+
+    private byte[] regionServerInfoBytes(RegionServerInfo info, long heartbeatTs) throws Exception {
+        Map<String, Object> payload = new ConcurrentHashMap<>();
+        payload.put("id", info.getId());
+        payload.put("host", info.getHost());
+        payload.put("port", info.getPort());
+        payload.put("tableCount", info.isSetTableCount() ? info.getTableCount() : 0);
+        payload.put("qps1min", info.isSetQps1min() ? info.getQps1min() : 0.0);
+        payload.put("cpuUsage", info.isSetCpuUsage() ? info.getCpuUsage() : 0.0);
+        payload.put("memUsage", info.isSetMemUsage() ? info.getMemUsage() : 0.0);
+        payload.put("lastHeartbeat", heartbeatTs);
+        return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
     }
 
     private static void publishCompletedFile(Path stagingPath, Path finalPath) throws IOException {
