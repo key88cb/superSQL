@@ -62,8 +62,9 @@ class SqlClientDmlRetryTest {
 
     @Test
     void shouldRetryWhenPrimaryTemporarilyUnavailable() throws Exception {
-        RegionServerInfo rs = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
-        TableLocation loc = new TableLocation("orders", rs, List.of(rs));
+        RegionServerInfo primary = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        RegionServerInfo replica = new RegionServerInfo("rs-2", "127.0.0.1", 9091);
+        TableLocation loc = new TableLocation("orders", primary, List.of(primary, replica));
 
         RouteCache cache = new RouteCache(60_000);
         cache.put("orders", loc);
@@ -97,6 +98,48 @@ class SqlClientDmlRetryTest {
 
         Assertions.assertEquals(StatusCode.OK, qr.getStatus().getCode());
         Assertions.assertEquals(1, fetchCount.get());
+        Assertions.assertEquals(0, regionFactory.openCount("rs-2"));
+    }
+
+    @Test
+    void shouldFallbackToReplicaWhenSelectPrimaryUnavailable() throws Exception {
+        RegionServerInfo primary = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        RegionServerInfo replica = new RegionServerInfo("rs-2", "127.0.0.1", 9091);
+        TableLocation loc = new TableLocation("orders", primary, List.of(primary, replica));
+
+        RouteCache cache = new RouteCache(60_000);
+        cache.put("orders", loc);
+
+        AtomicInteger fetchCount = new AtomicInteger(0);
+        SqlClient.LocationResolver resolver = (table, activeMaster, routeCache, config) -> {
+            TableLocation cached = routeCache.get(table);
+            if (cached != null) {
+                return cached;
+            }
+            fetchCount.incrementAndGet();
+            routeCache.put(table, loc);
+            return loc;
+        };
+
+        StubRegionFactory regionFactory = new StubRegionFactory();
+        regionFactory.enqueueException("rs-1", new IOException("primary unavailable"));
+        regionFactory.enqueueResult("rs-2", result(StatusCode.OK, "ok"));
+
+        QueryResult qr = SqlClient.executeDmlWithRetry(
+                "orders",
+                "select * from orders;",
+                "master:8080",
+                cache,
+                config(3, 100, 50),
+                resolver,
+                regionFactory,
+                ms -> {
+                }
+        );
+
+        Assertions.assertEquals(StatusCode.OK, qr.getStatus().getCode());
+        Assertions.assertEquals(0, fetchCount.get());
+        Assertions.assertEquals(1, regionFactory.openCount("rs-2"));
     }
 
     private static QueryResult result(StatusCode code, String msg) {
@@ -130,8 +173,15 @@ class SqlClientDmlRetryTest {
             outcomesByRs.computeIfAbsent(rsId, k -> new ArrayDeque<>()).addLast(exception);
         }
 
+        int openCount(String rsId) {
+            return openCountByRs.getOrDefault(rsId, 0);
+        }
+
+        private final Map<String, Integer> openCountByRs = new HashMap<>();
+
         @Override
         public SqlClient.RegionClientSession open(RegionServerInfo target, ClientConfig config) {
+            openCountByRs.merge(target.getId(), 1, Integer::sum);
             return new SqlClient.RegionClientSession() {
                 @Override
                 public QueryResult execute(String tableName, String sql) throws Exception {

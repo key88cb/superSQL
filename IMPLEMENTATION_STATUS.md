@@ -5,26 +5,14 @@
 ## 1. Master 侧已实现内容
 
 实现文件：
-- java-master/src/main/java/edu/zju/supersql/master/MasterRuntimeContext.java
-- java-master/src/main/java/edu/zju/supersql/master/MasterServer.java
-- java-master/src/main/java/edu/zju/supersql/master/rpc/MasterServiceImpl.java
 - java-master/src/main/java/edu/zju/supersql/master/election/LeaderElector.java
 
 已落地能力：
-- 启动时初始化 Master 运行上下文（含本机 masterId、address、zkClient）。
-- LeaderLatch 选主：当选时更新 `/active-master`，epoch CAS 防脑裂。
-- Active Master 心跳：每 5 秒更新 `/masters/active-heartbeat`。
 - `/masters` Watcher：CuratorCache 监听在线 Master 节点变化。
 - `/region_servers` Watcher：已通过 `RegionServerWatcher` 监听 RS 上线、更新、下线事件。
 - HTTP 管理端点：`GET /health` 与 `GET /status` 返回 JSON（含角色信息）。
-- 已抽出 `MetaManager` / `AssignmentManager` / `LoadBalancer`，支持 Master 元数据与分配读写。
-- Master 启动流程已补充元数据预热（启动后扫描现有 table 元数据）与 Thrift processor 构建封装，原启动 TODO 已落地。
-- getTableLocation / createTable / dropTable / listRegionServers / listTables 已支持 ZooKeeper 元数据读写。
 - createTable / dropTable 已通过真实 Thrift 调用把 DDL 转发到 RegionServer，再在成功后更新 ZooKeeper 元数据。
 - `triggerRebalance()` 已具备最小可用迁移闭环：可把热点节点上的一个非主副本迁往更空闲节点，并更新 `/meta/tables` 与 `/assignments`。
-- `triggerRebalance()` 已增强失败一致性：当迁移后置阶段（如 source 清理）失败时，会自动回滚 `/meta/tables` 与 `/assignments` 到迁移前快照，避免路由元数据悬空。
-- `triggerRebalance()` 的缓存失效与恢复写入步骤改为 best-effort，不再因为非关键后置动作失败而破坏主迁移结果返回。
-- `triggerRebalance()` 已补偿目标副本清理：当 transfer/后置阶段失败时，会 best-effort 清理 target 上可能残留的临时表数据，降低脏副本残留概率。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
 
 当前限制：
@@ -84,12 +72,13 @@
   - `CLIENT_MOVING_RETRY_INITIAL_BACKOFF_MS`
   - `CLIENT_MOVING_RETRY_BACKOFF_STEP_MS`
 - 主副本短暂不可达时，DML 可自动失效缓存并重试，提升瞬时抖动下可用性。
+- SELECT 在主副本不可达时支持按副本列表降级读取，降低读请求对单主副本的依赖。
 - 路由缓存支持 TTL 与版本失效。
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
 
 当前限制：
 - MOVING 已支持有界重试，但在重试窗口内若迁移仍未完成，客户端仍会返回 MOVING 给上层；尚未实现无限透明等待策略。
-- 主副本不可达后的读故障转移、缓存主动失效广播仍未落地。
+- 缓存主动失效广播仍未落地（目前以 TTL + 版本校验 + 重定向/迁移信号失效为主）。
 
 ## 4. 已落地测试
 

@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
@@ -235,6 +237,7 @@ public class SqlClient {
         int maxAttempts = Math.max(1, config.movingRetryMaxAttempts());
         long initialBackoffMs = Math.max(0, config.movingRetryInitialBackoffMs());
         long stepBackoffMs = Math.max(0, config.movingRetryBackoffStepMs());
+        boolean readOnlyQuery = isReadOnlySql(sql);
 
         Exception lastException = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -243,8 +246,10 @@ public class SqlClient {
                 throw new IOException("Table location is unavailable for " + tableName);
             }
 
-            try (RegionClientSession region = regionClientFactory.open(loc.getPrimaryRS(), config)) {
-                QueryResult result = region.execute(tableName, sql);
+            try {
+                QueryResult result = readOnlyQuery
+                        ? executeReadWithFailover(tableName, sql, loc, config, regionClientFactory)
+                        : executeOnTarget(tableName, sql, loc.getPrimaryRS(), config, regionClientFactory);
                 if (result == null || !result.isSetStatus()) {
                     return result;
                 }
@@ -298,6 +303,74 @@ public class SqlClient {
             throw lastException;
         }
         throw new IOException("DML retry exhausted for table " + tableName);
+    }
+
+    private static boolean isReadOnlySql(String sql) {
+        return sql != null && sql.trim().toLowerCase().startsWith("select");
+    }
+
+    private static QueryResult executeOnTarget(String tableName,
+                                               String sql,
+                                               RegionServerInfo target,
+                                               ClientConfig config,
+                                               RegionClientFactory regionClientFactory) throws Exception {
+        try (RegionClientSession region = regionClientFactory.open(target, config)) {
+            return region.execute(tableName, sql);
+        }
+    }
+
+    private static QueryResult executeReadWithFailover(String tableName,
+                                                       String sql,
+                                                       TableLocation loc,
+                                                       ClientConfig config,
+                                                       RegionClientFactory regionClientFactory) throws Exception {
+        List<RegionServerInfo> targets = buildReadTargets(loc);
+        Exception firstFailure = null;
+        QueryResult lastNonOk = null;
+
+        for (RegionServerInfo target : targets) {
+            try {
+                QueryResult result = executeOnTarget(tableName, sql, target, config, regionClientFactory);
+                if (result == null || !result.isSetStatus()) {
+                    return result;
+                }
+                StatusCode code = result.getStatus().getCode();
+                if (code == StatusCode.OK || code == StatusCode.REDIRECT || code == StatusCode.MOVING) {
+                    return result;
+                }
+                lastNonOk = result;
+            } catch (Exception e) {
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
+                log.warn("Read execution failed: table={}, target={}({}:{})",
+                        tableName, target.getId(), target.getHost(), target.getPort());
+            }
+        }
+
+        if (lastNonOk != null) {
+            return lastNonOk;
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
+        throw new IOException("No available replica for read on table " + tableName);
+    }
+
+    private static List<RegionServerInfo> buildReadTargets(TableLocation loc) {
+        LinkedHashMap<String, RegionServerInfo> targetsById = new LinkedHashMap<>();
+        RegionServerInfo primary = loc.getPrimaryRS();
+        if (primary != null && primary.isSetId()) {
+            targetsById.put(primary.getId(), primary);
+        }
+        if (loc.isSetReplicas()) {
+            for (RegionServerInfo replica : loc.getReplicas()) {
+                if (replica != null && replica.isSetId()) {
+                    targetsById.putIfAbsent(replica.getId(), replica);
+                }
+            }
+        }
+        return new ArrayList<>(targetsById.values());
     }
 
     private static TableLocation resolveLocation(String tableName, String activeMaster,
