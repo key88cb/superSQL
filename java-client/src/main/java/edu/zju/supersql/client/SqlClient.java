@@ -42,11 +42,12 @@ public class SqlClient {
     private static final ClientRoutingMetrics ROUTING_METRICS = new ClientRoutingMetrics();
     private static final String ROUTING_METRICS_EXPORT_PREFIX = "show routing metrics export";
 
-    enum SqlKind { DDL, DML, SHOW_TABLES, SHOW_ROUTING_METRICS, UNKNOWN }
+    enum SqlKind { DDL, DML, SHOW_TABLES, SHOW_ROUTING_METRICS, EXECFILE, UNKNOWN }
 
     static SqlKind classifySql(String sql) {
         if (sql == null || sql.isBlank()) return SqlKind.UNKNOWN;
         String s = sql.trim().toLowerCase();
+        if (s.startsWith("execfile")) return SqlKind.EXECFILE;
         if (s.startsWith("show routing metrics")) return SqlKind.SHOW_ROUTING_METRICS;
         if (s.startsWith("show tables")) return SqlKind.SHOW_TABLES;
         if (s.startsWith("create") || s.startsWith("drop") || s.startsWith("alter")
@@ -168,10 +169,85 @@ public class SqlClient {
         switch (kind) {
             case SHOW_TABLES -> handleShowTables(activeMaster, config);
             case SHOW_ROUTING_METRICS -> handleShowRoutingMetrics(sql);
+            case EXECFILE -> handleExecFile(sql, activeMaster, routeCache, config);
             case DDL         -> handleDdl(sql, activeMaster, routeCache, config);
             case DML         -> handleDml(sql, activeMaster, routeCache, config);
             default          -> System.out.println("Unknown SQL: " + sql);
         }
+    }
+
+    private static void handleExecFile(String command,
+                                       String activeMaster,
+                                       RouteCache routeCache,
+                                       ClientConfig config) throws Exception {
+        String scriptPath = extractExecFilePath(command);
+        if (scriptPath == null) {
+            System.out.println("Error: invalid execfile command, expected: execfile <path>");
+            return;
+        }
+
+        Path path = Paths.get(scriptPath).toAbsolutePath().normalize();
+        if (!Files.exists(path) || !Files.isRegularFile(path)) {
+            System.out.println("Error: script file not found: " + path);
+            return;
+        }
+
+        String content = Files.readString(path, StandardCharsets.UTF_8);
+        List<String> statements = parseSqlStatements(content);
+        if (statements.isEmpty()) {
+            System.out.println("execfile: no executable statements in " + path);
+            return;
+        }
+
+        int executed = 0;
+        for (int i = 0; i < statements.size(); ) {
+            String statement = statements.get(i);
+            SqlKind kind = classifySql(statement);
+            if (kind == SqlKind.EXECFILE) {
+                System.out.println("Error: nested execfile is not supported: " + statement);
+                break;
+            }
+
+            String tableName = extractTableName(statement);
+            if (kind == SqlKind.DML && tableName != null) {
+                List<String> batch = new ArrayList<>();
+                int j = i;
+                while (j < statements.size()) {
+                    String candidate = statements.get(j);
+                    if (classifySql(candidate) != SqlKind.DML) {
+                        break;
+                    }
+                    String candidateTable = extractTableName(candidate);
+                    if (candidateTable == null || !candidateTable.equals(tableName)) {
+                        break;
+                    }
+                    batch.add(candidate);
+                    j++;
+                }
+
+                if (batch.size() > 1) {
+                    QueryResult batchResult = executeDmlBatchWithRetry(
+                            tableName,
+                            batch,
+                            activeMaster,
+                            routeCache,
+                            config,
+                            SqlClient::resolveLocation,
+                            SqlClient::openRegionSession,
+                            Thread::sleep);
+                    printQueryResult(batchResult);
+                    executed += batch.size();
+                    i = j;
+                    continue;
+                }
+            }
+
+            handleSql(statement, activeMaster, routeCache, config);
+            executed++;
+            i++;
+        }
+
+        System.out.println("execfile completed: executed " + executed + " statements from " + path);
     }
 
     private static void handleShowRoutingMetrics(String sql) {
@@ -398,6 +474,94 @@ public class SqlClient {
             throw lastException;
         }
         throw new IOException("DML retry exhausted for table " + tableName);
+    }
+
+    static QueryResult executeDmlBatchWithRetry(String tableName,
+                                                List<String> sqlBatch,
+                                                String activeMaster,
+                                                RouteCache routeCache,
+                                                ClientConfig config,
+                                                LocationResolver locationResolver,
+                                                RegionClientFactory regionClientFactory,
+                                                Sleeper sleeper) throws Exception {
+        if (sqlBatch == null || sqlBatch.isEmpty()) {
+            Response status = new Response(StatusCode.OK);
+            status.setMessage("No statements");
+            return new QueryResult(status);
+        }
+
+        boolean transparentMovingWait = config.movingRetryMaxAttempts() <= 0;
+        int maxAttempts = transparentMovingWait
+                ? Integer.MAX_VALUE
+                : Math.max(1, config.movingRetryMaxAttempts());
+        String attemptsLabel = transparentMovingWait ? "unbounded" : String.valueOf(maxAttempts);
+        long initialBackoffMs = Math.max(0, config.movingRetryInitialBackoffMs());
+        long stepBackoffMs = Math.max(0, config.movingRetryBackoffStepMs());
+
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            boolean cacheMissBeforeResolve = routeCache.get(tableName) == null;
+            TableLocation loc = locationResolver.resolve(tableName, activeMaster, routeCache, config);
+            if (loc == null || !loc.isSetPrimaryRS()) {
+                throw new IOException("Table location is unavailable for " + tableName);
+            }
+            if (cacheMissBeforeResolve) {
+                ROUTING_METRICS.recordLocationFetch(tableName);
+            }
+
+            try (RegionClientSession region = regionClientFactory.open(loc.getPrimaryRS(), config)) {
+                QueryResult result = region.executeBatch(tableName, sqlBatch);
+                if (result == null || !result.isSetStatus()) {
+                    return result;
+                }
+                StatusCode code = result.getStatus().getCode();
+                if (code == StatusCode.OK) {
+                    return result;
+                }
+                if (code == StatusCode.REDIRECT) {
+                    ROUTING_METRICS.recordRedirect(tableName);
+                    routeCache.invalidate(tableName);
+                    if (attempt < maxAttempts) {
+                        continue;
+                    }
+                    return result;
+                }
+                if (code == StatusCode.MOVING) {
+                    ROUTING_METRICS.recordMovingRetry(tableName);
+                    routeCache.invalidate(tableName);
+                    if (attempt >= maxAttempts) {
+                        return result;
+                    }
+                    long backoffMs = initialBackoffMs + (attempt - 1L) * stepBackoffMs;
+                    if (backoffMs > 0) {
+                        try {
+                            sleeper.sleep(backoffMs);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("Interrupted while waiting for MOVING retry", e);
+                        }
+                    }
+                    continue;
+                }
+                return result;
+            } catch (Exception e) {
+                lastException = e;
+                routeCache.invalidate(tableName);
+                if (attempt < maxAttempts) {
+                    ROUTING_METRICS.recordRetryOnException(tableName);
+                }
+                log.warn("DML batch execution failed: table={}, batchSize={}, attempt={}/{}, reason={}",
+                        tableName, sqlBatch.size(), attempt, attemptsLabel, e.getMessage());
+                if (attempt >= maxAttempts) {
+                    throw e;
+                }
+            }
+        }
+
+        if (lastException != null) {
+            throw lastException;
+        }
+        throw new IOException("DML batch retry exhausted for table " + tableName);
     }
 
     private static boolean isReadOnlySql(String sql) {
@@ -631,6 +795,65 @@ public class SqlClient {
         return m.find() ? m.group(1) : null;
     }
 
+    static String extractExecFilePath(String command) {
+        if (command == null) {
+            return null;
+        }
+        Matcher matcher = Pattern.compile("(?i)^\\s*execfile\\s+(.+?)\\s*;?\\s*$").matcher(command);
+        if (!matcher.matches()) {
+            return null;
+        }
+        String rawPath = matcher.group(1).trim();
+        if ((rawPath.startsWith("\"") && rawPath.endsWith("\""))
+                || (rawPath.startsWith("'") && rawPath.endsWith("'"))) {
+            rawPath = rawPath.substring(1, rawPath.length() - 1).trim();
+        }
+        return rawPath.isBlank() ? null : rawPath;
+    }
+
+    static List<String> parseSqlStatements(String script) {
+        if (script == null || script.isBlank()) {
+            return List.of();
+        }
+        StringBuilder noComment = new StringBuilder(script.length());
+        for (String line : script.split("\\R")) {
+            String trimmed = line.stripLeading();
+            if (trimmed.startsWith("--") || trimmed.startsWith("#")) {
+                continue;
+            }
+            noComment.append(line).append('\n');
+        }
+
+        List<String> statements = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+        for (int i = 0; i < noComment.length(); i++) {
+            char c = noComment.charAt(i);
+            if (c == '\'' && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote;
+            } else if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote;
+            }
+
+            if (c == ';' && !inSingleQuote && !inDoubleQuote) {
+                String statement = current.toString().trim();
+                if (!statement.isEmpty()) {
+                    statements.add(statement + ";");
+                }
+                current.setLength(0);
+                continue;
+            }
+            current.append(c);
+        }
+
+        String tail = current.toString().trim();
+        if (!tail.isEmpty()) {
+            statements.add(tail);
+        }
+        return statements;
+    }
+
     @FunctionalInterface
     interface MasterResponseCall {
         Response call(MasterRpcClient master) throws Exception;
@@ -652,6 +875,22 @@ public class SqlClient {
     interface RegionClientSession extends AutoCloseable {
         QueryResult execute(String tableName, String sql) throws Exception;
 
+        default QueryResult executeBatch(String tableName, List<String> sqls) throws Exception {
+            QueryResult last = null;
+            if (sqls == null || sqls.isEmpty()) {
+                Response status = new Response(StatusCode.OK);
+                status.setMessage("No statements");
+                return new QueryResult(status);
+            }
+            for (String sql : sqls) {
+                last = execute(tableName, sql);
+                if (last == null || !last.isSetStatus() || last.getStatus().getCode() != StatusCode.OK) {
+                    return last;
+                }
+            }
+            return last;
+        }
+
         @Override
         void close() throws Exception;
     }
@@ -668,6 +907,11 @@ public class SqlClient {
             @Override
             public QueryResult execute(String tableName, String sql) throws Exception {
                 return client.execute(tableName, sql);
+            }
+
+            @Override
+            public QueryResult executeBatch(String tableName, List<String> sqls) throws Exception {
+                return client.executeBatch(tableName, sqls);
             }
 
             @Override

@@ -120,6 +120,7 @@
 - REPL 已支持 `SHOW ROUTING METRICS` 命令，可直接查看当前进程内按表路由指标快照。
 - REPL 已支持 `SHOW ROUTING METRICS JSON`，可输出结构化 JSON 结果供日志采集或外部脚本消费。
 - REPL 已支持 `SHOW ROUTING METRICS EXPORT <path>`，可将当前路由指标快照导出到 JSON 文件。
+- REPL 已支持 `execfile <path>`：会解析 SQL 脚本并按顺序执行；同表连续 DML 会走 Region `executeBatch` + MOVING/REDIRECT 重试闭环。
 - 路由缓存支持 TTL 与版本失效。
 - 已支持基于 ZooKeeper `/meta/tables` 事件的主动 route cache 失效（create/change/delete）。
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
@@ -166,6 +167,7 @@ Client：
 - SqlClientRoutingTest
 - RouteCacheAndDiscoveryTest
 - SqlClientDmlRetryTest
+- SqlClientExecFileTest
 - SqlClientRoutingMetricsCommandTest
 - SqlClientPlannedFeaturesTddTest（已改为可执行测试，不再 `@Disabled`）
 - MasterPlannedFeaturesTddTest（已改为可执行测试）
