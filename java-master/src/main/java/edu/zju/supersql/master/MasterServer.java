@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntSupplier;
 
 /**
  * Master server entry point.
@@ -122,15 +123,30 @@ public class MasterServer {
     }
 
     static RegionServerWatcher.Listener buildMembershipRebalanceListener(RebalanceScheduler rebalanceScheduler) {
+        return buildMembershipRebalanceListener(rebalanceScheduler, () -> 0);
+    }
+
+    static RegionServerWatcher.Listener buildMembershipRebalanceListener(RebalanceScheduler rebalanceScheduler,
+                                                                         IntSupplier routeRepairTrigger) {
         return new RegionServerWatcher.Listener() {
             @Override
             public void onRegionServerUp(String rsId) {
                 rebalanceScheduler.requestTrigger("rs_up:" + rsId);
+                try {
+                    routeRepairTrigger.getAsInt();
+                } catch (Exception e) {
+                    log.warn("Membership up repair trigger failed rsId={} cause={}", rsId, e.getMessage());
+                }
             }
 
             @Override
             public void onRegionServerDown(String rsId) {
                 rebalanceScheduler.requestTrigger("rs_down:" + rsId);
+                try {
+                    routeRepairTrigger.getAsInt();
+                } catch (Exception e) {
+                    log.warn("Membership down repair trigger failed rsId={} cause={}", rsId, e.getMessage());
+                }
             }
         };
     }
@@ -209,7 +225,8 @@ public class MasterServer {
                     scheduledService::triggerRebalance);
             rebalanceScheduler.start();
                 regionServerWatcher = new RegionServerWatcher(zkClient,
-                    buildMembershipRebalanceListener(rebalanceScheduler));
+                    buildMembershipRebalanceListener(rebalanceScheduler,
+                            scheduledService::repairTableRoutesBestEffort));
                 regionServerWatcher.start();
             LeaderElector finalLeaderElector = leaderElector;
             RegionServerWatcher finalRegionServerWatcher = regionServerWatcher;

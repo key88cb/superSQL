@@ -33,4 +33,35 @@ class MasterServerMembershipRebalanceListenerTest {
         RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
         Assertions.assertEquals(2L, snapshot.externalRequestCount());
     }
+
+    @Test
+    void membershipListenerShouldTriggerRouteRepairOnUpAndDown() {
+        AtomicInteger schedulerCalls = new AtomicInteger(0);
+        AtomicInteger repairCalls = new AtomicInteger(0);
+
+        RebalanceScheduler scheduler = new RebalanceScheduler(
+                true,
+                30_000L,
+                0L,
+                () -> {
+                    schedulerCalls.incrementAndGet();
+                    Response response = new Response(StatusCode.OK);
+                    response.setMessage("ok");
+                    return response;
+                }
+        );
+
+        RegionServerWatcher.Listener listener = MasterServer.buildMembershipRebalanceListener(
+                scheduler,
+                () -> {
+                    repairCalls.incrementAndGet();
+                    return 1;
+                });
+
+        listener.onRegionServerUp("rs-1");
+        listener.onRegionServerDown("rs-1");
+
+        Assertions.assertEquals(2, schedulerCalls.get());
+        Assertions.assertEquals(2, repairCalls.get());
+    }
 }

@@ -274,6 +274,34 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
+    public int repairTableRoutesBestEffort() {
+        if (!isLeader() || zk() == null) {
+            return 0;
+        }
+        try {
+            int repaired = 0;
+            List<TableLocation> tables = metaManager.listTables();
+            for (TableLocation table : tables) {
+                if (table == null) {
+                    continue;
+                }
+                String before = healSignature(table);
+                TableLocation healed = healTableLocationBestEffort(table);
+                String after = healSignature(healed);
+                if (!Objects.equals(before, after)) {
+                    repaired++;
+                }
+            }
+            if (repaired > 0) {
+                log.info("repairTableRoutesBestEffort repaired={} total={}", repaired, tables.size());
+            }
+            return repaired;
+        } catch (Exception e) {
+            log.warn("repairTableRoutesBestEffort failed: {}", e.getMessage());
+            return 0;
+        }
+    }
+
     @Override
     public TableLocation getTableLocation(String tableName) throws TException {
         if (!isLeader()) {

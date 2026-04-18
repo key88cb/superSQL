@@ -400,6 +400,26 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void repairTableRoutesBestEffortShouldHealOfflinePrimaryWithoutReadPath() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_background_repair(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+        int repaired = service.repairTableRoutesBestEffort();
+
+        Assertions.assertTrue(repaired >= 1);
+
+        Map<?, ?> meta = readJson("/meta/tables/t_background_repair");
+        Map<?, ?> primary = (Map<?, ?>) meta.get("primaryRS");
+        Assertions.assertEquals("rs-2", String.valueOf(primary.get("id")));
+        Assertions.assertEquals("ACTIVE", String.valueOf(meta.get("tableStatus")));
+    }
+
+    @Test
     void triggerRebalanceShouldMoveNonPrimaryReplicaToLeastLoadedNode() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
