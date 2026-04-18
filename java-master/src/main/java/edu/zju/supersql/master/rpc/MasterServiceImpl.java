@@ -58,6 +58,13 @@ public class MasterServiceImpl implements MasterService.Iface {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final long DEFAULT_ROUTE_HEAL_MIN_GAP_MS = 1_000L;
     private static final int DEFAULT_ROUTE_REPAIR_WINDOW_SIZE = 10;
+    private static final long DEFAULT_MIGRATION_STUCK_TIMEOUT_MS = 60_000L;
+    private static final String STATUS_ACTIVE = "ACTIVE";
+    private static final String STATUS_PREPARING = "PREPARING";
+    private static final String STATUS_MOVING = "MOVING";
+    private static final String STATUS_FINALIZING = "FINALIZING";
+    private static final String STATUS_ROLLBACK = "ROLLBACK";
+    private static final String STATUS_UNAVAILABLE = "UNAVAILABLE";
     private static final Pattern CREATE_TABLE_PATTERN =
             Pattern.compile("(?i)^\\s*create\\s+table\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
 
@@ -68,6 +75,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     private final RegionAdminExecutor regionAdminExecutor;
     private final LongSupplier clockMs;
     private final long routeHealMinGapMs;
+    private final long migrationStuckTimeoutMs;
     private final ConcurrentMap<String, HealPersistState> lastHealPersistByTable = new ConcurrentHashMap<>();
     private final AtomicLong routeRepairRunCount = new AtomicLong(0L);
     private final AtomicLong routeRepairTotalRepairedTables = new AtomicLong(0L);
@@ -80,11 +88,13 @@ public class MasterServiceImpl implements MasterService.Iface {
     private volatile String routeRepairLastError;
 
     public MasterServiceImpl() {
+        MasterConfig config = MasterConfig.fromSystemEnv();
         this(new MetaManager(MasterRuntimeContext.getZkClient()),
                 new AssignmentManager(MasterRuntimeContext.getZkClient()),
                 new LoadBalancer(),
                 new RegionServiceDdlExecutor(10_000),
-                new ThriftRegionAdminExecutor(10_000));
+            new ThriftRegionAdminExecutor(10_000),
+            config.migrationStuckTimeoutMs());
     }
 
     public MasterServiceImpl(MetaManager metaManager,
@@ -93,12 +103,28 @@ public class MasterServiceImpl implements MasterService.Iface {
                              RegionDdlExecutor regionDdlExecutor,
                              RegionAdminExecutor regionAdminExecutor) {
         this(metaManager,
+            assignmentManager,
+            loadBalancer,
+            regionDdlExecutor,
+            regionAdminExecutor,
+            DEFAULT_MIGRATION_STUCK_TIMEOUT_MS);
+        }
+
+        public MasterServiceImpl(MetaManager metaManager,
+                     AssignmentManager assignmentManager,
+                     LoadBalancer loadBalancer,
+                     RegionDdlExecutor regionDdlExecutor,
+                     RegionAdminExecutor regionAdminExecutor,
+                     long migrationStuckTimeoutMs) {
+        this(metaManager,
                 assignmentManager,
                 loadBalancer,
                 regionDdlExecutor,
                 regionAdminExecutor,
                 System::currentTimeMillis,
-                DEFAULT_ROUTE_HEAL_MIN_GAP_MS);
+            DEFAULT_ROUTE_HEAL_MIN_GAP_MS,
+            DEFAULT_ROUTE_REPAIR_WINDOW_SIZE,
+            migrationStuckTimeoutMs);
     }
 
     MasterServiceImpl(MetaManager metaManager,
@@ -115,7 +141,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                 regionAdminExecutor,
                 clockMs,
                 routeHealMinGapMs,
-                DEFAULT_ROUTE_REPAIR_WINDOW_SIZE);
+            DEFAULT_ROUTE_REPAIR_WINDOW_SIZE,
+            DEFAULT_MIGRATION_STUCK_TIMEOUT_MS);
     }
 
     MasterServiceImpl(MetaManager metaManager,
@@ -126,6 +153,26 @@ public class MasterServiceImpl implements MasterService.Iface {
                              LongSupplier clockMs,
                              long routeHealMinGapMs,
                              int routeRepairWindowSize) {
+        this(metaManager,
+                assignmentManager,
+                loadBalancer,
+                regionDdlExecutor,
+                regionAdminExecutor,
+                clockMs,
+                routeHealMinGapMs,
+                routeRepairWindowSize,
+                DEFAULT_MIGRATION_STUCK_TIMEOUT_MS);
+    }
+
+    MasterServiceImpl(MetaManager metaManager,
+                      AssignmentManager assignmentManager,
+                      LoadBalancer loadBalancer,
+                      RegionDdlExecutor regionDdlExecutor,
+                      RegionAdminExecutor regionAdminExecutor,
+                      LongSupplier clockMs,
+                      long routeHealMinGapMs,
+                      int routeRepairWindowSize,
+                      long migrationStuckTimeoutMs) {
         this.metaManager = metaManager;
         this.assignmentManager = assignmentManager;
         this.loadBalancer = loadBalancer;
@@ -134,6 +181,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         this.clockMs = clockMs;
         this.routeHealMinGapMs = Math.max(0L, routeHealMinGapMs);
         this.routeRepairWindowSize = Math.max(1, routeRepairWindowSize);
+        this.migrationStuckTimeoutMs = Math.max(0L, migrationStuckTimeoutMs);
     }
 
     private static Response notLeaderResponse(String method) {
@@ -266,7 +314,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                     continue;
                 }
                 String before = healSignature(table);
-                TableLocation healed = healTableLocationBestEffort(table);
+                TableLocation recovered = recoverStuckMigrationBestEffort(table);
+                TableLocation healed = healTableLocationBestEffort(recovered);
                 String after = healSignature(healed);
                 if (!Objects.equals(before, after)) {
                     repaired++;
@@ -368,7 +417,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                 notFound.setVersion(-1L);
                 return notFound;
             }
-            return healTableLocationBestEffort(location);
+            TableLocation recovered = recoverStuckMigrationBestEffort(location);
+            return healTableLocationBestEffort(recovered);
         } catch (Exception e) {
             throw new TException("Failed to resolve table location: " + tableName, e);
         }
@@ -528,7 +578,8 @@ public class MasterServiceImpl implements MasterService.Iface {
             List<TableLocation> locations = metaManager.listTables();
             List<TableLocation> healed = new ArrayList<>();
             for (TableLocation location : locations) {
-                healed.add(healTableLocationBestEffort(location));
+                TableLocation recovered = recoverStuckMigrationBestEffort(location);
+                healed.add(healTableLocationBestEffort(recovered));
             }
             return healed;
         } catch (Exception e) {
@@ -623,7 +674,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             return null;
         }
         for (TableLocation table : metaManager.listTables()) {
-            if (!"ACTIVE".equalsIgnoreCase(table.getTableStatus())) {
+            if (!STATUS_ACTIVE.equalsIgnoreCase(table.getTableStatus())) {
                 log.info("triggerRebalance skip non-active table={} status={}",
                         table.getTableName(), table.getTableStatus());
                 continue;
@@ -656,7 +707,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         log.info("triggerRebalance executing table={} primary={} source={} target={} replicasBefore={}",
                 tableName, primary.getId(), source.getId(), target.getId(), beforeReplicas);
 
-        if (!markTableStatus(tableName, primary, location.getReplicas(), "PREPARING", migrationAttemptId)) {
+        if (!markTableStatus(tableName, primary, location.getReplicas(), STATUS_PREPARING, migrationAttemptId)) {
             Response error = new Response(StatusCode.ERROR);
             error.setMessage("Failed to mark table as PREPARING before pause: " + tableName);
             return error;
@@ -666,13 +717,13 @@ public class MasterServiceImpl implements MasterService.Iface {
         if (pause.getCode() != StatusCode.OK) {
             log.warn("triggerRebalance pause failed table={} primary={} code={}",
                     tableName, primary.getId(), pause.getCode());
-            rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
+            rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
             return pause;
         }
 
         try {
-            if (!markTableStatus(tableName, primary, location.getReplicas(), "MOVING", migrationAttemptId)) {
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
+            if (!markTableStatus(tableName, primary, location.getReplicas(), STATUS_MOVING, migrationAttemptId)) {
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as MOVING before transfer: " + tableName);
                 return error;
@@ -680,7 +731,7 @@ public class MasterServiceImpl implements MasterService.Iface {
 
             Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
             if (transfer.getCode() != StatusCode.OK) {
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
                 cleanupTargetReplicaBestEffort(target, tableName, "transfer_failed");
                 return transfer;
             }
@@ -689,20 +740,24 @@ public class MasterServiceImpl implements MasterService.Iface {
             for (RegionServerInfo replica : location.getReplicas()) {
                 updatedReplicas.add(replica.getId().equals(source.getId()) ? target : replica);
             }
-            TableLocation updatedLocation = new TableLocation(tableName, primary, updatedReplicas);
-            updatedLocation.setTableStatus("ACTIVE");
-            updatedLocation.setVersion(System.currentTimeMillis());
+
+            if (!markTableStatus(tableName, primary, updatedReplicas, STATUS_FINALIZING, migrationAttemptId)) {
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
+                cleanupTargetReplicaBestEffort(target, tableName, "finalizing_mark_failed");
+                Response error = new Response(StatusCode.ERROR);
+                error.setMessage("Failed to mark table as FINALIZING before metadata finalize: " + tableName);
+                return error;
+            }
+
             try {
-                metaManager.saveTableLocation(updatedLocation);
                 assignmentManager.saveAssignment(tableName, updatedReplicas);
                 touchStatusUpdatedAtBestEffort(tableName);
-                clearMigrationAttemptIdBestEffort(tableName);
             } catch (Exception metadataError) {
                 log.error("triggerRebalance metadata persist failed table={}, rolling back to original replicas={} cause={}",
                         tableName,
                         originalReplicas.stream().map(RegionServerInfo::getId).toList(),
                         metadataError.getMessage());
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
                 cleanupTargetReplicaBestEffort(target, tableName, "metadata_persist_failed");
                 throw metadataError;
             }
@@ -713,9 +768,23 @@ public class MasterServiceImpl implements MasterService.Iface {
             if (delete.getCode() != StatusCode.OK) {
                 log.warn("triggerRebalance deleteLocalTable failed table={} source={} code={}",
                         tableName, source.getId(), delete.getCode());
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
+                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
                 cleanupTargetReplicaBestEffort(target, tableName, "source_delete_failed");
                 return delete;
+            }
+
+            TableLocation updatedLocation = new TableLocation(tableName, primary, updatedReplicas);
+            updatedLocation.setTableStatus(STATUS_ACTIVE);
+            updatedLocation.setVersion(System.currentTimeMillis());
+            try {
+                metaManager.saveTableLocation(updatedLocation);
+                assignmentManager.saveAssignment(tableName, updatedReplicas);
+                touchStatusUpdatedAtBestEffort(tableName);
+                clearMigrationAttemptIdBestEffort(tableName);
+            } catch (Exception metadataError) {
+                log.error("triggerRebalance final ACTIVE persist failed table={} cause={}",
+                        tableName, metadataError.getMessage());
+                throw metadataError;
             }
 
             invalidateClientCacheBestEffort(primary, tableName);
@@ -755,7 +824,15 @@ public class MasterServiceImpl implements MasterService.Iface {
 
     private void rollbackRebalanceMetadata(String tableName,
                                            TableLocation originalLocation,
-                                           List<RegionServerInfo> originalReplicas) {
+                                           List<RegionServerInfo> originalReplicas,
+                                           String migrationAttemptId) {
+        if (originalLocation != null && originalLocation.isSetPrimaryRS()) {
+            markTableStatus(tableName,
+                    originalLocation.getPrimaryRS(),
+                    originalReplicas,
+                    STATUS_ROLLBACK,
+                    migrationAttemptId);
+        }
         try {
             metaManager.saveTableLocation(originalLocation);
             assignmentManager.saveAssignment(tableName, originalReplicas);
@@ -835,9 +912,9 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         String currentStatus = (location.isSetTableStatus() && !location.getTableStatus().isBlank())
-                ? location.getTableStatus().toUpperCase()
-                : "ACTIVE";
-        if (!"ACTIVE".equals(currentStatus) && !"UNAVAILABLE".equals(currentStatus)) {
+            ? location.getTableStatus().toUpperCase()
+            : STATUS_ACTIVE;
+        if (!STATUS_ACTIVE.equals(currentStatus) && !STATUS_UNAVAILABLE.equals(currentStatus)) {
             return location;
         }
 
@@ -870,9 +947,9 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         if (onlineReplicas.isEmpty()) {
-            if (!"UNAVAILABLE".equals(currentStatus)) {
+            if (!STATUS_UNAVAILABLE.equals(currentStatus)) {
                 TableLocation unavailable = new TableLocation(location);
-                unavailable.setTableStatus("UNAVAILABLE");
+                unavailable.setTableStatus(STATUS_UNAVAILABLE);
                 unavailable.setVersion(System.currentTimeMillis());
                 long now = clockMs.getAsLong();
                 String signature = healSignature(unavailable);
@@ -933,7 +1010,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             changed = true;
         }
 
-        if ("UNAVAILABLE".equals(currentStatus)) {
+        if (STATUS_UNAVAILABLE.equals(currentStatus)) {
             changed = true;
         }
 
@@ -1072,6 +1149,62 @@ public class MasterServiceImpl implements MasterService.Iface {
         return false;
     }
 
+    private boolean isTransientMigrationStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return false;
+        }
+        String normalized = status.toUpperCase();
+        return STATUS_PREPARING.equals(normalized)
+                || STATUS_MOVING.equals(normalized)
+                || STATUS_FINALIZING.equals(normalized)
+                || STATUS_ROLLBACK.equals(normalized);
+    }
+
+    private TableLocation recoverStuckMigrationBestEffort(TableLocation location) {
+        if (location == null || !location.isSetTableName()) {
+            return location;
+        }
+        String currentStatus = location.isSetTableStatus() ? location.getTableStatus() : null;
+        if (!isTransientMigrationStatus(currentStatus)) {
+            return location;
+        }
+        if (migrationStuckTimeoutMs <= 0L) {
+            return location;
+        }
+        long version = location.isSetVersion() ? location.getVersion() : -1L;
+        long now = clockMs.getAsLong();
+        if (version <= 0L || now - version < migrationStuckTimeoutMs) {
+            return location;
+        }
+
+        String attemptId = readMigrationAttemptIdBestEffort(location.getTableName());
+        if (attemptId == null || attemptId.isBlank()) {
+            return location;
+        }
+
+        TableLocation recovered = new TableLocation(location);
+        recovered.setTableStatus(STATUS_ACTIVE);
+        recovered.setVersion(now);
+        try {
+            metaManager.saveTableLocation(recovered);
+            assignmentManager.saveAssignment(recovered.getTableName(), recovered.getReplicas());
+            touchStatusUpdatedAtBestEffort(recovered.getTableName());
+            clearMigrationAttemptIdBestEffort(recovered.getTableName());
+            log.warn("recoverStuckMigration finalized timed-out migration table={} status={} stuckFor={}ms attemptId={}",
+                    recovered.getTableName(),
+                    currentStatus,
+                    now - version,
+                    attemptId);
+            return recovered;
+        } catch (Exception e) {
+            log.error("recoverStuckMigration failed table={} status={} cause={}",
+                    location.getTableName(),
+                    currentStatus,
+                    e.getMessage());
+            return location;
+        }
+    }
+
     private String healSignature(TableLocation location) {
         List<String> replicaIds = new ArrayList<>();
         if (location.isSetReplicas()) {
@@ -1170,6 +1303,30 @@ public class MasterServiceImpl implements MasterService.Iface {
         } catch (Exception e) {
             log.warn("triggerRebalance clear migrationAttemptId failed table={} cause={}",
                     tableName, e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String readMigrationAttemptIdBestEffort(String tableName) {
+        CuratorFramework zk = zk();
+        if (isZkUnavailable(zk)) {
+            return null;
+        }
+        try {
+            String path = tableMetaPath(tableName);
+            if (zk.checkExists().forPath(path) == null) {
+                return null;
+            }
+            byte[] data = zk.getData().forPath(path);
+            if (data == null || data.length == 0) {
+                return null;
+            }
+            Map<String, Object> root = MAPPER.readValue(data, Map.class);
+            Object attempt = root.get("migrationAttemptId");
+            return attempt == null ? null : String.valueOf(attempt);
+        } catch (Exception e) {
+            log.warn("read migrationAttemptId failed table={} cause={}", tableName, e.getMessage());
+            return null;
         }
     }
 }

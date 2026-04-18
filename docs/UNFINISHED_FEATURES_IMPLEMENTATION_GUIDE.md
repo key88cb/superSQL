@@ -1,6 +1,6 @@
 # SuperSQL 未完成功能实现指南（已与代码状态对齐）
 
-更新时间：2026-04-18
+更新时间：2026-04-19
 
 本文档用于记录“当前仍未完成的能力”与推荐落地顺序。
 说明：本文件是执行指南，不再保留历史阶段的过时判断；如需实时进展请同时参考 `IMPLEMENTATION_STATUS.md`。
@@ -45,11 +45,13 @@
 - Leader 选举 + `/active-master` epoch CAS + Active 心跳。
 - `createTable/dropTable/getTableLocation/list*` 主链路。
 - `triggerRebalance()` 最小迁移闭环。
-- `triggerRebalance()` 已补充显式 `PREPARING -> MOVING -> ACTIVE` 状态迁移与失败回滚。
+- `triggerRebalance()` 已补充显式 `PREPARING -> MOVING -> FINALIZING -> ACTIVE` 状态迁移与失败回滚（`ROLLBACK`）。
 - `triggerRebalance()` 在 transfer 失败分支会回滚为原始 ACTIVE 元数据，避免状态卡在 MOVING。
 - `triggerRebalance()` 在 pause 失败分支会回滚为原始 ACTIVE 元数据，避免状态卡在 PREPARING。
+- `triggerRebalance()` 在源副本清理前会进入 `FINALIZING`，可区分“数据迁移完成但源端未清理”的窗口。
 - `triggerRebalance()` 现会刷新 `statusUpdatedAt` 元数据字段，便于外部观察迁移状态推进时序。
 - `triggerRebalance()` 迁移阶段已写入 `migrationAttemptId` 并在结束（成功/回滚）后清理，为后续幂等恢复提供观测锚点。
+- `getTableLocation/listTables/repairTableRoutesBestEffort` 已支持卡死迁移超时回收：当迁移状态超时且 `migrationAttemptId` 仍存在时，自动恢复为 `ACTIVE` 并清理尝试标记。
 - `triggerRebalance()` 已限制仅对 `ACTIVE` 表挑选候选，避免迁移中的表被重复调度。
 - `createTable` 也会初始化 `statusUpdatedAt`，新表元数据默认具备可观测时间戳。
 - `getTableLocation` 已支持 lazy failover：主副本离线时自动晋升在线副本并回写元数据。
@@ -69,7 +71,7 @@
 
 ### 仍待实现
 
-- `RegionMigrator`：迁移状态机化（准备/传输/切换/收尾）和幂等恢复。
+- `RegionMigrator`：将当前已落地的阶段状态与超时恢复能力整合为独立编排组件（准备/传输/切换/收尾）并完善幂等恢复策略。
 - 故障闭环：RegionServer 下线后的自动副本修复、主副本晋升、路由稳定切换。
 - 混沌与分区场景验证：确保 epoch/主从切换在网络抖动下行为可预测。
 

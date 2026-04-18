@@ -533,6 +533,88 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void triggerRebalanceShouldExposeFinalizingStatusBeforeSourceCleanup() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_rebalance_finalizing(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 9);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        AtomicReference<String> observedStatus = new AtomicReference<>();
+        RecordingRegionAdminExecutor observingAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response deleteLocalTable(RegionServerInfo regionServer, String tableName) {
+                try {
+                    Map<?, ?> meta = readJson("/meta/tables/" + tableName);
+                    observedStatus.set(String.valueOf(meta.get("tableStatus")));
+                } catch (Exception e) {
+                    observedStatus.set("READ_ERROR");
+                }
+                return super.deleteLocalTable(regionServer, tableName);
+            }
+        };
+
+        MasterServiceImpl observingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                observingAdmin);
+
+        Response rebalance = observingService.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+        Assertions.assertEquals("FINALIZING", observedStatus.get());
+
+        TableLocation location = observingService.getTableLocation("t_rebalance_finalizing");
+        Assertions.assertEquals("ACTIVE", location.getTableStatus());
+    }
+
+    @Test
+    void getTableLocationShouldRecoverStuckMovingStatusToActive() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+
+        Response create = service.createTable("create table t_stuck_recover(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_recover").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "MOVING");
+        meta.put("migrationAttemptId", "attempt-stuck");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_recover",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        MasterServiceImpl recoveringService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                adminExecutor,
+                clock::get,
+                1_000L,
+                10,
+                5_000L);
+
+        TableLocation recovered = recoveringService.getTableLocation("t_stuck_recover");
+        Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_recover");
+        Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
+    }
+
+    @Test
     void triggerRebalanceShouldExposePreparingStatusBeforePause() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);

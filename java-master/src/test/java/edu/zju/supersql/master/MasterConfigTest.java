@@ -17,6 +17,7 @@ class MasterConfigTest {
         Assertions.assertEquals("zk1:2181,zk2:2181,zk3:2181", config.zkConnect());
         Assertions.assertTrue(config.rebalanceSchedulerEnabled());
         Assertions.assertEquals(20_000L, config.rebalanceMinGapMs());
+        Assertions.assertEquals(60_000L, config.migrationStuckTimeoutMs());
     }
 
     @Test
@@ -26,12 +27,14 @@ class MasterConfigTest {
                 "MASTER_ZK_CONNECT", "zk-legacy:2181",
                 "MASTER_REBALANCE_RATIO", "2.0",
                 "MASTER_REBALANCE_SCHEDULER_ENABLED", "false",
-                "MASTER_REBALANCE_MIN_GAP_MS", "12000"
+                "MASTER_REBALANCE_MIN_GAP_MS", "12000",
+                "MASTER_MIGRATION_STUCK_TIMEOUT_MS", "45000"
         ));
 
         Assertions.assertEquals("zk-unified:2181", config.zkConnect());
         Assertions.assertEquals(2.0, config.rebalanceRatio());
         Assertions.assertFalse(config.rebalanceSchedulerEnabled());
         Assertions.assertEquals(12_000L, config.rebalanceMinGapMs());
+        Assertions.assertEquals(45_000L, config.migrationStuckTimeoutMs());
     }
 }

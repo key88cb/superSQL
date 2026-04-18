@@ -13,9 +13,11 @@
 - HTTP 管理端点：`GET /health` 与 `GET /status` 返回 JSON（含角色信息）。
 - createTable / dropTable 已通过真实 Thrift 调用把 DDL 转发到 RegionServer，再在成功后更新 ZooKeeper 元数据。
 - `triggerRebalance()` 已具备最小可用迁移闭环：可把热点节点上的一个非主副本迁往更空闲节点，并更新 `/meta/tables` 与 `/assignments`。
-- `triggerRebalance()` 过程中已显式写入 `PREPARING -> MOVING -> ACTIVE` 状态迁移，并在失败时回滚元数据状态。
+- `triggerRebalance()` 过程中已显式写入 `PREPARING -> MOVING -> FINALIZING -> ACTIVE` 状态迁移，并在失败时进入 `ROLLBACK` 后恢复元数据。
 - `triggerRebalance()` 在 `transferTable` 失败路径也会立即回滚到原始元数据（含 `ACTIVE` 状态），避免卡在 `MOVING`。
 - `triggerRebalance()` 在 `pauseTableWrite` 失败路径也会回滚元数据，避免停留在 `PREPARING` 中间态。
+- `triggerRebalance()` 在 `deleteLocalTable` 前会进入 `FINALIZING`，使“数据迁移已完成、待源端清理”阶段可观测。
+- `getTableLocation/listTables/repairTableRoutesBestEffort` 已接入卡死迁移自恢复：当 `PREPARING/MOVING/FINALIZING/ROLLBACK` 状态超时且存在 `migrationAttemptId` 时，自动回收为 `ACTIVE` 并清理尝试标记。
 - `triggerRebalance()` 状态推进会刷新 `/meta/tables/{table}` 的 `statusUpdatedAt` 时间戳，便于观测迁移阶段更新时间。
 - `triggerRebalance()` 迁移中会写入 `migrationAttemptId`（PREPARING/MOVING 可观测），成功与回滚后会清理该字段，便于后续幂等恢复扩展。
 - `triggerRebalance()` 候选选择已限制为 `ACTIVE` 表，避免对 `PREPARING/MOVING` 表重复触发迁移。
@@ -36,7 +38,7 @@
 - 路由自愈写回已增加按表去抖节流（相同目标拓扑在最小间隔内不重复写 ZK），降低高频查询下写放大。
 
 当前限制：
-- 当前 rebalance 调度器仍是基础版，尚未形成完整 RegionMigrator 状态机 + 故障恢复闭环。
+- 当前 rebalance 调度器仍是基础版，虽已补齐阶段状态与超时回收，但尚未形成完整 RegionMigrator 编排与跨节点故障恢复闭环。
 - rebalance 对数据面迁移回滚当前仍以元数据回滚为主；target 清理虽已支持 best-effort，但尚未形成强一致、可确认完成的补偿协议。
 - 当前选主与脑裂防护已跑通基础路径，尚未补全网络分区/抖动场景下的混沌验证。
 
@@ -187,6 +189,7 @@ mvn test -DskipTests=false
 - 2026-04-18 已补充覆盖：rebalance 在 transfer 失败和 source 清理失败场景下的 target 残留数据清理补偿路径。
 - 2026-04-18 已补充覆盖：RegionAdmin `deleteLocalTable` 对 assignment 的安全更新语义（移除当前 RS / 空列表删节点 / 非成员保持不变）。
 - 2026-04-19 已将 Master/RegionServer 规划 TDD 规格测试切换为可执行测试，覆盖 rebalance 与迁移基础路径的回归检查。
+- 2026-04-19 已补充覆盖：rebalance `FINALIZING` 阶段可观测性，以及超时 `MOVING` 状态在读路径触发下自动恢复为 `ACTIVE` 的自恢复语义。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 

@@ -15,7 +15,8 @@ public record MasterConfig(
         long rebalanceIntervalMs,
     double rebalanceRatio,
     boolean rebalanceSchedulerEnabled,
-    long rebalanceMinGapMs
+        long rebalanceMinGapMs,
+        long migrationStuckTimeoutMs
 ) {
 
     public static MasterConfig fromSystemEnv() {
@@ -34,7 +35,8 @@ public record MasterConfig(
                 readLong(env, "MASTER_REBALANCE_INTERVAL_MS", 30_000L),
                 readDouble(env, "MASTER_REBALANCE_RATIO", 1.5),
                 readBoolean(env, "MASTER_REBALANCE_SCHEDULER_ENABLED", true),
-                readLong(env, "MASTER_REBALANCE_MIN_GAP_MS", 20_000L)
+                readLong(env, "MASTER_REBALANCE_MIN_GAP_MS", 20_000L),
+                readLong(env, "MASTER_MIGRATION_STUCK_TIMEOUT_MS", 60_000L)
         );
     }
 
