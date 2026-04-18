@@ -194,7 +194,8 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 return r;
             }
 
-            File[] tableFiles = dir.listFiles(f -> f.getName().startsWith(tableName));
+            File[] tableFiles = dir.listFiles(f -> f.getName().startsWith(tableName)
+                    && !f.getName().endsWith(STAGING_SUFFIX));
             if (tableFiles == null || tableFiles.length == 0) {
                 Response r = new Response(StatusCode.TABLE_NOT_FOUND);
                 r.setMessage("No files found for table: " + tableName);

@@ -63,6 +63,7 @@
 - `copyTableData` 已增加 fileName 安全约束，禁止路径穿越写入 dataDir 外部文件。
 - `transferTable` 发送分块时已支持有界重试（默认 3 次），可吸收短暂目标端抖动导致的单次 chunk 失败。
 - `copyTableData` 在 offset 校验失败时会自动清理该文件的临时分块状态（`.part` + 内存偏移），允许后续从 0 干净重传。
+- `transferTable` 已过滤源端 `.part` 临时文件，只迁移已完成文件，避免把未完成分块产物继续扩散。
 - ReplicaSyncServiceImpl 已支持内存/本地结合的基础同步路径、pullLog 与 commitLog 回放。
 - ReplicaSyncServiceImpl 的 `commitLog` 已具备幂等语义：重复 COMMIT 不再重复回放 SQL。
 - 主副本对副本 `commitLog` 通知已增加有界重试（best-effort），降低短暂网络抖动下的提交通知丢失概率。

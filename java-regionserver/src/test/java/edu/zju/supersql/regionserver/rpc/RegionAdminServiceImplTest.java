@@ -275,6 +275,38 @@ class RegionAdminServiceImplTest {
         }
     }
 
+    @Test
+    void transferTableShouldIgnoreStagingFiles() throws Exception {
+        Files.writeString(dataDir.resolve("orders_data"), "payload");
+        Files.writeString(dataDir.resolve("orders_data.part"), "staging");
+
+        int port = freePort();
+        RecordingCopyService recording = new RecordingCopyService();
+        TServer server = buildServer(port, recording);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        pool.submit(server::serve);
+        Thread.sleep(200);
+
+        try {
+            Response r = service.transferTable("orders", "127.0.0.1", port);
+            Assertions.assertEquals(StatusCode.OK, r.getCode());
+            Assertions.assertFalse(recording.chunks.isEmpty());
+            Assertions.assertTrue(recording.chunks.stream().noneMatch(c -> c.getFileName().endsWith(".part")));
+            Assertions.assertTrue(recording.chunks.stream().allMatch(c -> c.getFileName().equals("orders_data")));
+        } finally {
+            server.stop();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void transferTableShouldReturnTableNotFoundWhenOnlyStagingFilesExist() throws Exception {
+        Files.writeString(dataDir.resolve("orders_orphan.part"), "staging");
+
+        Response r = service.transferTable("orders", "127.0.0.1", 9999);
+        Assertions.assertEquals(StatusCode.TABLE_NOT_FOUND, r.getCode());
+    }
+
     // ── heartbeat / registerRegionServer ──────────────────────────────────────
 
     @Test
