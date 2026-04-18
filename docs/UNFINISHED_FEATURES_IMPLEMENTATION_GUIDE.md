@@ -31,7 +31,7 @@
 - Master：完整动态调度与自治恢复闭环仍待完善（基础定时重均衡已落地）。
 - RegionServer：WAL/复制/恢复的最终形态（更强一致语义与恢复协议）。
 - RegionServer：完整迁移协议（包括更可靠的数据校验、幂等补偿与可确认完成语义）。
-- Client：更细粒度可观测能力的外部导出与持久化仍待完善（按表内存指标统计已落地）。
+- Client：更细粒度可观测能力仍待完善（命令行/JSON/文件导出已落地，但统一监控接入与长期趋势聚合未完成）。
 
 ---
 
@@ -103,11 +103,12 @@
 - 已支持基于 `/meta/tables` 事件的 route cache 主动失效（create/change/delete）。
 - 已支持 `SHOW ROUTING METRICS` 命令输出当前客户端进程内按表路由指标快照。
 - 已支持 `SHOW ROUTING METRICS JSON` 输出结构化指标快照，便于外部脚本/采集端读取。
+- 已支持 `SHOW ROUTING METRICS EXPORT <path>` 将路由指标快照导出到 JSON 文件。
 - `MOVING` 已支持透明持续重试模式（`CLIENT_MOVING_RETRY_MAX_ATTEMPTS<=0`）。
 
 ### 仍待实现
 
-- 可观测能力外部化：已具备文本/JSON 快照查询，仍需接入统一监控/日志出口并补充长期趋势统计。
+- 可观测能力外部化：已具备文本/JSON/文件导出，但仍需接入统一监控/日志出口并补充长期趋势统计。
 
 ---
 

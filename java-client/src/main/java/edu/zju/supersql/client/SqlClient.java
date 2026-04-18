@@ -11,6 +11,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +39,7 @@ public class SqlClient {
             Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final ClientRoutingMetrics ROUTING_METRICS = new ClientRoutingMetrics();
+        private static final String ROUTING_METRICS_EXPORT_PREFIX = "show routing metrics export";
 
     enum SqlKind { DDL, DML, SHOW_TABLES, SHOW_ROUTING_METRICS, UNKNOWN }
 
@@ -163,6 +167,16 @@ public class SqlClient {
 
     private static void handleShowRoutingMetrics(String sql) {
         Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot = snapshotRoutingMetrics();
+        String exportPath = extractRoutingMetricsExportPath(sql);
+        if (exportPath != null) {
+            try {
+                String exported = exportRoutingMetricsJson(snapshot, exportPath);
+                System.out.println("routing metrics exported: " + exported);
+            } catch (IOException e) {
+                System.out.println("Error: failed to export routing metrics: " + e.getMessage());
+            }
+            return;
+        }
         if (isRoutingMetricsJsonCommand(sql)) {
             System.out.println(formatRoutingMetricsJson(snapshot));
             return;
@@ -174,6 +188,39 @@ public class SqlClient {
 
     private static boolean isRoutingMetricsJsonCommand(String sql) {
         return sql != null && sql.trim().toLowerCase().startsWith("show routing metrics json");
+    }
+
+    static String extractRoutingMetricsExportPath(String sql) {
+        if (sql == null) {
+            return null;
+        }
+        String trimmed = sql.trim();
+        String lower = trimmed.toLowerCase();
+        if (!lower.startsWith(ROUTING_METRICS_EXPORT_PREFIX)) {
+            return null;
+        }
+
+        String raw = trimmed.substring(ROUTING_METRICS_EXPORT_PREFIX.length()).trim();
+        if (raw.isEmpty()) {
+            return null;
+        }
+        if ((raw.startsWith("\"") && raw.endsWith("\""))
+                || (raw.startsWith("'") && raw.endsWith("'"))) {
+            raw = raw.substring(1, raw.length() - 1).trim();
+        }
+        return raw.isEmpty() ? null : raw;
+    }
+
+    static String exportRoutingMetricsJson(Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot,
+                                           String outputPath) throws IOException {
+        Path path = Paths.get(outputPath).toAbsolutePath().normalize();
+        Path parent = path.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        String json = formatRoutingMetricsJson(snapshot);
+        Files.writeString(path, json, StandardCharsets.UTF_8);
+        return path.toString();
     }
 
     private static void handleShowTables(String activeMaster, ClientConfig config) throws Exception {

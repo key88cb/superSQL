@@ -104,12 +104,14 @@
 - 已支持按表路由指标统计（内存态）：重定向次数、MOVING 重试次数、异常重试次数、路由回源次数、读降级命中次数。
 - REPL 已支持 `SHOW ROUTING METRICS` 命令，可直接查看当前进程内按表路由指标快照。
 - REPL 已支持 `SHOW ROUTING METRICS JSON`，可输出结构化 JSON 结果供日志采集或外部脚本消费。
+- REPL 已支持 `SHOW ROUTING METRICS EXPORT <path>`，可将当前路由指标快照导出到 JSON 文件。
 - 路由缓存支持 TTL 与版本失效。
 - 已支持基于 ZooKeeper `/meta/tables` 事件的主动 route cache 失效（create/change/delete）。
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
 
 当前限制：
 - MOVING 已支持有界重试；当 `CLIENT_MOVING_RETRY_MAX_ATTEMPTS<=0` 时启用透明持续重试模式。
+- 可观测性已支持命令行/JSON/文件导出，但尚未接入统一监控系统与长期趋势聚合。
 
 ## 4. 已落地测试
 
