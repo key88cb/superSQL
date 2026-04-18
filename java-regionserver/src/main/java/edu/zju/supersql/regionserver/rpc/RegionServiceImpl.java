@@ -195,6 +195,7 @@ public class RegionServiceImpl implements RegionService.Iface {
             // 5. Async commit on replicas
             if (!replicas.isEmpty()) {
                 replicaManager.commitOnReplicas(tableName, lsn, replicas);
+                replicaManager.reconcileReplicasAsync(tableName, lsn, replicas);
             }
 
             // 6. Checkpoint check

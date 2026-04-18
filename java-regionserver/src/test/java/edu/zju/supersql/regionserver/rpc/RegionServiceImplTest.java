@@ -72,6 +72,8 @@ class RegionServiceImplTest {
 
         // syncToReplicas was called (no replicas returned from null zkClient, so empty list)
         Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.eq(List.of()), Mockito.eq(0));
+        Mockito.verify(mockReplicaManager, Mockito.never())
+            .reconcileReplicasAsync(Mockito.anyString(), Mockito.anyLong(), Mockito.anyList());
     }
 
     @Test
@@ -124,6 +126,8 @@ class RegionServiceImplTest {
         Assertions.assertEquals(StatusCode.ERROR, result.getStatus().getCode());
         Assertions.assertTrue(result.getStatus().getMessage().contains("Insufficient replica ACKs"));
         Mockito.verify(mockMiniSql, Mockito.never()).execute("insert into orders values(1,'x');");
+        Mockito.verify(mockReplicaManager, Mockito.never())
+            .reconcileReplicasAsync(Mockito.anyString(), Mockito.anyLong(), Mockito.anyList());
         Assertions.assertTrue(walManager.readUncommittedEntries("orders").isEmpty());
     }
 
@@ -139,6 +143,8 @@ class RegionServiceImplTest {
         Assertions.assertEquals(StatusCode.OK, result.getStatus().getCode());
         Mockito.verify(mockMiniSql).execute("insert into orders values(2,'y');");
         Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(1));
+        Mockito.verify(mockReplicaManager)
+            .reconcileReplicasAsync(Mockito.eq("orders"), Mockito.anyLong(), Mockito.anyList());
     }
 
     // ── executeBatch ─────────────────────────────────────────────────────────

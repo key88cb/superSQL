@@ -2,11 +2,17 @@ package edu.zju.supersql.regionserver;
 
 import edu.zju.supersql.regionserver.rpc.ReplicaSyncServiceImpl;
 import edu.zju.supersql.rpc.ReplicaSyncService;
+import edu.zju.supersql.rpc.Response;
+import edu.zju.supersql.rpc.StatusCode;
 import edu.zju.supersql.rpc.WalEntry;
 import edu.zju.supersql.rpc.WalOpType;
 import org.apache.thrift.TMultiplexedProcessor;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TMultiplexedProtocol;
 import org.apache.thrift.server.TServer;
 import org.apache.thrift.server.TThreadPoolServer;
+import org.apache.thrift.transport.TSocket;
+import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.layered.TFramedTransport;
 import org.junit.jupiter.api.AfterEach;
@@ -17,7 +23,12 @@ import org.mockito.Mockito;
 
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -128,6 +139,44 @@ class ReplicaManagerTest {
         Assertions.assertTrue(committed);
     }
 
+    @Test
+    void reconcileReplicasShouldBackfillLaggingReplicaUsingPullLog() throws Exception {
+        int donorPort = freePort();
+        int laggingPort = freePort();
+        InMemoryReplicaSyncService donor = new InMemoryReplicaSyncService();
+        InMemoryReplicaSyncService lagging = new InMemoryReplicaSyncService();
+        donor.preload(buildEntry(100L, "orders", "insert into orders values(100);"), true);
+        donor.preload(buildEntry(101L, "orders", "insert into orders values(101);"), true);
+        lagging.preload(buildEntry(100L, "orders", "insert into orders values(100);"), true);
+
+        TServer donorServer = buildServer(donorPort, donor);
+        TServer laggingServer = buildServer(laggingPort, lagging);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        pool.submit(donorServer::serve);
+        pool.submit(laggingServer::serve);
+        Thread.sleep(200);
+
+        try {
+            ReplicaManager manager = new ReplicaManager();
+            String donorAddress = "127.0.0.1:" + donorPort;
+            String laggingAddress = "127.0.0.1:" + laggingPort;
+
+            Assertions.assertEquals(101L, getMaxLsn(donorAddress, "orders"));
+            Assertions.assertEquals(100L, getMaxLsn(laggingAddress, "orders"));
+
+            manager.reconcileReplicas("orders", 101L, List.of(donorAddress, laggingAddress));
+
+            Assertions.assertEquals(101L, getMaxLsn(laggingAddress, "orders"));
+            Response secondCommit = commitLog(laggingAddress, "orders", 101L);
+            Assertions.assertEquals(StatusCode.OK, secondCommit.getCode());
+            Assertions.assertTrue(secondCommit.getMessage().contains("ALREADY_COMMITTED"));
+        } finally {
+            donorServer.stop();
+            laggingServer.stop();
+            pool.shutdownNow();
+        }
+    }
+
     // ─────────────────────── helpers ──────────────────────────────────────────
 
     private static TServer buildServer(int port, ReplicaSyncService.Iface impl) throws Exception {
@@ -149,9 +198,99 @@ class ReplicaManagerTest {
         return entry;
     }
 
+    private static long getMaxLsn(String address, String tableName) throws Exception {
+        String[] hostPort = address.split(":");
+        try (TTransport transport = new TFramedTransport(
+                new TSocket(hostPort[0], Integer.parseInt(hostPort[1]), 3_000))) {
+            transport.open();
+            TMultiplexedProtocol protocol = new TMultiplexedProtocol(
+                    new TBinaryProtocol(transport), "ReplicaSyncService");
+            ReplicaSyncService.Client client = new ReplicaSyncService.Client(protocol);
+            return client.getMaxLsn(tableName);
+        }
+    }
+
+    private static Response commitLog(String address, String tableName, long lsn) throws Exception {
+        String[] hostPort = address.split(":");
+        try (TTransport transport = new TFramedTransport(
+                new TSocket(hostPort[0], Integer.parseInt(hostPort[1]), 3_000))) {
+            transport.open();
+            TMultiplexedProtocol protocol = new TMultiplexedProtocol(
+                    new TBinaryProtocol(transport), "ReplicaSyncService");
+            ReplicaSyncService.Client client = new ReplicaSyncService.Client(protocol);
+            return client.commitLog(tableName, lsn);
+        }
+    }
+
     private static int freePort() throws Exception {
         try (ServerSocket s = new ServerSocket(0)) {
             return s.getLocalPort();
+        }
+    }
+
+    private static final class InMemoryReplicaSyncService implements ReplicaSyncService.Iface {
+        private final ConcurrentSkipListMap<Long, WalEntry> walByLsn = new ConcurrentSkipListMap<>();
+        private final Set<Long> committed = ConcurrentHashMap.newKeySet();
+
+        void preload(WalEntry entry, boolean isCommitted) {
+            walByLsn.put(entry.getLsn(), new WalEntry(entry));
+            if (isCommitted) {
+                committed.add(entry.getLsn());
+            }
+        }
+
+        @Override
+        public Response syncLog(WalEntry entry) {
+            walByLsn.put(entry.getLsn(), new WalEntry(entry));
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("ACK lsn=" + entry.getLsn());
+            return r;
+        }
+
+        @Override
+        public List<WalEntry> pullLog(String tableName, long startLsn) {
+            if (tableName == null || tableName.isBlank()) {
+                return Collections.emptyList();
+            }
+            List<WalEntry> result = new ArrayList<>();
+            for (WalEntry entry : walByLsn.tailMap(startLsn).values()) {
+                if (tableName.equals(entry.getTableName())) {
+                    result.add(new WalEntry(entry));
+                }
+            }
+            return result;
+        }
+
+        @Override
+        public long getMaxLsn(String tableName) {
+            if (tableName == null || tableName.isBlank()) {
+                return -1L;
+            }
+            long max = -1L;
+            for (WalEntry entry : walByLsn.values()) {
+                if (tableName.equals(entry.getTableName())) {
+                    max = Math.max(max, entry.getLsn());
+                }
+            }
+            return max;
+        }
+
+        @Override
+        public Response commitLog(String tableName, long lsn) {
+            WalEntry entry = walByLsn.get(lsn);
+            if (entry == null || !tableName.equals(entry.getTableName())) {
+                Response r = new Response(StatusCode.TABLE_NOT_FOUND);
+                r.setMessage("No wal entry found for table=" + tableName + " lsn=" + lsn);
+                return r;
+            }
+            if (!committed.add(lsn)) {
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("ALREADY_COMMITTED lsn=" + lsn);
+                return r;
+            }
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("COMMITTED lsn=" + lsn);
+            return r;
         }
     }
 }

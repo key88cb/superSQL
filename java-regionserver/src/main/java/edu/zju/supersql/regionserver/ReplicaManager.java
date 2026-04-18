@@ -12,7 +12,11 @@ import org.apache.thrift.transport.layered.TFramedTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
@@ -134,6 +138,74 @@ public class ReplicaManager {
         }
     }
 
+    /**
+     * Tries to repair lagging replicas by pulling missing logs from the most up-to-date replica.
+     * This runs asynchronously and is best-effort by design.
+     */
+    public void reconcileReplicasAsync(String tableName, long committedLsn, List<String> addresses) {
+        if (addresses == null || addresses.size() < 2 || tableName == null || tableName.isBlank()) {
+            return;
+        }
+        executor.submit(() -> reconcileReplicas(tableName, committedLsn, addresses));
+    }
+
+    void reconcileReplicas(String tableName, long committedLsn, List<String> addresses) {
+        try {
+            Map<String, Long> maxLsnByReplica = new HashMap<>();
+            long highestObservedLsn = -1L;
+            for (String address : addresses) {
+                long maxLsn = getMaxLsn(tableName, address);
+                maxLsnByReplica.put(address, maxLsn);
+                highestObservedLsn = Math.max(highestObservedLsn, maxLsn);
+            }
+
+            if (highestObservedLsn < 0L) {
+                return;
+            }
+
+            long replayUpperBound = Math.max(committedLsn, highestObservedLsn);
+            for (String target : addresses) {
+                long targetMaxLsn = maxLsnByReplica.getOrDefault(target, -1L);
+                if (targetMaxLsn >= replayUpperBound) {
+                    continue;
+                }
+
+                String donor = selectBestDonor(maxLsnByReplica, target);
+                if (donor == null) {
+                    continue;
+                }
+
+                long startLsn = targetMaxLsn + 1L;
+                List<WalEntry> backlog = pullLogs(donor, tableName, startLsn);
+                if (backlog.isEmpty()) {
+                    continue;
+                }
+                backlog.sort(Comparator.comparingLong(WalEntry::getLsn));
+
+                int repaired = 0;
+                for (WalEntry entry : backlog) {
+                    if (entry.getLsn() > replayUpperBound) {
+                        break;
+                    }
+                    if (!syncOne(entry, target)) {
+                        break;
+                    }
+                    if (commitOneWithRetry(entry.getTableName(), entry.getLsn(), target)) {
+                        repaired++;
+                    }
+                }
+
+                if (repaired > 0) {
+                    log.info("reconcileReplicas repaired table={} target={} donor={} repairedEntries={} rangeStart={}",
+                            tableName, target, donor, repaired, startLsn);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("reconcileReplicas failed table={} committedLsn={} cause={}",
+                    tableName, committedLsn, e.getMessage());
+        }
+    }
+
     // ─────────────────────── private helpers ──────────────────────────────────
 
     private boolean syncOne(WalEntry entry, String address) {
@@ -220,6 +292,77 @@ public class ReplicaManager {
             log.warn("commitLog to {} failed for table={} lsn={}: {}",
                     address, tableName, lsn, e.getMessage());
                 return false;
+        }
+    }
+
+    private String selectBestDonor(Map<String, Long> maxLsnByReplica, String excludedReplica) {
+        String donor = null;
+        long donorMaxLsn = -1L;
+        for (Map.Entry<String, Long> entry : maxLsnByReplica.entrySet()) {
+            String address = entry.getKey();
+            long maxLsn = entry.getValue() == null ? -1L : entry.getValue();
+            if (address.equals(excludedReplica) || maxLsn < 0L) {
+                continue;
+            }
+            if (donor == null || maxLsn > donorMaxLsn) {
+                donor = address;
+                donorMaxLsn = maxLsn;
+            }
+        }
+        return donor;
+    }
+
+    private long getMaxLsn(String tableName, String address) {
+        String[] parts = address.split(":");
+        if (parts.length != 2) {
+            return -1L;
+        }
+        String host = parts[0];
+        int port;
+        try {
+            port = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            return -1L;
+        }
+
+        try (TTransport transport = new TFramedTransport(
+                new TSocket(host, port, CONNECT_TIMEOUT_MS))) {
+            transport.open();
+            TMultiplexedProtocol protocol = new TMultiplexedProtocol(
+                    new TBinaryProtocol(transport), "ReplicaSyncService");
+            ReplicaSyncService.Client client = new ReplicaSyncService.Client(protocol);
+            return client.getMaxLsn(tableName);
+        } catch (Exception e) {
+            log.warn("getMaxLsn from {} failed for table={}: {}", address, tableName, e.getMessage());
+            return -1L;
+        }
+    }
+
+    private List<WalEntry> pullLogs(String address, String tableName, long startLsn) {
+        String[] parts = address.split(":");
+        if (parts.length != 2) {
+            return List.of();
+        }
+        String host = parts[0];
+        int port;
+        try {
+            port = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            return List.of();
+        }
+
+        try (TTransport transport = new TFramedTransport(
+                new TSocket(host, port, CONNECT_TIMEOUT_MS))) {
+            transport.open();
+            TMultiplexedProtocol protocol = new TMultiplexedProtocol(
+                    new TBinaryProtocol(transport), "ReplicaSyncService");
+            ReplicaSyncService.Client client = new ReplicaSyncService.Client(protocol);
+            List<WalEntry> pulled = client.pullLog(tableName, startLsn);
+            return pulled == null ? List.of() : new ArrayList<>(pulled);
+        } catch (Exception e) {
+            log.warn("pullLog from {} failed for table={} startLsn={}: {}",
+                    address, tableName, startLsn, e.getMessage());
+            return List.of();
         }
     }
 }
