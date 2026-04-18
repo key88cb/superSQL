@@ -22,10 +22,11 @@
 - `createTable` 成功落盘元数据后也会初始化 `statusUpdatedAt`，保证新表从创建时起具备状态时间戳。
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
 - Master `/status` 已输出 RebalanceScheduler 运行快照（tick/trigger/throttle/success/failure、最近执行时间、最近触发原因）。
-- Master `/status` 已输出 route repair 运行指标（修复运行次数、累计修复表数、最近修复时间、最近修复表、最近错误）。
+- Master `/status` 已输出 route repair 运行指标（修复运行次数、累计修复表数、最近修复时间、最近修复表、最近错误），并新增近 N 次运行窗口统计（成功率、平均修复数）。
 - RegionServer 上下线事件已接入调度器外部触发（`rs_up` / `rs_down`），在节流保护下可即时请求一次 rebalance。
 - RebalanceScheduler 已覆盖外部触发节流测试：连续 membership 事件会受 `minGapMs` 保护，避免抖动时触发风暴。
 - RegionServer membership 事件现会触发后台 `repairTableRoutesBestEffort` 扫描，主动修复离线主副本路由并减少对读路径触发修复的依赖。
+- membership 事件链路在 route repair 触发异常时会吞并异常并保留 rebalance 外部触发，避免修复异常阻断调度。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
 - `getTableLocation` 在检测到主副本离线且存在在线副本时，会自动晋升在线副本并回写元数据（lazy failover）。
 - `listTables` 同样会在返回前执行主副本离线检测与 lazy failover，减少批量查询场景下的陈旧主路由。

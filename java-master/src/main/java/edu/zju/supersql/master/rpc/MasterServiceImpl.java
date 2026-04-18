@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -41,12 +42,25 @@ public class MasterServiceImpl implements MasterService.Iface {
                                       long lastRunAtMs,
                                       long lastRunRepairedCount,
                                       String lastRepairedTable,
-                                      String lastError) {
+                                      String lastError,
+                                      long recentWindowSize,
+                                      long recentObservedRuns,
+                                      double recentSuccessRate,
+                                      double recentAvgRepairedCount) {
+    }
+
+    private record RouteRepairRun(boolean success, long repairedCount) {
+    }
+
+    private record RouteRepairWindowStats(long observedRuns,
+                                          double successRate,
+                                          double avgRepairedCount) {
     }
 
     private static final Logger log = LoggerFactory.getLogger(MasterServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final long DEFAULT_ROUTE_HEAL_MIN_GAP_MS = 1_000L;
+    private static final int DEFAULT_ROUTE_REPAIR_WINDOW_SIZE = 10;
     private static final Pattern CREATE_TABLE_PATTERN =
             Pattern.compile("(?i)^\\s*create\\s+table\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
 
@@ -62,6 +76,9 @@ public class MasterServiceImpl implements MasterService.Iface {
     private final AtomicLong routeRepairTotalRepairedTables = new AtomicLong(0L);
     private final AtomicLong routeRepairLastRunAtMs = new AtomicLong(-1L);
     private final AtomicLong routeRepairLastRunRepairedCount = new AtomicLong(0L);
+    private final int routeRepairWindowSize;
+    private final Object routeRepairWindowLock = new Object();
+    private final ArrayDeque<RouteRepairRun> routeRepairRecentRuns = new ArrayDeque<>();
     private volatile String routeRepairLastRepairedTable;
     private volatile String routeRepairLastError;
 
@@ -94,6 +111,24 @@ public class MasterServiceImpl implements MasterService.Iface {
                              RegionAdminExecutor regionAdminExecutor,
                              LongSupplier clockMs,
                              long routeHealMinGapMs) {
+        this(metaManager,
+                assignmentManager,
+                loadBalancer,
+                regionDdlExecutor,
+                regionAdminExecutor,
+                clockMs,
+                routeHealMinGapMs,
+                DEFAULT_ROUTE_REPAIR_WINDOW_SIZE);
+    }
+
+    MasterServiceImpl(MetaManager metaManager,
+                             AssignmentManager assignmentManager,
+                             LoadBalancer loadBalancer,
+                             RegionDdlExecutor regionDdlExecutor,
+                             RegionAdminExecutor regionAdminExecutor,
+                             LongSupplier clockMs,
+                             long routeHealMinGapMs,
+                             int routeRepairWindowSize) {
         this.metaManager = metaManager;
         this.assignmentManager = assignmentManager;
         this.loadBalancer = loadBalancer;
@@ -101,6 +136,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         this.regionAdminExecutor = regionAdminExecutor;
         this.clockMs = clockMs;
         this.routeHealMinGapMs = Math.max(0L, routeHealMinGapMs);
+        this.routeRepairWindowSize = Math.max(1, routeRepairWindowSize);
     }
 
     private static Response notImplemented(String method) {
@@ -316,6 +352,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             routeRepairLastRunRepairedCount.set(repaired);
             routeRepairLastRepairedTable = lastRepairedTable;
             routeRepairLastError = null;
+            recordRouteRepairRun(true, repaired);
             if (repaired > 0) {
                 log.info("repairTableRoutesBestEffort repaired={} total={}", repaired, tables.size());
             }
@@ -324,19 +361,54 @@ public class MasterServiceImpl implements MasterService.Iface {
             routeRepairLastRunRepairedCount.set(0L);
             routeRepairLastRepairedTable = null;
             routeRepairLastError = e.getMessage();
+            recordRouteRepairRun(false, 0L);
             log.warn("repairTableRoutesBestEffort failed: {}", e.getMessage());
             return 0;
         }
     }
 
     public RouteRepairSnapshot routeRepairSnapshot() {
+        RouteRepairWindowStats windowStats = readRouteRepairWindowStats();
         return new RouteRepairSnapshot(
                 routeRepairRunCount.get(),
                 routeRepairTotalRepairedTables.get(),
                 routeRepairLastRunAtMs.get(),
                 routeRepairLastRunRepairedCount.get(),
                 routeRepairLastRepairedTable,
-                routeRepairLastError);
+                routeRepairLastError,
+                routeRepairWindowSize,
+                windowStats.observedRuns(),
+                windowStats.successRate(),
+                windowStats.avgRepairedCount());
+    }
+
+    private void recordRouteRepairRun(boolean success, long repairedCount) {
+        synchronized (routeRepairWindowLock) {
+            routeRepairRecentRuns.addLast(new RouteRepairRun(success, Math.max(0L, repairedCount)));
+            while (routeRepairRecentRuns.size() > routeRepairWindowSize) {
+                routeRepairRecentRuns.removeFirst();
+            }
+        }
+    }
+
+    private RouteRepairWindowStats readRouteRepairWindowStats() {
+        synchronized (routeRepairWindowLock) {
+            if (routeRepairRecentRuns.isEmpty()) {
+                return new RouteRepairWindowStats(0L, 0.0, 0.0);
+            }
+            long observed = routeRepairRecentRuns.size();
+            long successCount = 0L;
+            long repairedTotal = 0L;
+            for (RouteRepairRun run : routeRepairRecentRuns) {
+                if (run.success()) {
+                    successCount++;
+                }
+                repairedTotal += run.repairedCount();
+            }
+            double successRate = successCount / (double) observed;
+            double avgRepairedCount = repairedTotal / (double) observed;
+            return new RouteRepairWindowStats(observed, successRate, avgRepairedCount);
+        }
     }
 
     @Override

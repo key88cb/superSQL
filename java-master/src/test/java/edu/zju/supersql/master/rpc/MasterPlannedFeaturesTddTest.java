@@ -116,6 +116,47 @@ class MasterPlannedFeaturesTddTest {
         Assertions.assertEquals("rs-2", recovered.getPrimaryRS().getId());
     }
 
+    @Test
+    void routeRepairMetricsShouldMatchUnavailableToActiveEndToEndFlow() throws Exception {
+        registerRegionServer("rs-1", 0);
+        registerRegionServer("rs-2", 1);
+        registerRegionServer("rs-3", 2);
+
+        Response create = service.createTable("create table route_repair_e2e(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+        zkClient.delete().forPath("/region_servers/rs-2");
+        zkClient.delete().forPath("/region_servers/rs-3");
+
+        TableLocation unavailable = service.getTableLocation("route_repair_e2e");
+        Assertions.assertEquals("UNAVAILABLE", unavailable.getTableStatus());
+
+        int repairedWhenOffline = service.repairTableRoutesBestEffort();
+        Assertions.assertEquals(0, repairedWhenOffline);
+
+        registerRegionServer("rs-2", 1);
+        int repairedAfterRecover = service.repairTableRoutesBestEffort();
+        Assertions.assertTrue(repairedAfterRecover >= 1);
+
+        TableLocation recovered = service.getTableLocation("route_repair_e2e");
+        Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+        Assertions.assertEquals("rs-2", recovered.getPrimaryRS().getId());
+
+        MasterServiceImpl.RouteRepairSnapshot snapshot = service.routeRepairSnapshot();
+        Assertions.assertTrue(snapshot.runCount() >= 2);
+        Assertions.assertTrue(snapshot.totalRepairedTables() >= 1);
+        Assertions.assertEquals("route_repair_e2e", snapshot.lastRepairedTable());
+        Assertions.assertNull(snapshot.lastError());
+        Assertions.assertEquals(10L, snapshot.recentWindowSize());
+        Assertions.assertTrue(snapshot.recentObservedRuns() >= 2);
+        Assertions.assertTrue(snapshot.recentSuccessRate() > 0.0);
+        Assertions.assertTrue(snapshot.recentAvgRepairedCount() >= 0.0);
+
+        Map<?, ?> meta = readJson("/meta/tables/route_repair_e2e");
+        Assertions.assertEquals("ACTIVE", String.valueOf(meta.get("tableStatus")));
+    }
+
     private void createPathIfMissing(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);

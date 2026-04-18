@@ -66,8 +66,12 @@ class MasterServerHttpPayloadTest {
                         7L,
                         1_234L,
                         2L,
-                    "orders",
-                    "none");
+                "orders",
+                "none",
+                10L,
+                4L,
+                0.75,
+                1.5);
 
         byte[] payload = MasterServer.buildStatusPayload(8080, 8880, "zk1:2181", null, snapshot);
         Map<?, ?> json = MAPPER.readValue(new String(payload, StandardCharsets.UTF_8), Map.class);
@@ -79,5 +83,9 @@ class MasterServerHttpPayloadTest {
         Assertions.assertEquals(2, ((Number) routeRepair.get("lastRunRepairedCount")).intValue());
         Assertions.assertEquals("orders", routeRepair.get("lastRepairedTable"));
         Assertions.assertEquals("none", routeRepair.get("lastError"));
+        Assertions.assertEquals(10, ((Number) routeRepair.get("recentWindowSize")).intValue());
+        Assertions.assertEquals(4, ((Number) routeRepair.get("recentObservedRuns")).intValue());
+        Assertions.assertEquals(0.75, ((Number) routeRepair.get("recentSuccessRate")).doubleValue());
+        Assertions.assertEquals(1.5, ((Number) routeRepair.get("recentAvgRepairedCount")).doubleValue());
     }
 }
