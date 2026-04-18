@@ -118,10 +118,21 @@ class RegionAdminServiceImplTest {
         byte[] second = " world".getBytes(StandardCharsets.UTF_8);
 
         service.copyTableData(new DataChunk("file2", "file2", 0L, ByteBuffer.wrap(first), false));
+        Assertions.assertFalse(dataDir.resolve("file2").toFile().exists());
         service.copyTableData(new DataChunk("file2", "file2", 5L, ByteBuffer.wrap(second), true));
 
         byte[] combined = Files.readAllBytes(dataDir.resolve("file2"));
         Assertions.assertArrayEquals("hello world".getBytes(StandardCharsets.UTF_8), combined);
+    }
+
+    @Test
+    void copyTableDataDoesNotPublishFinalFileBeforeLastChunk() throws Exception {
+        Response r = service.copyTableData(new DataChunk(
+                "users", "users", 0L, ByteBuffer.wrap("part".getBytes(StandardCharsets.UTF_8)), false));
+
+        Assertions.assertEquals(StatusCode.OK, r.getCode());
+        Assertions.assertFalse(dataDir.resolve("users").toFile().exists());
+        Assertions.assertTrue(dataDir.resolve("users.part").toFile().exists());
     }
 
     @Test

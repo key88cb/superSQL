@@ -56,6 +56,7 @@
 - RegionAdminServiceImpl 的 `deleteLocalTable` 已增强 assignment 安全更新：只移除当前 RS 的副本条目，不再误删整条 `/assignments/{table}`；仅在副本列表为空时删除节点。
 - `transferTable` 已增加逐块响应校验：`copyTableData` 若返回非 OK 会立即中断并返回 ERROR，避免静默迁移失败。
 - `copyTableData` 已增加 per-file 连续 offset 约束：拒绝乱序/跳跃 chunk，降低迁移文件损坏风险。
+- `copyTableData` 已改为先写入临时分块文件，只有在最后一块（`isLast=true`）时才原子发布正式文件，避免半传输数据被误读。
 - ReplicaSyncServiceImpl 已支持内存/本地结合的基础同步路径、pullLog 与 commitLog 回放。
 - ReplicaSyncServiceImpl 的 `commitLog` 已具备幂等语义：重复 COMMIT 不再重复回放 SQL。
 - 主副本对副本 `commitLog` 通知已增加有界重试（best-effort），降低短暂网络抖动下的提交通知丢失概率。

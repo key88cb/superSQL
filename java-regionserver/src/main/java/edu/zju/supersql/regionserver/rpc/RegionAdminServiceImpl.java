@@ -14,6 +14,10 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +34,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private static final Logger log = LoggerFactory.getLogger(RegionAdminServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int CHUNK_SIZE = 4096;
+    private static final String STAGING_SUFFIX = ".part";
 
     private final WriteGuard writeGuard;
     private final CuratorFramework zkClient;
@@ -237,6 +242,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         }
         try {
             long expectedOffset = nextExpectedOffsets.getOrDefault(chunk.getFileName(), 0L);
+            if (chunk.getOffset() == 0L && expectedOffset > 0L) {
+                // Restarting from offset 0 resets unfinished transfer state.
+                expectedOffset = 0L;
+                nextExpectedOffsets.remove(chunk.getFileName());
+            }
             if (chunk.getOffset() != expectedOffset) {
                 Response r = new Response(StatusCode.ERROR);
                 r.setMessage("Invalid chunk: unexpected offset, expected=" + expectedOffset
@@ -245,13 +255,18 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             }
 
             File targetFile = new File(dataDir, chunk.getFileName());
+            File stagingFile = new File(dataDir, chunk.getFileName() + STAGING_SUFFIX);
             targetFile.getParentFile().mkdirs();
 
             ByteBuffer dataBuf = chunk.bufferForData();
             byte[] bytes = new byte[dataBuf.remaining()];
             dataBuf.get(bytes);
 
-            try (RandomAccessFile raf = new RandomAccessFile(targetFile, "rw")) {
+            if (chunk.getOffset() == 0L && stagingFile.exists() && !stagingFile.delete()) {
+                throw new IOException("failed to reset staging file " + stagingFile.getName());
+            }
+
+            try (RandomAccessFile raf = new RandomAccessFile(stagingFile, "rw")) {
                 raf.seek(chunk.getOffset());
                 raf.write(bytes);
             }
@@ -259,6 +274,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             long nextOffset = chunk.getOffset() + bytes.length;
             if (chunk.isIsLast()) {
                 nextExpectedOffsets.remove(chunk.getFileName());
+                publishCompletedFile(stagingFile.toPath(), targetFile.toPath());
             } else {
                 nextExpectedOffsets.put(chunk.getFileName(), nextOffset);
             }
@@ -340,6 +356,16 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             return Long.parseLong(String.valueOf(value));
         } catch (NumberFormatException e) {
             return fallback;
+        }
+    }
+
+    private static void publishCompletedFile(Path stagingPath, Path finalPath) throws IOException {
+        try {
+            Files.move(stagingPath, finalPath,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(stagingPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 }
