@@ -40,6 +40,9 @@ public class WalManager {
 
     // Entry header: lsn(8) + txnId(8) + opType(1) + status(1) + sqlLen(4) = 22 bytes
     private static final int HEADER_SIZE = 22;
+    private static final byte STATUS_PREPARE = 0;
+    private static final byte STATUS_COMMITTED = 1;
+    private static final byte STATUS_ABORTED = 2;
 
     /** Checkpoint trigger threshold (write operations). */
     private static final int CHECKPOINT_THRESHOLD = 1000;
@@ -117,7 +120,7 @@ public class WalManager {
         buf.putLong(lsn);
         buf.putLong(txnId);
         buf.put((byte) opType.getValue());
-        buf.put((byte) 0); // STATUS: 0 = PREPARE
+        buf.put(STATUS_PREPARE);
         buf.putInt(sqlBytes.length);
         buf.put(sqlBytes);
         buf.flip();
@@ -152,7 +155,7 @@ public class WalManager {
         Path walFile = walFilePath(tableName);
         try (RandomAccessFile raf = new RandomAccessFile(walFile.toFile(), "rw")) {
             raf.seek(offset);
-            raf.writeByte(1); // STATUS: 1 = COMMITTED
+            raf.writeByte(STATUS_COMMITTED);
         } catch (IOException e) {
             log.error("Failed to commit WAL entry for table={} lsn={}", tableName, lsn, e);
         }
@@ -170,7 +173,7 @@ public class WalManager {
         Path walFile = walFilePath(tableName);
         try (RandomAccessFile raf = new RandomAccessFile(walFile.toFile(), "rw")) {
             raf.seek(offset);
-            raf.writeByte(2); // STATUS: 2 = ABORTED
+            raf.writeByte(STATUS_ABORTED);
         } catch (IOException e) {
             log.error("Failed to abort WAL entry for table={} lsn={}", tableName, lsn, e);
         }
@@ -215,8 +218,8 @@ public class WalManager {
                     break; // truncated payload
                 }
 
-                // S4-05: Only replay COMMITTED entries. If status == 0 (PREPARE), ignore/rollback
-                if (lsn >= startLsn && status == 1) {
+                // S4-05: Only replay COMMITTED entries.
+                if (lsn >= startLsn && status == STATUS_COMMITTED) {
                     WalOpType opType = WalOpType.findByValue(opByte);
                     WalEntry entry = new WalEntry(lsn, txnId, tableName,
                             opType != null ? opType : WalOpType.INSERT,
@@ -230,7 +233,7 @@ public class WalManager {
     }
 
     /**
-     * Reads all uncommitted (status=0) entries for a specific table.
+    * Reads all uncommitted (status=PREPARE) entries for a specific table.
      * Used by secondary replicas during startup to restore pending logs.
      */
     public List<WalEntry> readUncommittedEntries(String tableName) throws IOException {
@@ -258,8 +261,7 @@ public class WalManager {
                 int read = raf.read(sqlBytes);
                 if (read != sqlLen) break;
 
-                // Status 0 means PREPARE (uncommitted on the secondary)
-                if (status == 0) {
+                if (status == STATUS_PREPARE) {
                     WalOpType opType = WalOpType.findByValue(opByte);
                     WalEntry entry = new WalEntry(lsn, txnId, tableName,
                             opType != null ? opType : WalOpType.INSERT,

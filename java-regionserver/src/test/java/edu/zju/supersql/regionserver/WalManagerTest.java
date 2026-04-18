@@ -7,9 +7,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
@@ -153,5 +155,45 @@ class WalManagerTest {
 
         Assertions.assertTrue(committed.isEmpty(), "Aborted entries should not be replayed as committed");
         Assertions.assertTrue(uncommitted.isEmpty(), "Aborted entries should not be tracked as uncommitted");
+    }
+
+    @Test
+    void recoverShouldReplayOnlyCommittedEntriesAfterCheckpoint() throws Exception {
+        String committedBeforeCheckpoint = "insert into t_recover values(1);";
+        String preparedSql = "insert into t_recover values(2);";
+        String abortedSql = "insert into t_recover values(3);";
+        String committedAfterCheckpoint = "insert into t_recover values(4);";
+
+        wal.appendEntry("t_recover", 10L, 1L, WalOpType.INSERT, committedBeforeCheckpoint);
+        wal.commit("t_recover", 10L);
+        wal.appendEntry("t_recover", 11L, 2L, WalOpType.INSERT, preparedSql);
+        wal.appendEntry("t_recover", 12L, 3L, WalOpType.INSERT, abortedSql);
+        wal.abort("t_recover", 12L);
+        wal.appendEntry("t_recover", 13L, 4L, WalOpType.INSERT, committedAfterCheckpoint);
+        wal.commit("t_recover", 13L);
+
+        MiniSqlProcess process = Mockito.mock(MiniSqlProcess.class);
+        Mockito.when(process.checkpoint()).thenReturn(10L, 13L);
+
+        wal.recover(process);
+
+        Mockito.verify(process, Mockito.times(1)).execute(committedAfterCheckpoint);
+        Mockito.verify(process, Mockito.times(2)).checkpoint();
+    }
+
+    @Test
+    void unknownStatusShouldBeIgnoredByCommittedAndUncommittedReaders() throws Exception {
+        wal.appendEntry("t_unknown", 300L, 1L, WalOpType.INSERT, "insert into t_unknown values(1);");
+        File walFile = tempDir.resolve("t_unknown.wal").toFile();
+        try (RandomAccessFile raf = new RandomAccessFile(walFile, "rw")) {
+            raf.seek(17L);
+            raf.writeByte(9);
+        }
+
+        List<WalEntry> committed = wal.readEntriesAfter("t_unknown", 0L);
+        List<WalEntry> uncommitted = wal.readUncommittedEntries("t_unknown");
+
+        Assertions.assertTrue(committed.isEmpty(), "Unknown status must not be replayed as committed");
+        Assertions.assertTrue(uncommitted.isEmpty(), "Unknown status must not be restored as uncommitted");
     }
 }
