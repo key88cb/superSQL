@@ -222,6 +222,40 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void copyTableDataShouldAcceptDuplicateChunkDuringInFlightTransfer() throws Exception {
+        byte[] first = "hello".getBytes(StandardCharsets.UTF_8);
+        byte[] second = " world".getBytes(StandardCharsets.UTF_8);
+
+        Response firstResp = service.copyTableData(new DataChunk("dup", "dup_file", 0L, ByteBuffer.wrap(first), false));
+        Assertions.assertEquals(StatusCode.OK, firstResp.getCode());
+
+        Response duplicateResp = service.copyTableData(new DataChunk("dup", "dup_file", 0L, ByteBuffer.wrap(first), false));
+        Assertions.assertEquals(StatusCode.OK, duplicateResp.getCode());
+        Assertions.assertTrue(duplicateResp.getMessage().contains("duplicate chunk acknowledged"));
+
+        Response lastResp = service.copyTableData(new DataChunk("dup", "dup_file", 5L, ByteBuffer.wrap(second), true));
+        Assertions.assertEquals(StatusCode.OK, lastResp.getCode());
+        Assertions.assertArrayEquals("hello world".getBytes(StandardCharsets.UTF_8), Files.readAllBytes(dataDir.resolve("dup_file")));
+    }
+
+    @Test
+    void copyTableDataShouldAcceptDuplicateLastChunkAfterPublish() throws Exception {
+        byte[] first = "hello".getBytes(StandardCharsets.UTF_8);
+        byte[] second = " world".getBytes(StandardCharsets.UTF_8);
+
+        Response firstResp = service.copyTableData(new DataChunk("dup2", "dup2_file", 0L, ByteBuffer.wrap(first), false));
+        Assertions.assertEquals(StatusCode.OK, firstResp.getCode());
+
+        Response lastResp = service.copyTableData(new DataChunk("dup2", "dup2_file", 5L, ByteBuffer.wrap(second), true));
+        Assertions.assertEquals(StatusCode.OK, lastResp.getCode());
+
+        Response duplicateLastResp = service.copyTableData(new DataChunk("dup2", "dup2_file", 5L, ByteBuffer.wrap(second), true));
+        Assertions.assertEquals(StatusCode.OK, duplicateLastResp.getCode());
+        Assertions.assertTrue(duplicateLastResp.getMessage().contains("duplicate chunk acknowledged"));
+        Assertions.assertArrayEquals("hello world".getBytes(StandardCharsets.UTF_8), Files.readAllBytes(dataDir.resolve("dup2_file")));
+    }
+
+    @Test
     void transferTableShouldFailWhenTargetRejectsChunk() throws Exception {
         Files.writeString(dataDir.resolve("orders_data"), "payload");
 

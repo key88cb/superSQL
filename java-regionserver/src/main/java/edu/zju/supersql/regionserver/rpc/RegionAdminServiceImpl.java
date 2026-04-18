@@ -248,8 +248,35 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             return r;
         }
         try {
+            Path targetPath = resolveDataPath(chunk.getFileName());
+            Path stagingPath = resolveDataPath(chunk.getFileName() + STAGING_SUFFIX);
+            File targetFile = targetPath.toFile();
+            File stagingFile = stagingPath.toFile();
+            targetFile.getParentFile().mkdirs();
+
+            ByteBuffer dataBuf = chunk.bufferForData();
+            byte[] bytes = new byte[dataBuf.remaining()];
+            dataBuf.get(bytes);
+
             String transferKey = transferKey(chunk.getTableName(), chunk.getFileName());
             long expectedOffset = nextExpectedOffsets.getOrDefault(transferKey, 0L);
+
+            // If final chunk response was lost after publish, accept duplicate retry as success.
+            if (expectedOffset == 0L && chunk.isIsLast()
+                    && isDuplicateChunk(targetPath, chunk.getOffset(), bytes)) {
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("duplicate chunk acknowledged for " + chunk.getFileName());
+                return r;
+            }
+
+            // If non-final chunk response was lost after write, accept duplicate retry as success.
+            if (chunk.getOffset() < expectedOffset
+                    && isDuplicateChunk(stagingPath, chunk.getOffset(), bytes)) {
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("duplicate chunk acknowledged for " + chunk.getFileName());
+                return r;
+            }
+
             if (chunk.getOffset() == 0L && expectedOffset > 0L) {
                 // Restarting from offset 0 resets unfinished transfer state.
                 expectedOffset = 0L;
@@ -262,16 +289,6 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                         + ", actual=" + chunk.getOffset());
                 return r;
             }
-
-            Path targetPath = resolveDataPath(chunk.getFileName());
-            Path stagingPath = resolveDataPath(chunk.getFileName() + STAGING_SUFFIX);
-            File targetFile = targetPath.toFile();
-            File stagingFile = stagingPath.toFile();
-            targetFile.getParentFile().mkdirs();
-
-            ByteBuffer dataBuf = chunk.bufferForData();
-            byte[] bytes = new byte[dataBuf.remaining()];
-            dataBuf.get(bytes);
 
             if (chunk.getOffset() == 0L && stagingFile.exists() && !stagingFile.delete()) {
                 throw new IOException("failed to reset staging file " + stagingFile.getName());
@@ -302,6 +319,38 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("copyTableData failed: " + e.getMessage());
             return r;
+        }
+    }
+
+    private static boolean isDuplicateChunk(Path filePath, long offset, byte[] incoming) {
+        if (incoming == null) {
+            return false;
+        }
+        if (offset < 0) {
+            return false;
+        }
+        if (!Files.exists(filePath)) {
+            return false;
+        }
+        try (RandomAccessFile raf = new RandomAccessFile(filePath.toFile(), "r")) {
+            long required = offset + incoming.length;
+            if (raf.length() < required) {
+                return false;
+            }
+            raf.seek(offset);
+            byte[] existing = new byte[incoming.length];
+            int read = raf.read(existing);
+            if (read != incoming.length) {
+                return false;
+            }
+            for (int i = 0; i < incoming.length; i++) {
+                if (existing[i] != incoming[i]) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (IOException e) {
+            return false;
         }
     }
 

@@ -81,6 +81,7 @@
 - `transferTable` 发送分块时已支持有界重试（默认 3 次），可吸收短暂目标端抖动导致的单次 chunk 失败。
 - `copyTableData` 在 offset 校验失败时会自动清理该文件的临时分块状态（`.part` + 内存偏移），允许后续从 0 干净重传。
 - `copyTableData` 的 offset 跟踪已按 `tableName + fileName` 作用域隔离，避免跨表同名文件传输时的状态串扰。
+- `copyTableData` 已支持重复 chunk 幂等确认：当目标端已写入同偏移同内容时，会返回成功而非触发 offset reset，提升链路抖动下重试成功率。
 - `transferTable` 已过滤源端 `.part` 临时文件，只迁移已完成文件，避免把未完成分块产物继续扩散。
 - ReplicaSyncServiceImpl 已支持内存/本地结合的基础同步路径、pullLog 与 commitLog 回放。
 - ReplicaSyncServiceImpl 的 `commitLog` 已具备幂等语义：重复 COMMIT 不再重复回放 SQL。
@@ -195,6 +196,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已将 Master/RegionServer 规划 TDD 规格测试切换为可执行测试，覆盖 rebalance 与迁移基础路径的回归检查。
 - 2026-04-19 已补充覆盖：rebalance `FINALIZING` 阶段可观测性，以及超时 `MOVING` 状态在读路径触发下自动恢复为 `ACTIVE` 的自恢复语义。
 - 2026-04-19 已补充覆盖：checkpoint 与 recover 对陈旧 PREPARE 的自动裁剪（`LSN<=checkpointLsn`）语义，避免悬挂 PREPARE 污染后续恢复与统计。
+- 2026-04-19 已补充覆盖：`copyTableData` 在“进行中重复 chunk”与“完成后重复末块”场景下的幂等确认语义，避免误触发 offset reset。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 
