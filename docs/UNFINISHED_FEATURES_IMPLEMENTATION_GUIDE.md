@@ -122,11 +122,6 @@
 3. 完善 Client 的读故障转移与主动失效
 - 与 Master/RegionServer 的稳定协议配套推进，避免策略冲突。
 
-4. 启用并收敛剩余 Disabled 规格测试
-- 当前仍保留：
-  - `java-master/.../MasterPlannedFeaturesTddTest`
-  - `java-regionserver/.../RegionPlannedFeaturesTddTest`
-
 ---
 
 ## 4. 文档维护规则

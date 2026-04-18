@@ -150,10 +150,8 @@ Client：
 - SqlClientDmlRetryTest
 - SqlClientRoutingMetricsCommandTest
 - SqlClientPlannedFeaturesTddTest（已改为可执行测试，不再 `@Disabled`）
-
-新增 TDD 规格测试（默认 `@Disabled`）：
-- java-master/src/test/java/edu/zju/supersql/master/rpc/MasterPlannedFeaturesTddTest.java
-- java-regionserver/src/test/java/edu/zju/supersql/regionserver/rpc/RegionPlannedFeaturesTddTest.java
+- MasterPlannedFeaturesTddTest（已改为可执行测试）
+- RegionPlannedFeaturesTddTest（已改为可执行测试）
 
 执行方式：
 ```bash
@@ -168,7 +166,7 @@ mvn test -DskipTests=false
 - 2026-04-18 已补充覆盖：rebalance 在 source 清理失败时的元数据回滚一致性、以及缓存失效失败场景下的 best-effort 语义验证。
 - 2026-04-18 已补充覆盖：rebalance 在 transfer 失败和 source 清理失败场景下的 target 残留数据清理补偿路径。
 - 2026-04-18 已补充覆盖：RegionAdmin `deleteLocalTable` 对 assignment 的安全更新语义（移除当前 RS / 空列表删节点 / 非成员保持不变）。
-- 2026-04-10 已新增一批 `@Disabled` 的 TDD 规格测试，用于提前钉住未实现功能的期望行为，包括 rebalance、executeBatch、索引分布式传播、Client redirect/MOVING 重试等。
+- 2026-04-19 已将 Master/RegionServer 规划 TDD 规格测试切换为可执行测试，覆盖 rebalance 与迁移基础路径的回归检查。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 

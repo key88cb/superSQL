@@ -13,14 +13,14 @@ import org.apache.zookeeper.CreateMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-@Disabled("TDD spec for planned Master features that are not implemented yet")
 class MasterPlannedFeaturesTddTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -49,7 +49,12 @@ class MasterPlannedFeaturesTddTest {
         MasterRuntimeContext.initialize(zkClient, "master-1", 8080);
         writeActiveMaster("master-1", "master-1:8080");
 
-        service = new MasterServiceImpl();
+        service = new MasterServiceImpl(
+            new edu.zju.supersql.master.meta.MetaManager(zkClient),
+            new edu.zju.supersql.master.meta.AssignmentManager(zkClient),
+            new edu.zju.supersql.master.balance.LoadBalancer(),
+            new RecordingRegionDdlExecutor(),
+            new RecordingRegionAdminExecutor());
     }
 
     @AfterEach
@@ -120,5 +125,47 @@ class MasterPlannedFeaturesTddTest {
 
     private Map<?, ?> readJson(String path) throws Exception {
         return MAPPER.readValue(new String(zkClient.getData().forPath(path), StandardCharsets.UTF_8), Map.class);
+    }
+
+    private static final class RecordingRegionDdlExecutor implements RegionDdlExecutor {
+        @Override
+        public Response execute(edu.zju.supersql.rpc.RegionServerInfo regionServer, String tableName, String ddl) {
+            return new Response(StatusCode.OK);
+        }
+    }
+
+    private static final class RecordingRegionAdminExecutor implements RegionAdminExecutor {
+        private final List<String> ops = new ArrayList<>();
+
+        @Override
+        public Response pauseTableWrite(edu.zju.supersql.rpc.RegionServerInfo regionServer, String tableName) {
+            ops.add("pause:" + regionServer.getId());
+            return new Response(StatusCode.OK);
+        }
+
+        @Override
+        public Response resumeTableWrite(edu.zju.supersql.rpc.RegionServerInfo regionServer, String tableName) {
+            ops.add("resume:" + regionServer.getId());
+            return new Response(StatusCode.OK);
+        }
+
+        @Override
+        public Response transferTable(edu.zju.supersql.rpc.RegionServerInfo source, String tableName,
+                                      edu.zju.supersql.rpc.RegionServerInfo target) {
+            ops.add("transfer:" + source.getId() + "->" + target.getId());
+            return new Response(StatusCode.OK);
+        }
+
+        @Override
+        public Response deleteLocalTable(edu.zju.supersql.rpc.RegionServerInfo regionServer, String tableName) {
+            ops.add("delete:" + regionServer.getId());
+            return new Response(StatusCode.OK);
+        }
+
+        @Override
+        public Response invalidateClientCache(edu.zju.supersql.rpc.RegionServerInfo regionServer, String tableName) {
+            ops.add("invalidate:" + regionServer.getId());
+            return new Response(StatusCode.OK);
+        }
     }
 }

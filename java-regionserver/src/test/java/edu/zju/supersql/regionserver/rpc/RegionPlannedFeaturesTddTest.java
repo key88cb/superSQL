@@ -4,25 +4,45 @@ import edu.zju.supersql.regionserver.MiniSqlProcess;
 import edu.zju.supersql.regionserver.ReplicaManager;
 import edu.zju.supersql.regionserver.WalManager;
 import edu.zju.supersql.regionserver.WriteGuard;
+import edu.zju.supersql.rpc.DataChunk;
 import edu.zju.supersql.rpc.QueryResult;
+import edu.zju.supersql.rpc.RegionAdminService;
+import edu.zju.supersql.rpc.RegionServerInfo;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
+import org.apache.thrift.TMultiplexedProcessor;
+import org.apache.thrift.server.TServer;
+import org.apache.thrift.server.TThreadPoolServer;
+import org.apache.thrift.transport.TServerSocket;
+import org.apache.thrift.transport.layered.TFramedTransport;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.net.ServerSocket;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-@Disabled("TDD spec for planned RegionServer features that are not implemented yet")
 class RegionPlannedFeaturesTddTest {
+
+    @TempDir
+    Path dataDir;
+
+    @TempDir
+    Path walDir;
 
     @Test
     void executeBatchShouldRunStatementsInOrderAndReturnOk() throws Exception {
         RecordingMiniSqlProcess miniSql = new RecordingMiniSqlProcess();
+        WalManager walManager = new WalManager(walDir.toString());
+        walManager.init();
         RegionServiceImpl service = new RegionServiceImpl(
                 miniSql,
-                new WalManager("unused"),
+            walManager,
                 new ReplicaManager(),
                 new WriteGuard(),
                 null,
@@ -41,9 +61,11 @@ class RegionPlannedFeaturesTddTest {
     @Test
     void createAndDropIndexShouldPropagateToMiniSql() throws Exception {
         RecordingMiniSqlProcess miniSql = new RecordingMiniSqlProcess();
+        WalManager walManager = new WalManager(walDir.toString());
+        walManager.init();
         RegionServiceImpl service = new RegionServiceImpl(
                 miniSql,
-                new WalManager("unused"),
+            walManager,
                 new ReplicaManager(),
                 new WriteGuard(),
                 null,
@@ -60,13 +82,89 @@ class RegionPlannedFeaturesTddTest {
 
     @Test
     void transferAndCopyTableShouldReturnOkOnceMigrationHooksExist() throws Exception {
+        Files.writeString(dataDir.resolve("users_data"), "payload");
+
+        int port = freePort();
+        TServer server = buildServer(port, new AcceptingAdminService());
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        pool.submit(server::serve);
+        Thread.sleep(200);
+
         RegionAdminServiceImpl service = new RegionAdminServiceImpl(
                 new WriteGuard(),
                 null,
-                "unused-dir",
+                dataDir.toString(),
                 "rs-test");
 
-        Assertions.assertEquals(StatusCode.OK, service.transferTable("users", "127.0.0.1", 9099).getCode());
+        try {
+            Assertions.assertEquals(StatusCode.OK, service.transferTable("users", "127.0.0.1", port).getCode());
+        } finally {
+            server.stop();
+            pool.shutdownNow();
+        }
+    }
+
+    private static TServer buildServer(int port, RegionAdminService.Iface impl) throws Exception {
+        TMultiplexedProcessor processor = new TMultiplexedProcessor();
+        processor.registerProcessor("RegionAdminService", new RegionAdminService.Processor<>(impl));
+        TServerSocket transport = new TServerSocket(port);
+        return new TThreadPoolServer(new TThreadPoolServer.Args(transport)
+                .processor(processor)
+                .transportFactory(new TFramedTransport.Factory())
+                .minWorkerThreads(1)
+                .maxWorkerThreads(2));
+    }
+
+    private static int freePort() throws Exception {
+        try (ServerSocket s = new ServerSocket(0)) {
+            return s.getLocalPort();
+        }
+    }
+
+    private static final class AcceptingAdminService implements RegionAdminService.Iface {
+        @Override
+        public Response pauseTableWrite(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response resumeTableWrite(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response transferTable(String tableName, String targetHost, int targetPort) {
+            return ok();
+        }
+
+        @Override
+        public Response copyTableData(DataChunk chunk) {
+            return ok();
+        }
+
+        @Override
+        public Response deleteLocalTable(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response registerRegionServer(RegionServerInfo info) {
+            return ok();
+        }
+
+        @Override
+        public Response heartbeat(RegionServerInfo info) {
+            return ok();
+        }
+
+        @Override
+        public Response invalidateClientCache(String tableName) {
+            return ok();
+        }
+
+        private static Response ok() {
+            return new Response(StatusCode.OK);
+        }
     }
 
     private static class RecordingMiniSqlProcess extends MiniSqlProcess {
@@ -80,7 +178,7 @@ class RegionPlannedFeaturesTddTest {
         @Override
         public synchronized String execute(String sql) throws IOException {
             executedSql.add(sql);
-            return ">>> SUCCESS\n>>> ";
+            return ">>> SUCCESS\n";
         }
     }
 }
