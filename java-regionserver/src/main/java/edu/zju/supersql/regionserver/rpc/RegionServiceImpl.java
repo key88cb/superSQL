@@ -179,6 +179,7 @@ public class RegionServiceImpl implements RegionService.Iface {
             if (acks < requiredAcks) {
                 log.warn("executeWrite: insufficient replica ACKs lsn={} table={} required={} actual={} replicas={}",
                         lsn, tableName, requiredAcks, acks, replicas.size());
+                walManager.abort(tableName, lsn);
                 Response r = new Response(StatusCode.ERROR);
                 r.setMessage("Insufficient replica ACKs: required=" + requiredAcks + ", actual=" + acks);
                 return new QueryResult(r);

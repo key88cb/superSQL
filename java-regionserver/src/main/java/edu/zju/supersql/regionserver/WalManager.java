@@ -158,6 +158,24 @@ public class WalManager {
         }
     }
 
+    /**
+     * Marks the status of the specified LSN as ABORTED in the WAL file.
+     */
+    public void abort(String tableName, long lsn) {
+        ConcurrentHashMap<Long, Long> offsets = uncommittedOffsets.get(tableName);
+        if (offsets == null) return;
+        Long offset = offsets.remove(lsn);
+        if (offset == null) return;
+
+        Path walFile = walFilePath(tableName);
+        try (RandomAccessFile raf = new RandomAccessFile(walFile.toFile(), "rw")) {
+            raf.seek(offset);
+            raf.writeByte(2); // STATUS: 2 = ABORTED
+        } catch (IOException e) {
+            log.error("Failed to abort WAL entry for table={} lsn={}", tableName, lsn, e);
+        }
+    }
+
     // ─────────────────────── read ─────────────────────────────────────────────
 
     /**

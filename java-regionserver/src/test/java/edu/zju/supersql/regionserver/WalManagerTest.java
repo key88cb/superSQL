@@ -142,4 +142,16 @@ class WalManagerTest {
         List<WalEntry> entries = wal.readEntriesAfter("t_uncommitted", 0L);
         Assertions.assertTrue(entries.isEmpty(), "Uncommitted entries should be ignored by readEntriesAfter");
     }
+
+    @Test
+    void abortedEntriesShouldNotAppearInCommittedOrUncommittedReads() throws IOException {
+        wal.appendEntry("t_abort", 200L, 1L, WalOpType.INSERT, "insert into t_abort values(1);");
+        wal.abort("t_abort", 200L);
+
+        List<WalEntry> committed = wal.readEntriesAfter("t_abort", 0L);
+        List<WalEntry> uncommitted = wal.readUncommittedEntries("t_abort");
+
+        Assertions.assertTrue(committed.isEmpty(), "Aborted entries should not be replayed as committed");
+        Assertions.assertTrue(uncommitted.isEmpty(), "Aborted entries should not be tracked as uncommitted");
+    }
 }

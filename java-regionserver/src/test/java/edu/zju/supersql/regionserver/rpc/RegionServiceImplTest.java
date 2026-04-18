@@ -126,6 +126,7 @@ class RegionServiceImplTest {
         Assertions.assertEquals(StatusCode.ERROR, result.getStatus().getCode());
         Assertions.assertTrue(result.getStatus().getMessage().contains("Insufficient replica ACKs"));
         Mockito.verify(mockMiniSql, Mockito.never()).execute("insert into orders values(1,'x');");
+        Assertions.assertTrue(walManager.readUncommittedEntries("orders").isEmpty());
     }
 
     @Test

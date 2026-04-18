@@ -62,12 +62,13 @@
 - 注册/心跳、MiniSQL 进程管理（含自动重启）。
 - `RegionServiceImpl` 读写基础路径、`executeBatch`、索引相关接口。
 - 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`）用于拒绝 ACK 不足写入。
+- ACK 不足拒绝写入时会将对应 WAL 条目标记为 ABORT，避免 PREPARE 长期滞留。
 - WAL 文件基础读写与恢复、ReplicaSync 基础同步与回放。
 - RegionAdmin 基础管理路径；`deleteLocalTable` 对 assignment 已修复为“仅移除当前 RS”。
 
 ### 仍待实现
 
-- WAL 最终协议：更明确的 PREPARE/COMMIT/ABORT 语义与恢复边界。
+- WAL 最终协议：崩溃恢复阶段对 PREPARE/ABORT 的清理与重放边界仍需进一步收敛。
 - 多数派复制最终语义：失败重试、超时降级、追赶一致性与幂等保障。
 - 迁移协议完善：文件传输完整性校验、断点续传/重试、完成确认与回滚协议。
 - 自治恢复：主副本晋升、补副本、恢复后自动追赶到一致状态。
