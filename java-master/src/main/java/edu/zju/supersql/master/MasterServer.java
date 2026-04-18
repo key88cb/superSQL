@@ -3,6 +3,7 @@ package edu.zju.supersql.master;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import edu.zju.supersql.master.election.LeaderElector;
+import edu.zju.supersql.master.meta.MetaManager;
 import edu.zju.supersql.master.rpc.MasterServiceImpl;
 import edu.zju.supersql.rpc.MasterService;
 import org.apache.curator.RetryPolicy;
@@ -84,6 +85,27 @@ public class MasterServer {
         }
     }
 
+    static int preloadMetadataFromZk(CuratorFramework zkClient) {
+        if (zkClient == null) {
+            return 0;
+        }
+        try {
+            int tableCount = new MetaManager(zkClient).listTables().size();
+            log.info("Metadata preload completed: tableCount={}", tableCount);
+            return tableCount;
+        } catch (Exception e) {
+            log.warn("Metadata preload failed, continue startup: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    static TMultiplexedProcessor buildThriftProcessor() {
+        TMultiplexedProcessor processor = new TMultiplexedProcessor();
+        processor.registerProcessor("MasterService",
+                new MasterService.Processor<>(new MasterServiceImpl()));
+        return processor;
+    }
+
     public static void main(String[] args) throws Exception {
         MasterConfig config = MasterConfig.fromSystemEnv();
         int thriftPort = config.thriftPort();
@@ -129,12 +151,11 @@ public class MasterServer {
             leaderElector.start();
             regionServerWatcher = new RegionServerWatcher(zkClient);
             regionServerWatcher.start();
+            preloadMetadataFromZk(zkClient);
             LeaderElector finalLeaderElector = leaderElector;
             RegionServerWatcher finalRegionServerWatcher = regionServerWatcher;
             Runtime.getRuntime().addShutdownHook(new Thread(finalLeaderElector::close));
             Runtime.getRuntime().addShutdownHook(new Thread(finalRegionServerWatcher::close));
-
-            // TODO Sprint 3: MetaManager.init(zkClient)
         } catch (Exception e) {
             log.warn("ZooKeeper connection failed at startup — proceeding without ZK: {}", e.getMessage());
         }
@@ -157,10 +178,7 @@ public class MasterServer {
         log.info("Health endpoints listening on :{} (/health, /status)", httpPort);
 
         // ── Thrift TThreadPoolServer ───────────────────────────────────────────
-        TMultiplexedProcessor processor = new TMultiplexedProcessor();
-        processor.registerProcessor("MasterService",
-                new MasterService.Processor<>(new MasterServiceImpl()));
-        // TODO Sprint 3+: add more processors if needed
+        TMultiplexedProcessor processor = buildThriftProcessor();
 
         TServerSocket serverTransport = new TServerSocket(thriftPort);
         TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(serverTransport)

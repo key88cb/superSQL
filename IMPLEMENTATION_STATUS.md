@@ -18,6 +18,7 @@
 - `/region_servers` Watcher：已通过 `RegionServerWatcher` 监听 RS 上线、更新、下线事件。
 - HTTP 管理端点：`GET /health` 与 `GET /status` 返回 JSON（含角色信息）。
 - 已抽出 `MetaManager` / `AssignmentManager` / `LoadBalancer`，支持 Master 元数据与分配读写。
+- Master 启动流程已补充元数据预热（启动后扫描现有 table 元数据）与 Thrift processor 构建封装，原启动 TODO 已落地。
 - getTableLocation / createTable / dropTable / listRegionServers / listTables 已支持 ZooKeeper 元数据读写。
 - createTable / dropTable 已通过真实 Thrift 调用把 DDL 转发到 RegionServer，再在成功后更新 ZooKeeper 元数据。
 - `triggerRebalance()` 已具备最小可用迁移闭环：可把热点节点上的一个非主副本迁往更空闲节点，并更新 `/meta/tables` 与 `/assignments`。
