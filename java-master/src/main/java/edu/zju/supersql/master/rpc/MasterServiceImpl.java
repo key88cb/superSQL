@@ -18,9 +18,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -277,7 +279,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 notFound.setVersion(-1L);
                 return notFound;
             }
-            return location;
+            return promotePrimaryIfOfflineBestEffort(location);
         } catch (Exception e) {
             throw new TException("Failed to resolve table location: " + tableName, e);
         }
@@ -725,6 +727,73 @@ public class MasterServiceImpl implements MasterService.Iface {
         } catch (Exception e) {
             log.warn("triggerRebalance resume writes exception table={} primary={} cause={}",
                     tableName, primary.getId(), e.getMessage());
+        }
+    }
+
+    private TableLocation promotePrimaryIfOfflineBestEffort(TableLocation location) {
+        if (location == null
+                || !location.isSetPrimaryRS()
+                || !location.isSetReplicas()
+                || location.getReplicas().isEmpty()) {
+            return location;
+        }
+        if (!"ACTIVE".equalsIgnoreCase(location.getTableStatus())) {
+            return location;
+        }
+
+        String currentPrimaryId = location.getPrimaryRS().getId();
+        if (currentPrimaryId == null || currentPrimaryId.isBlank()) {
+            return location;
+        }
+
+        Set<String> onlineIds = new HashSet<>();
+        try {
+            for (RegionServerInfo regionServer : listRegionServers()) {
+                if (regionServer != null && regionServer.isSetId()) {
+                    onlineIds.add(regionServer.getId());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("getTableLocation failed to check online region servers table={} cause={}",
+                    location.getTableName(), e.getMessage());
+            return location;
+        }
+
+        if (onlineIds.isEmpty() || onlineIds.contains(currentPrimaryId)) {
+            return location;
+        }
+
+        RegionServerInfo promoted = null;
+        for (RegionServerInfo replica : location.getReplicas()) {
+            if (replica != null && replica.isSetId() && onlineIds.contains(replica.getId())) {
+                promoted = replica;
+                break;
+            }
+        }
+        if (promoted == null) {
+            log.warn("getTableLocation found offline primary but no online replica table={} primary={}",
+                    location.getTableName(), currentPrimaryId);
+            return location;
+        }
+
+        TableLocation promotedLocation = new TableLocation(location);
+        promotedLocation.setPrimaryRS(promoted);
+        promotedLocation.setVersion(System.currentTimeMillis());
+        if (!promotedLocation.isSetTableStatus() || promotedLocation.getTableStatus().isBlank()) {
+            promotedLocation.setTableStatus("ACTIVE");
+        }
+
+        try {
+            metaManager.saveTableLocation(promotedLocation);
+            assignmentManager.saveAssignment(promotedLocation.getTableName(), promotedLocation.getReplicas());
+            touchStatusUpdatedAtBestEffort(promotedLocation.getTableName());
+            log.warn("getTableLocation promoted primary table={} from {} to {}",
+                    promotedLocation.getTableName(), currentPrimaryId, promoted.getId());
+            return promotedLocation;
+        } catch (Exception e) {
+            log.error("getTableLocation failed to persist promoted primary table={} from {} to {} cause={}",
+                    promotedLocation.getTableName(), currentPrimaryId, promoted.getId(), e.getMessage());
+            return location;
         }
     }
 

@@ -216,6 +216,30 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void getTableLocationShouldPromoteOnlineReplicaWhenPrimaryOffline() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_failover_primary(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        TableLocation before = service.getTableLocation("t_failover_primary");
+        Assertions.assertEquals("rs-1", before.getPrimaryRS().getId());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+
+        TableLocation after = service.getTableLocation("t_failover_primary");
+        Assertions.assertEquals("rs-2", after.getPrimaryRS().getId());
+        Assertions.assertEquals("ACTIVE", after.getTableStatus());
+
+        Map<?, ?> meta = readJson("/meta/tables/t_failover_primary");
+        Map<?, ?> primary = (Map<?, ?>) meta.get("primaryRS");
+        Assertions.assertEquals("rs-2", String.valueOf(primary.get("id")));
+        Assertions.assertTrue(toLong(meta.get("statusUpdatedAt")) > 0L);
+    }
+
+    @Test
     void triggerRebalanceShouldMoveNonPrimaryReplicaToLeastLoadedNode() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);

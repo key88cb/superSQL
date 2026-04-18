@@ -22,6 +22,7 @@
 - Client 已支持 `NOT_LEADER` 重定向、`REDIRECT` 自愈、`MOVING` 有界重试、主副本瞬时不可达重试、`SELECT` 读故障转移（副本降级）与 `/meta/tables` 主动失效 watch。
 - Master 的 `createTable/dropTable` 已通过真实 Thrift 下发 DDL，不是“仅写 ZK”。
 - Master 的 `triggerRebalance()` 已实现最小可用迁移闭环，并且新增了失败回滚与补偿路径。
+- Master 的 `getTableLocation` 已支持 lazy failover：主副本离线时可自动晋升在线副本并回写元数据。
 - RegionServer 的 `RegionAdminServiceImpl` 核心管理方法已具备基础实现（pause/resume/delete/transfer/copy/invalidate）。
 - RegionServer 的 `invalidateClientCache` 已从 no-op 升级为元数据 version 广播失效信号。
 - RegionServer 的 `executeBatch/createIndex/dropIndex` 已在 `RegionServiceImpl` 落地基础实现。
@@ -51,6 +52,7 @@
 - `triggerRebalance()` 迁移阶段已写入 `migrationAttemptId` 并在结束（成功/回滚）后清理，为后续幂等恢复提供观测锚点。
 - `triggerRebalance()` 已限制仅对 `ACTIVE` 表挑选候选，避免迁移中的表被重复调度。
 - `createTable` 也会初始化 `statusUpdatedAt`，新表元数据默认具备可观测时间戳。
+- `getTableLocation` 已支持 lazy failover：主副本离线时自动晋升在线副本并回写元数据。
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
 - RegionServer 成员变更（up/down）已可触发调度器外部请求（受节流保护）。
