@@ -266,6 +266,10 @@ public class SqlClient {
             System.out.println(formatRoutingMetricsJson(snapshot));
             return;
         }
+        if (isRoutingMetricsPrometheusCommand(sql)) {
+            System.out.println(formatRoutingMetricsPrometheus(snapshot));
+            return;
+        }
         for (String line : formatRoutingMetricsLines(snapshotRoutingMetrics())) {
             System.out.println(line);
         }
@@ -273,6 +277,10 @@ public class SqlClient {
 
     private static boolean isRoutingMetricsJsonCommand(String sql) {
         return sql != null && sql.trim().toLowerCase().startsWith("show routing metrics json");
+    }
+
+    private static boolean isRoutingMetricsPrometheusCommand(String sql) {
+        return sql != null && sql.trim().toLowerCase().startsWith("show routing metrics prometheus");
     }
 
     static String extractRoutingMetricsExportPath(String sql) {
@@ -717,6 +725,44 @@ public class SqlClient {
             log.warn("Failed to render routing metrics json: {}", e.getMessage());
             return "{\"tableCount\":0,\"tables\":[]}";
         }
+    }
+
+    static String formatRoutingMetricsPrometheus(Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# TYPE supersql_client_routing_redirect_total counter\n");
+        sb.append("# TYPE supersql_client_routing_moving_retry_total counter\n");
+        sb.append("# TYPE supersql_client_routing_exception_retry_total counter\n");
+        sb.append("# TYPE supersql_client_routing_location_fetch_total counter\n");
+        sb.append("# TYPE supersql_client_routing_read_fallback_total counter\n");
+
+        if (snapshot == null || snapshot.isEmpty()) {
+            sb.append("supersql_client_routing_table_count 0\n");
+            return sb.toString();
+        }
+
+        List<String> names = new ArrayList<>(snapshot.keySet());
+        names.sort(String::compareTo);
+        int renderedTables = 0;
+        for (String table : names) {
+            ClientRoutingMetrics.MetricsSnapshot metrics = snapshot.get(table);
+            if (metrics == null) {
+                continue;
+            }
+            String escapedTable = table.replace("\\", "\\\\").replace("\"", "\\\"");
+            sb.append(String.format("supersql_client_routing_redirect_total{table=\"%s\"} %d%n",
+                    escapedTable, metrics.redirectCount()));
+            sb.append(String.format("supersql_client_routing_moving_retry_total{table=\"%s\"} %d%n",
+                    escapedTable, metrics.movingRetryCount()));
+            sb.append(String.format("supersql_client_routing_exception_retry_total{table=\"%s\"} %d%n",
+                    escapedTable, metrics.retryOnExceptionCount()));
+            sb.append(String.format("supersql_client_routing_location_fetch_total{table=\"%s\"} %d%n",
+                    escapedTable, metrics.locationFetchCount()));
+            sb.append(String.format("supersql_client_routing_read_fallback_total{table=\"%s\"} %d%n",
+                    escapedTable, metrics.readFallbackCount()));
+            renderedTables++;
+        }
+        sb.append(String.format("supersql_client_routing_table_count %d%n", renderedTables));
+        return sb.toString();
     }
 
     static void resetRoutingMetricsForTests() {

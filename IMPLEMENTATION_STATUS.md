@@ -122,6 +122,7 @@
 - 已支持按表路由指标统计（内存态）：重定向次数、MOVING 重试次数、异常重试次数、路由回源次数、读降级命中次数。
 - REPL 已支持 `SHOW ROUTING METRICS` 命令，可直接查看当前进程内按表路由指标快照。
 - REPL 已支持 `SHOW ROUTING METRICS JSON`，可输出结构化 JSON 结果供日志采集或外部脚本消费。
+- REPL 已支持 `SHOW ROUTING METRICS PROMETHEUS`，可输出 Prometheus 文本格式指标，便于接入监控抓取。
 - REPL 已支持 `SHOW ROUTING METRICS EXPORT <path>`，可将当前路由指标快照导出到 JSON 文件。
 - REPL 已支持 `execfile <path>`：会解析 SQL 脚本并按顺序执行；同表连续 DML 会走 Region `executeBatch` + MOVING/REDIRECT 重试闭环。
 - 路由缓存支持 TTL 与版本失效。

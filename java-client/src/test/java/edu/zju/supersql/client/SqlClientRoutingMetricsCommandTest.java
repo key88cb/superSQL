@@ -67,6 +67,25 @@ class SqlClientRoutingMetricsCommandTest {
     }
 
     @Test
+    void formatRoutingMetricsPrometheusShouldRenderDeterministicRows() {
+        Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot = new LinkedHashMap<>();
+        snapshot.put("orders", new ClientRoutingMetrics.MetricsSnapshot(2, 3, 4, 5, 6));
+        snapshot.put("accounts", new ClientRoutingMetrics.MetricsSnapshot(10, 11, 12, 13, 14));
+
+        String text = SqlClient.formatRoutingMetricsPrometheus(snapshot);
+
+        Assertions.assertTrue(text.contains("supersql_client_routing_redirect_total{table=\"accounts\"} 10"));
+        Assertions.assertTrue(text.contains("supersql_client_routing_moving_retry_total{table=\"orders\"} 3"));
+        Assertions.assertTrue(text.contains("supersql_client_routing_table_count 2"));
+    }
+
+    @Test
+    void formatRoutingMetricsPrometheusShouldHandleEmptySnapshot() {
+        String text = SqlClient.formatRoutingMetricsPrometheus(Map.of());
+        Assertions.assertTrue(text.contains("supersql_client_routing_table_count 0"));
+    }
+
+    @Test
     void extractRoutingMetricsExportPathShouldSupportQuotedAndUnquotedPath() {
         Assertions.assertNull(SqlClient.extractRoutingMetricsExportPath("show routing metrics"));
 
