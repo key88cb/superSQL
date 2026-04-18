@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * RegionAdminService implementation.
@@ -34,6 +35,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final CuratorFramework zkClient;
     private final String dataDir;
     private final String rsId;
+    private final Map<String, Long> nextExpectedOffsets = new ConcurrentHashMap<>();
 
     public RegionAdminServiceImpl(WriteGuard writeGuard,
                                   CuratorFramework zkClient,
@@ -234,6 +236,14 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             return r;
         }
         try {
+            long expectedOffset = nextExpectedOffsets.getOrDefault(chunk.getFileName(), 0L);
+            if (chunk.getOffset() != expectedOffset) {
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("Invalid chunk: unexpected offset, expected=" + expectedOffset
+                        + ", actual=" + chunk.getOffset());
+                return r;
+            }
+
             File targetFile = new File(dataDir, chunk.getFileName());
             targetFile.getParentFile().mkdirs();
 
@@ -244,6 +254,13 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             try (RandomAccessFile raf = new RandomAccessFile(targetFile, "rw")) {
                 raf.seek(chunk.getOffset());
                 raf.write(bytes);
+            }
+
+            long nextOffset = chunk.getOffset() + bytes.length;
+            if (chunk.isIsLast()) {
+                nextExpectedOffsets.remove(chunk.getFileName());
+            } else {
+                nextExpectedOffsets.put(chunk.getFileName(), nextOffset);
             }
 
             if (chunk.isIsLast()) {

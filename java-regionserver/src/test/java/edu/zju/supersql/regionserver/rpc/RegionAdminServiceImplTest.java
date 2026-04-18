@@ -139,6 +139,32 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void copyTableDataReturnsErrorOnUnexpectedOffset() throws Exception {
+        byte[] first = "hello".getBytes(StandardCharsets.UTF_8);
+        byte[] second = " world".getBytes(StandardCharsets.UTF_8);
+
+        Response firstResp = service.copyTableData(new DataChunk("file3", "file3", 0L, ByteBuffer.wrap(first), false));
+        Assertions.assertEquals(StatusCode.OK, firstResp.getCode());
+
+        Response secondResp = service.copyTableData(new DataChunk("file3", "file3", 8L, ByteBuffer.wrap(second), true));
+        Assertions.assertEquals(StatusCode.ERROR, secondResp.getCode());
+        Assertions.assertTrue(secondResp.getMessage().contains("unexpected offset"));
+    }
+
+    @Test
+    void copyTableDataAllowsRestartFromZeroAfterCompletedFile() throws Exception {
+        byte[] firstPayload = "abc".getBytes(StandardCharsets.UTF_8);
+        byte[] secondPayload = "xyz".getBytes(StandardCharsets.UTF_8);
+
+        Response first = service.copyTableData(new DataChunk("file4", "file4", 0L, ByteBuffer.wrap(firstPayload), true));
+        Assertions.assertEquals(StatusCode.OK, first.getCode());
+
+        Response restart = service.copyTableData(new DataChunk("file4", "file4", 0L, ByteBuffer.wrap(secondPayload), true));
+        Assertions.assertEquals(StatusCode.OK, restart.getCode());
+        Assertions.assertArrayEquals(secondPayload, Files.readAllBytes(dataDir.resolve("file4")));
+    }
+
+    @Test
     void transferTableShouldFailWhenTargetRejectsChunk() throws Exception {
         Files.writeString(dataDir.resolve("orders_data"), "payload");
 
