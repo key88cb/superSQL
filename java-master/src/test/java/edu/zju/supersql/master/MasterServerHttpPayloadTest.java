@@ -32,8 +32,11 @@ class MasterServerHttpPayloadTest {
         Assertions.assertTrue(json.containsKey("timestamp"));
         Assertions.assertTrue(json.containsKey("zkReady"));
         Assertions.assertTrue(json.containsKey("rebalanceScheduler"));
+        Assertions.assertTrue(json.containsKey("routeRepair"));
         Map<?, ?> scheduler = (Map<?, ?>) json.get("rebalanceScheduler");
         Assertions.assertEquals(Boolean.FALSE, scheduler.get("available"));
+        Map<?, ?> routeRepair = (Map<?, ?>) json.get("routeRepair");
+        Assertions.assertEquals(Boolean.FALSE, routeRepair.get("available"));
     }
 
     @Test
@@ -53,5 +56,26 @@ class MasterServerHttpPayloadTest {
         Map<?, ?> schedulerJson = (Map<?, ?>) json.get("rebalanceScheduler");
         Assertions.assertEquals(Boolean.TRUE, schedulerJson.get("available"));
         Assertions.assertEquals("rs_down:rs-2", schedulerJson.get("lastTriggerReason"));
+    }
+
+    @Test
+    void statusPayloadShouldContainRouteRepairSnapshotWhenAvailable() throws Exception {
+        edu.zju.supersql.master.rpc.MasterServiceImpl.RouteRepairSnapshot snapshot =
+                new edu.zju.supersql.master.rpc.MasterServiceImpl.RouteRepairSnapshot(
+                        3L,
+                        7L,
+                        1_234L,
+                        2L,
+                        "orders");
+
+        byte[] payload = MasterServer.buildStatusPayload(8080, 8880, "zk1:2181", null, snapshot);
+        Map<?, ?> json = MAPPER.readValue(new String(payload, StandardCharsets.UTF_8), Map.class);
+        Map<?, ?> routeRepair = (Map<?, ?>) json.get("routeRepair");
+
+        Assertions.assertEquals(Boolean.TRUE, routeRepair.get("available"));
+        Assertions.assertEquals(3, ((Number) routeRepair.get("runCount")).intValue());
+        Assertions.assertEquals(7, ((Number) routeRepair.get("totalRepairedTables")).intValue());
+        Assertions.assertEquals(2, ((Number) routeRepair.get("lastRunRepairedCount")).intValue());
+        Assertions.assertEquals("orders", routeRepair.get("lastRepairedTable"));
     }
 }

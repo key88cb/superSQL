@@ -25,6 +25,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,6 +35,13 @@ import java.util.regex.Pattern;
  * All methods return an ERROR response until the real logic is implemented.
  */
 public class MasterServiceImpl implements MasterService.Iface {
+
+    public record RouteRepairSnapshot(long runCount,
+                                      long totalRepairedTables,
+                                      long lastRunAtMs,
+                                      long lastRunRepairedCount,
+                                      String lastRepairedTable) {
+    }
 
     private static final Logger log = LoggerFactory.getLogger(MasterServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -49,6 +57,11 @@ public class MasterServiceImpl implements MasterService.Iface {
     private final LongSupplier clockMs;
     private final long routeHealMinGapMs;
     private final ConcurrentMap<String, HealPersistState> lastHealPersistByTable = new ConcurrentHashMap<>();
+    private final AtomicLong routeRepairRunCount = new AtomicLong(0L);
+    private final AtomicLong routeRepairTotalRepairedTables = new AtomicLong(0L);
+    private final AtomicLong routeRepairLastRunAtMs = new AtomicLong(-1L);
+    private final AtomicLong routeRepairLastRunRepairedCount = new AtomicLong(0L);
+    private volatile String routeRepairLastRepairedTable;
 
     public MasterServiceImpl() {
         this(new MetaManager(MasterRuntimeContext.getZkClient()),
@@ -278,8 +291,12 @@ public class MasterServiceImpl implements MasterService.Iface {
         if (!isLeader() || zk() == null) {
             return 0;
         }
+        long runAt = clockMs.getAsLong();
+        routeRepairRunCount.incrementAndGet();
+        routeRepairLastRunAtMs.set(runAt);
         try {
             int repaired = 0;
+            String lastRepairedTable = null;
             List<TableLocation> tables = metaManager.listTables();
             for (TableLocation table : tables) {
                 if (table == null) {
@@ -290,16 +307,31 @@ public class MasterServiceImpl implements MasterService.Iface {
                 String after = healSignature(healed);
                 if (!Objects.equals(before, after)) {
                     repaired++;
+                    lastRepairedTable = table.getTableName();
                 }
             }
+            routeRepairTotalRepairedTables.addAndGet(repaired);
+            routeRepairLastRunRepairedCount.set(repaired);
+            routeRepairLastRepairedTable = lastRepairedTable;
             if (repaired > 0) {
                 log.info("repairTableRoutesBestEffort repaired={} total={}", repaired, tables.size());
             }
             return repaired;
         } catch (Exception e) {
+            routeRepairLastRunRepairedCount.set(0L);
+            routeRepairLastRepairedTable = null;
             log.warn("repairTableRoutesBestEffort failed: {}", e.getMessage());
             return 0;
         }
+    }
+
+    public RouteRepairSnapshot routeRepairSnapshot() {
+        return new RouteRepairSnapshot(
+                routeRepairRunCount.get(),
+                routeRepairTotalRepairedTables.get(),
+                routeRepairLastRunAtMs.get(),
+                routeRepairLastRunRepairedCount.get(),
+                routeRepairLastRepairedTable);
     }
 
     @Override

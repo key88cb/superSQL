@@ -417,6 +417,13 @@ class MasterServiceMetadataIntegrationTest {
         Map<?, ?> primary = (Map<?, ?>) meta.get("primaryRS");
         Assertions.assertEquals("rs-2", String.valueOf(primary.get("id")));
         Assertions.assertEquals("ACTIVE", String.valueOf(meta.get("tableStatus")));
+
+        MasterServiceImpl.RouteRepairSnapshot snapshot = service.routeRepairSnapshot();
+        Assertions.assertTrue(snapshot.runCount() >= 1);
+        Assertions.assertTrue(snapshot.totalRepairedTables() >= 1);
+        Assertions.assertTrue(snapshot.lastRunAtMs() > 0L);
+        Assertions.assertTrue(snapshot.lastRunRepairedCount() >= 1);
+        Assertions.assertEquals("t_background_repair", snapshot.lastRepairedTable());
     }
 
     @Test

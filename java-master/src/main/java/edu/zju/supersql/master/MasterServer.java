@@ -71,13 +71,21 @@ public class MasterServer {
     }
 
     static byte[] buildStatusPayload(int thriftPort, int httpPort, String zkConnect) {
-        return buildStatusPayload(thriftPort, httpPort, zkConnect, null);
+        return buildStatusPayload(thriftPort, httpPort, zkConnect, null, null);
     }
 
     static byte[] buildStatusPayload(int thriftPort,
                                      int httpPort,
                                      String zkConnect,
                                      RebalanceScheduler rebalanceScheduler) {
+        return buildStatusPayload(thriftPort, httpPort, zkConnect, rebalanceScheduler, null);
+    }
+
+    static byte[] buildStatusPayload(int thriftPort,
+                                     int httpPort,
+                                     String zkConnect,
+                                     RebalanceScheduler rebalanceScheduler,
+                                     MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("status", "ok");
         payload.put("role", resolveRole());
@@ -88,6 +96,7 @@ public class MasterServer {
         payload.put("zkConnect", zkConnect);
         payload.put("zkReady", MasterRuntimeContext.isReady());
         payload.put("rebalanceScheduler", buildRebalanceSchedulerPayload(rebalanceScheduler));
+        payload.put("routeRepair", buildRouteRepairPayload(routeRepairSnapshot));
         payload.put("timestamp", System.currentTimeMillis());
         try {
             return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
@@ -119,6 +128,21 @@ public class MasterServer {
         status.put("lastFailureAtMs", snapshot.lastFailureAtMs());
         status.put("lastError", snapshot.lastError());
         status.put("lastTriggerReason", snapshot.lastTriggerReason());
+        return status;
+    }
+
+    private static Map<String, Object> buildRouteRepairPayload(MasterServiceImpl.RouteRepairSnapshot snapshot) {
+        Map<String, Object> status = new LinkedHashMap<>();
+        if (snapshot == null) {
+            status.put("available", false);
+            return status;
+        }
+        status.put("available", true);
+        status.put("runCount", snapshot.runCount());
+        status.put("totalRepairedTables", snapshot.totalRepairedTables());
+        status.put("lastRunAtMs", snapshot.lastRunAtMs());
+        status.put("lastRunRepairedCount", snapshot.lastRunRepairedCount());
+        status.put("lastRepairedTable", snapshot.lastRepairedTable());
         return status;
     }
 
@@ -187,6 +211,7 @@ public class MasterServer {
         LeaderElector leaderElector = null;
         RegionServerWatcher regionServerWatcher = null;
         RebalanceScheduler rebalanceScheduler = null;
+        MasterServiceImpl scheduledService = null;
         try {
             RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
             zkClient = CuratorFrameworkFactory.builder()
@@ -217,7 +242,7 @@ public class MasterServer {
             leaderElector = new LeaderElector(zkClient, masterId, masterId + ":" + thriftPort);
             leaderElector.start();
             preloadMetadataFromZk(zkClient);
-            MasterServiceImpl scheduledService = new MasterServiceImpl();
+                scheduledService = new MasterServiceImpl();
             rebalanceScheduler = new RebalanceScheduler(
                     config.rebalanceSchedulerEnabled(),
                     config.rebalanceIntervalMs(),
@@ -241,6 +266,7 @@ public class MasterServer {
         // ── HTTP health server ─────────────────────────────────────────────────
         HttpServer healthServer = HttpServer.create(new InetSocketAddress(httpPort), 0);
         RebalanceScheduler statusScheduler = rebalanceScheduler;
+        MasterServiceImpl statusService = scheduledService;
         healthServer.createContext("/health", exchange -> {
             byte[] body = buildHealthPayload();
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
@@ -248,7 +274,12 @@ public class MasterServer {
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
         });
         healthServer.createContext("/status", exchange -> {
-            byte[] body = buildStatusPayload(thriftPort, httpPort, zkConnect, statusScheduler);
+            byte[] body = buildStatusPayload(
+                    thriftPort,
+                    httpPort,
+                    zkConnect,
+                    statusScheduler,
+                    statusService == null ? null : statusService.routeRepairSnapshot());
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
