@@ -208,6 +208,21 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void copyTableDataShouldTrackOffsetsByTableAndFileName() throws Exception {
+        Response first = service.copyTableData(new DataChunk(
+                "table_a", "shared_name", 0L,
+                ByteBuffer.wrap("aaaa".getBytes(StandardCharsets.UTF_8)), false));
+        Assertions.assertEquals(StatusCode.OK, first.getCode());
+
+        Response second = service.copyTableData(new DataChunk(
+                "table_b", "shared_name", 0L,
+                ByteBuffer.wrap("bbbb".getBytes(StandardCharsets.UTF_8)), true));
+
+        Assertions.assertEquals(StatusCode.OK, second.getCode());
+        Assertions.assertTrue(Files.exists(dataDir.resolve("shared_name")));
+    }
+
+    @Test
     void transferTableShouldFailWhenTargetRejectsChunk() throws Exception {
         Files.writeString(dataDir.resolve("orders_data"), "payload");
 

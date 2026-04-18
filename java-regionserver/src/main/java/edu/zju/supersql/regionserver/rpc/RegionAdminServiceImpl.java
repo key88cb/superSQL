@@ -246,14 +246,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             return r;
         }
         try {
-            long expectedOffset = nextExpectedOffsets.getOrDefault(chunk.getFileName(), 0L);
+            String transferKey = transferKey(chunk.getTableName(), chunk.getFileName());
+            long expectedOffset = nextExpectedOffsets.getOrDefault(transferKey, 0L);
             if (chunk.getOffset() == 0L && expectedOffset > 0L) {
                 // Restarting from offset 0 resets unfinished transfer state.
                 expectedOffset = 0L;
-                resetTransferState(chunk.getFileName());
+                resetTransferState(chunk.getTableName(), chunk.getFileName());
             }
             if (chunk.getOffset() != expectedOffset) {
-                resetTransferState(chunk.getFileName());
+                resetTransferState(chunk.getTableName(), chunk.getFileName());
                 Response r = new Response(StatusCode.ERROR);
                 r.setMessage("Invalid chunk: unexpected offset, expected=" + expectedOffset
                         + ", actual=" + chunk.getOffset());
@@ -281,10 +282,10 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
             long nextOffset = chunk.getOffset() + bytes.length;
             if (chunk.isIsLast()) {
-                nextExpectedOffsets.remove(chunk.getFileName());
+                nextExpectedOffsets.remove(transferKey);
                 publishCompletedFile(stagingPath, targetPath);
             } else {
-                nextExpectedOffsets.put(chunk.getFileName(), nextOffset);
+                nextExpectedOffsets.put(transferKey, nextOffset);
             }
 
             if (chunk.isIsLast()) {
@@ -491,8 +492,12 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         return resolved;
     }
 
-    private void resetTransferState(String fileName) {
-        nextExpectedOffsets.remove(fileName);
+    private String transferKey(String tableName, String fileName) {
+        return (tableName == null ? "" : tableName) + "::" + fileName;
+    }
+
+    private void resetTransferState(String tableName, String fileName) {
+        nextExpectedOffsets.remove(transferKey(tableName, fileName));
         try {
             Path stagingPath = resolveDataPath(fileName + STAGING_SUFFIX);
             Files.deleteIfExists(stagingPath);
