@@ -103,6 +103,7 @@
 - 已支持基于 `/meta/tables` 事件的 route cache 主动失效（create/change/delete）。
 - 已支持 `SHOW ROUTING METRICS` 命令输出当前客户端进程内按表路由指标快照。
 - 已支持 `SHOW ROUTING METRICS JSON` 输出结构化指标快照，便于外部脚本/采集端读取。
+- `MOVING` 已支持透明持续重试模式（`CLIENT_MOVING_RETRY_MAX_ATTEMPTS<=0`）。
 
 ### 仍待实现
 

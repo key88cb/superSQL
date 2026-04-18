@@ -258,7 +258,11 @@ public class SqlClient {
                                            LocationResolver locationResolver,
                                            RegionClientFactory regionClientFactory,
                                            Sleeper sleeper) throws Exception {
-        int maxAttempts = Math.max(1, config.movingRetryMaxAttempts());
+        boolean transparentMovingWait = config.movingRetryMaxAttempts() <= 0;
+        int maxAttempts = transparentMovingWait
+            ? Integer.MAX_VALUE
+            : Math.max(1, config.movingRetryMaxAttempts());
+        String attemptsLabel = transparentMovingWait ? "unbounded" : String.valueOf(maxAttempts);
         long initialBackoffMs = Math.max(0, config.movingRetryInitialBackoffMs());
         long stepBackoffMs = Math.max(0, config.movingRetryBackoffStepMs());
         boolean readOnlyQuery = isReadOnlySql(sql);
@@ -290,7 +294,7 @@ public class SqlClient {
 
                 if (code == StatusCode.REDIRECT) {
                     log.info("DML REDIRECT: table={}, attempt={}/{}, invalidating cache",
-                            tableName, attempt, maxAttempts);
+                            tableName, attempt, attemptsLabel);
                     ROUTING_METRICS.recordRedirect(tableName);
                     routeCache.invalidate(tableName);
                     if (attempt < maxAttempts) {
@@ -301,7 +305,7 @@ public class SqlClient {
 
                 if (code == StatusCode.MOVING) {
                     log.info("DML MOVING: table={}, attempt={}/{}, invalidating cache",
-                            tableName, attempt, maxAttempts);
+                            tableName, attempt, attemptsLabel);
                     routeCache.invalidate(tableName);
                     if (attempt >= maxAttempts) {
                         return result;
@@ -327,7 +331,7 @@ public class SqlClient {
                     ROUTING_METRICS.recordRetryOnException(tableName);
                 }
                 log.warn("DML execution failed: table={}, attempt={}/{}, reason={}",
-                        tableName, attempt, maxAttempts, e.getMessage());
+                        tableName, attempt, attemptsLabel, e.getMessage());
                 if (attempt >= maxAttempts) {
                     throw e;
                 }

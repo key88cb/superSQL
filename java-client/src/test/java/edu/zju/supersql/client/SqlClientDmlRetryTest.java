@@ -61,6 +61,44 @@ class SqlClientDmlRetryTest {
     }
 
     @Test
+    void shouldKeepRetryingMovingWhenAttemptsConfiguredAsZero() throws Exception {
+        RegionServerInfo rs = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        TableLocation loc = new TableLocation("orders", rs, List.of(rs));
+
+        RouteCache cache = new RouteCache(60_000);
+        cache.put("orders", loc);
+
+        SqlClient.LocationResolver resolver = (table, activeMaster, routeCache, config) -> {
+            TableLocation cached = routeCache.get(table);
+            if (cached != null) {
+                return cached;
+            }
+            routeCache.put(table, loc);
+            return loc;
+        };
+
+        StubRegionFactory regionFactory = new StubRegionFactory();
+        regionFactory.enqueueResult("rs-1", result(StatusCode.MOVING, "moving-1"));
+        regionFactory.enqueueResult("rs-1", result(StatusCode.MOVING, "moving-2"));
+        regionFactory.enqueueResult("rs-1", result(StatusCode.OK, "ok"));
+
+        List<Long> sleeps = new ArrayList<>();
+        QueryResult qr = SqlClient.executeDmlWithRetry(
+                "orders",
+                "insert into orders values (1);",
+                "master:8080",
+                cache,
+                config(0, 50, 25, ClientConfig.ReadConsistency.EVENTUAL),
+                resolver,
+                regionFactory,
+                sleeps::add
+        );
+
+        Assertions.assertEquals(StatusCode.OK, qr.getStatus().getCode());
+        Assertions.assertEquals(List.of(50L, 75L), sleeps);
+    }
+
+    @Test
     void shouldRetryWhenPrimaryTemporarilyUnavailable() throws Exception {
         RegionServerInfo primary = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
         RegionServerInfo replica = new RegionServerInfo("rs-2", "127.0.0.1", 9091);

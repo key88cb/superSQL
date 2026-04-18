@@ -108,7 +108,7 @@
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
 
 当前限制：
-- MOVING 已支持有界重试，但在重试窗口内若迁移仍未完成，客户端仍会返回 MOVING 给上层；尚未实现无限透明等待策略。
+- MOVING 已支持有界重试；当 `CLIENT_MOVING_RETRY_MAX_ATTEMPTS<=0` 时启用透明持续重试模式。
 
 ## 4. 已落地测试
 

@@ -40,4 +40,13 @@ class ClientConfigTest {
         Assertions.assertEquals(80, config.movingRetryBackoffStepMs());
         Assertions.assertEquals(ClientConfig.ReadConsistency.STRONG, config.readConsistency());
     }
+
+    @Test
+    void shouldAllowNonPositiveMovingRetryAttemptsForTransparentWaitMode() {
+        ClientConfig config = ClientConfig.fromEnv(Map.of(
+                "CLIENT_MOVING_RETRY_MAX_ATTEMPTS", "0"
+        ));
+
+        Assertions.assertEquals(0, config.movingRetryMaxAttempts());
+    }
 }
