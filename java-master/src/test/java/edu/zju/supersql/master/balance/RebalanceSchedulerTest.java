@@ -33,6 +33,7 @@ class RebalanceSchedulerTest {
         Assertions.assertEquals(1L, snapshot.triggerCount());
         Assertions.assertEquals(1L, snapshot.successCount());
         Assertions.assertEquals(0L, snapshot.failureCount());
+        Assertions.assertEquals("scheduled", snapshot.lastTriggerReason());
     }
 
     @Test
@@ -107,6 +108,7 @@ class RebalanceSchedulerTest {
         Assertions.assertEquals(1L, snapshot.externalRequestCount());
         Assertions.assertEquals(1L, snapshot.tickCount());
         Assertions.assertEquals(1L, snapshot.triggerCount());
+        Assertions.assertEquals("rs_up:rs-1", snapshot.lastTriggerReason());
     }
 
     @Test

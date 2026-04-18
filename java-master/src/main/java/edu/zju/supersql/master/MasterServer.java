@@ -117,6 +117,7 @@ public class MasterServer {
         status.put("lastSuccessAtMs", snapshot.lastSuccessAtMs());
         status.put("lastFailureAtMs", snapshot.lastFailureAtMs());
         status.put("lastError", snapshot.lastError());
+        status.put("lastTriggerReason", snapshot.lastTriggerReason());
         return status;
     }
 

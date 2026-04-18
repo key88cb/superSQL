@@ -32,6 +32,7 @@ public final class RebalanceScheduler implements AutoCloseable {
         private final long lastSuccessAtMs;
         private final long lastFailureAtMs;
         private final String lastError;
+        private final String lastTriggerReason;
 
         Snapshot(boolean enabled,
                  long intervalMs,
@@ -46,7 +47,8 @@ public final class RebalanceScheduler implements AutoCloseable {
                  long lastAttemptAtMs,
                  long lastSuccessAtMs,
                  long lastFailureAtMs,
-                 String lastError) {
+                  String lastError,
+                  String lastTriggerReason) {
             this.enabled = enabled;
             this.intervalMs = intervalMs;
             this.minGapMs = minGapMs;
@@ -61,6 +63,7 @@ public final class RebalanceScheduler implements AutoCloseable {
             this.lastSuccessAtMs = lastSuccessAtMs;
             this.lastFailureAtMs = lastFailureAtMs;
             this.lastError = lastError;
+            this.lastTriggerReason = lastTriggerReason;
         }
 
         public boolean enabled() { return enabled; }
@@ -77,6 +80,7 @@ public final class RebalanceScheduler implements AutoCloseable {
         public long lastSuccessAtMs() { return lastSuccessAtMs; }
         public long lastFailureAtMs() { return lastFailureAtMs; }
         public String lastError() { return lastError; }
+        public String lastTriggerReason() { return lastTriggerReason; }
     }
 
     @FunctionalInterface
@@ -103,6 +107,7 @@ public final class RebalanceScheduler implements AutoCloseable {
     private final AtomicLong lastSuccessAtMs = new AtomicLong(-1L);
     private final AtomicLong lastFailureAtMs = new AtomicLong(-1L);
     private volatile String lastError;
+    private volatile String lastTriggerReason;
     private ScheduledExecutorService scheduler;
 
     public RebalanceScheduler(boolean enabled,
@@ -143,7 +148,8 @@ public final class RebalanceScheduler implements AutoCloseable {
                 lastAttemptAtMs.get(),
                 lastSuccessAtMs.get(),
                 lastFailureAtMs.get(),
-                lastError);
+                lastError,
+                lastTriggerReason);
     }
 
     public void requestTrigger(String reason) {
@@ -153,7 +159,7 @@ public final class RebalanceScheduler implements AutoCloseable {
         externalRequestCount.incrementAndGet();
         log.info("Rebalance scheduler external request: reason={}", reason);
         try {
-            tick();
+            tickWithReason(reason);
         } catch (Exception e) {
             log.warn("Rebalance scheduler external request failed: reason={} cause={}", reason, e.getMessage());
         }
@@ -177,6 +183,10 @@ public final class RebalanceScheduler implements AutoCloseable {
     }
 
     void tick() throws Exception {
+        tickWithReason("scheduled");
+    }
+
+    private void tickWithReason(String reason) throws Exception {
         if (!enabled) {
             return;
         }
@@ -192,6 +202,7 @@ public final class RebalanceScheduler implements AutoCloseable {
             return;
         }
         triggerCount.incrementAndGet();
+        lastTriggerReason = reason;
         lastAttemptAtMs.set(now);
         try {
             Response response = trigger.trigger();
