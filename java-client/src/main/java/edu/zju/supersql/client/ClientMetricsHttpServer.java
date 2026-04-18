@@ -39,6 +39,7 @@ final class ClientMetricsHttpServer implements AutoCloseable {
         int port = readPort(env);
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
         server.createContext("/metrics", new MetricsHandler(metricsSupplier));
+        server.createContext("/healthz", new HealthHandler());
         server.setExecutor(null);
         server.start();
         return new ClientMetricsHttpServer(server);
@@ -96,8 +97,7 @@ final class ClientMetricsHttpServer implements AutoCloseable {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             try {
-                if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    exchange.sendResponseHeaders(405, -1);
+                if (!ensureGet(exchange)) {
                     return;
                 }
 
@@ -113,5 +113,30 @@ final class ClientMetricsHttpServer implements AutoCloseable {
                 exchange.close();
             }
         }
+    }
+
+    private static final class HealthHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            try {
+                if (!ensureGet(exchange)) {
+                    return;
+                }
+                byte[] body = "ok\n".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            } finally {
+                exchange.close();
+            }
+        }
+    }
+
+    private static boolean ensureGet(HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(405, -1);
+            return false;
+        }
+        return true;
     }
 }
