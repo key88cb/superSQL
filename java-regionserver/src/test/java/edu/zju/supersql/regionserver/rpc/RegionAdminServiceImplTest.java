@@ -163,7 +163,26 @@ class RegionAdminServiceImplTest {
         Response secondResp = service.copyTableData(new DataChunk("file3", "file3", 8L, ByteBuffer.wrap(second), true));
         Assertions.assertEquals(StatusCode.ERROR, secondResp.getCode());
         Assertions.assertTrue(secondResp.getMessage().contains("unexpected offset"));
+        Assertions.assertFalse(dataDir.resolve("file3.part").toFile().exists());
     }
+
+        @Test
+        void copyTableDataAllowsCleanRestartAfterOffsetMismatch() throws Exception {
+        Response first = service.copyTableData(new DataChunk(
+            "users", "users_reset", 0L, ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8)), false));
+        Assertions.assertEquals(StatusCode.OK, first.getCode());
+        Assertions.assertTrue(dataDir.resolve("users_reset.part").toFile().exists());
+
+        Response mismatch = service.copyTableData(new DataChunk(
+            "users", "users_reset", 6L, ByteBuffer.wrap("x".getBytes(StandardCharsets.UTF_8)), true));
+        Assertions.assertEquals(StatusCode.ERROR, mismatch.getCode());
+        Assertions.assertFalse(dataDir.resolve("users_reset.part").toFile().exists());
+
+        Response restart = service.copyTableData(new DataChunk(
+            "users", "users_reset", 0L, ByteBuffer.wrap("ok".getBytes(StandardCharsets.UTF_8)), true));
+        Assertions.assertEquals(StatusCode.OK, restart.getCode());
+        Assertions.assertArrayEquals("ok".getBytes(StandardCharsets.UTF_8), Files.readAllBytes(dataDir.resolve("users_reset")));
+        }
 
     @Test
     void copyTableDataReturnsErrorOnUnsafeFileName() throws Exception {

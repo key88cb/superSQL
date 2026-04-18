@@ -249,9 +249,10 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             if (chunk.getOffset() == 0L && expectedOffset > 0L) {
                 // Restarting from offset 0 resets unfinished transfer state.
                 expectedOffset = 0L;
-                nextExpectedOffsets.remove(chunk.getFileName());
+                resetTransferState(chunk.getFileName());
             }
             if (chunk.getOffset() != expectedOffset) {
+                resetTransferState(chunk.getFileName());
                 Response r = new Response(StatusCode.ERROR);
                 r.setMessage("Invalid chunk: unexpected offset, expected=" + expectedOffset
                         + ", actual=" + chunk.getOffset());
@@ -423,5 +424,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             throw new SecurityException("unsafe fileName: " + fileName);
         }
         return resolved;
+    }
+
+    private void resetTransferState(String fileName) {
+        nextExpectedOffsets.remove(fileName);
+        try {
+            Path stagingPath = resolveDataPath(fileName + STAGING_SUFFIX);
+            Files.deleteIfExists(stagingPath);
+        } catch (Exception e) {
+            log.warn("copyTableData resetTransferState failed file={} cause={}", fileName, e.getMessage());
+        }
     }
 }
