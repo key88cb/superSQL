@@ -2,7 +2,14 @@ package edu.zju.supersql.regionserver.rpc;
 
 import edu.zju.supersql.regionserver.WriteGuard;
 import edu.zju.supersql.rpc.DataChunk;
+import edu.zju.supersql.rpc.RegionAdminService;
+import org.apache.thrift.TMultiplexedProcessor;
+import org.apache.thrift.server.TServer;
+import org.apache.thrift.server.TThreadPoolServer;
+import org.apache.thrift.transport.TServerSocket;
+import org.apache.thrift.transport.layered.TFramedTransport;
 import edu.zju.supersql.rpc.Response;
+import edu.zju.supersql.rpc.RegionServerInfo;
 import edu.zju.supersql.rpc.StatusCode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,10 +18,13 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.ServerSocket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Unit tests for RegionAdminServiceImpl.
@@ -120,6 +130,35 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(StatusCode.ERROR, r.getCode());
     }
 
+    @Test
+    void copyTableDataReturnsErrorOnNegativeOffset() throws Exception {
+        DataChunk chunk = new DataChunk("orders", "orders", -1L,
+                ByteBuffer.wrap("x".getBytes(StandardCharsets.UTF_8)), true);
+        Response r = service.copyTableData(chunk);
+        Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+    }
+
+    @Test
+    void transferTableShouldFailWhenTargetRejectsChunk() throws Exception {
+        Files.writeString(dataDir.resolve("orders_data"), "payload");
+
+        int port = freePort();
+        RegionAdminService.Iface rejecting = new RejectingCopyService();
+        TServer server = buildServer(port, rejecting);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        pool.submit(server::serve);
+        Thread.sleep(200);
+
+        try {
+            Response r = service.transferTable("orders", "127.0.0.1", port);
+            Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+            Assertions.assertTrue(r.getMessage().contains("copyTableData rejected"));
+        } finally {
+            server.stop();
+            pool.shutdownNow();
+        }
+    }
+
     // ── heartbeat / registerRegionServer ──────────────────────────────────────
 
     @Test
@@ -128,5 +167,70 @@ class RegionAdminServiceImplTest {
                 new edu.zju.supersql.rpc.RegionServerInfo("rs-test", "localhost", 9090);
         Assertions.assertEquals(StatusCode.OK, service.heartbeat(info).getCode());
         Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(info).getCode());
+    }
+
+    private static TServer buildServer(int port, RegionAdminService.Iface impl) throws Exception {
+        TMultiplexedProcessor processor = new TMultiplexedProcessor();
+        processor.registerProcessor("RegionAdminService", new RegionAdminService.Processor<>(impl));
+        TServerSocket transport = new TServerSocket(port);
+        return new TThreadPoolServer(new TThreadPoolServer.Args(transport)
+                .processor(processor)
+                .transportFactory(new TFramedTransport.Factory())
+                .minWorkerThreads(1)
+                .maxWorkerThreads(2));
+    }
+
+    private static int freePort() throws Exception {
+        try (ServerSocket s = new ServerSocket(0)) {
+            return s.getLocalPort();
+        }
+    }
+
+    private static final class RejectingCopyService implements RegionAdminService.Iface {
+        @Override
+        public Response pauseTableWrite(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response resumeTableWrite(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response transferTable(String tableName, String targetHost, int targetPort) {
+            return ok();
+        }
+
+        @Override
+        public Response copyTableData(DataChunk chunk) {
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("reject by test server");
+            return r;
+        }
+
+        @Override
+        public Response deleteLocalTable(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response registerRegionServer(RegionServerInfo info) {
+            return ok();
+        }
+
+        @Override
+        public Response heartbeat(RegionServerInfo info) {
+            return ok();
+        }
+
+        @Override
+        public Response invalidateClientCache(String tableName) {
+            return ok();
+        }
+
+        private static Response ok() {
+            return new Response(StatusCode.OK);
+        }
     }
 }

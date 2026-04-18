@@ -204,7 +204,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 RegionAdminService.Client client = new RegionAdminService.Client(mux);
 
                 for (File file : tableFiles) {
-                    streamFile(client, file);
+                    streamFile(client, tableName, file);
                 }
             } finally {
                 transport.close();
@@ -226,6 +226,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         if (chunk == null || !chunk.isSetFileName()) {
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("Invalid chunk: missing fileName");
+            return r;
+        }
+        if (chunk.getOffset() < 0) {
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("Invalid chunk: negative offset");
             return r;
         }
         try {
@@ -272,9 +277,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     // ─────────────────────── helpers ──────────────────────────────────────────
 
-    private void streamFile(RegionAdminService.Client client, File file) throws Exception {
-        // tableName is inferred from the file name (first segment before '_' or dot)
-        String tableName = file.getName().replaceAll("[._].*", "");
+    private void streamFile(RegionAdminService.Client client, String tableName, File file) throws Exception {
         long fileSize = file.length();
         long offset = 0;
         byte[] buffer = new byte[CHUNK_SIZE];
@@ -290,7 +293,13 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
                 DataChunk chunk = new DataChunk(tableName, file.getName(), offset,
                         ByteBuffer.wrap(data), isLast);
-                client.copyTableData(chunk);
+                Response response = client.copyTableData(chunk);
+                if (response.getCode() != StatusCode.OK) {
+                    throw new IOException("copyTableData rejected file=" + file.getName()
+                            + " offset=" + offset
+                            + " code=" + response.getCode()
+                            + " msg=" + response.getMessage());
+                }
 
                 offset = nextOffset;
             }
