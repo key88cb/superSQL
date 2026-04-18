@@ -13,7 +13,9 @@ public record MasterConfig(
         long heartbeatIntervalMs,
         long heartbeatTimeoutMs,
         long rebalanceIntervalMs,
-        double rebalanceRatio
+    double rebalanceRatio,
+    boolean rebalanceSchedulerEnabled,
+    long rebalanceMinGapMs
 ) {
 
     public static MasterConfig fromSystemEnv() {
@@ -30,7 +32,9 @@ public record MasterConfig(
                 readLong(env, "MASTER_HEARTBEAT_INTERVAL_MS", 5_000L),
                 readLong(env, "MASTER_HEARTBEAT_TIMEOUT_MS", 15_000L),
                 readLong(env, "MASTER_REBALANCE_INTERVAL_MS", 30_000L),
-                readDouble(env, "MASTER_REBALANCE_RATIO", 1.5)
+                readDouble(env, "MASTER_REBALANCE_RATIO", 1.5),
+                readBoolean(env, "MASTER_REBALANCE_SCHEDULER_ENABLED", true),
+                readLong(env, "MASTER_REBALANCE_MIN_GAP_MS", 20_000L)
         );
     }
 
@@ -73,5 +77,13 @@ public record MasterConfig(
         } catch (NumberFormatException e) {
             return fallback;
         }
+    }
+
+    private static boolean readBoolean(Map<String, String> env, String key, boolean fallback) {
+        String value = env.get(key);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return Boolean.parseBoolean(value);
     }
 }

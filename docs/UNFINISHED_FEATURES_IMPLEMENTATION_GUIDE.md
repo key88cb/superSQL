@@ -27,7 +27,7 @@
 
 ### 1.2 仍未完成且需继续推进的内容
 
-- Master：完整动态调度与自治恢复闭环（定时重均衡、故障驱动迁移、稳定迁移编排）。
+- Master：完整动态调度与自治恢复闭环仍待完善（基础定时重均衡已落地）。
 - RegionServer：WAL/复制/恢复的最终形态（更强一致语义与恢复协议）。
 - RegionServer：完整迁移协议（包括更可靠的数据校验、幂等补偿与可确认完成语义）。
 - Client：更细粒度可观测与一致性分级策略仍待完善。
@@ -43,11 +43,11 @@
 - Leader 选举 + `/active-master` epoch CAS + Active 心跳。
 - `createTable/dropTable/getTableLocation/list*` 主链路。
 - `triggerRebalance()` 最小迁移闭环。
+- 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。
 - rebalance 的元数据回滚、target 残留清理补偿、cache invalidation/resume best-effort。
 
 ### 仍待实现
 
-- `RebalanceScheduler`：定时触发 + 节流 + 防抖 + 可观测指标。
 - `RegionMigrator`：迁移状态机化（准备/传输/切换/收尾）和幂等恢复。
 - 故障闭环：RegionServer 下线后的自动副本修复、主副本晋升、路由稳定切换。
 - 混沌与分区场景验证：确保 epoch/主从切换在网络抖动下行为可预测。

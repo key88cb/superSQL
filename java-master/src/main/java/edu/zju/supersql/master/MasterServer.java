@@ -2,6 +2,7 @@ package edu.zju.supersql.master;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
+import edu.zju.supersql.master.balance.RebalanceScheduler;
 import edu.zju.supersql.master.election.LeaderElector;
 import edu.zju.supersql.master.meta.MetaManager;
 import edu.zju.supersql.master.rpc.MasterServiceImpl;
@@ -120,6 +121,7 @@ public class MasterServer {
         CuratorFramework zkClient = null;
         LeaderElector leaderElector = null;
         RegionServerWatcher regionServerWatcher = null;
+        RebalanceScheduler rebalanceScheduler = null;
         try {
             RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
             zkClient = CuratorFrameworkFactory.builder()
@@ -152,10 +154,19 @@ public class MasterServer {
             regionServerWatcher = new RegionServerWatcher(zkClient);
             regionServerWatcher.start();
             preloadMetadataFromZk(zkClient);
+            MasterServiceImpl scheduledService = new MasterServiceImpl();
+            rebalanceScheduler = new RebalanceScheduler(
+                    config.rebalanceSchedulerEnabled(),
+                    config.rebalanceIntervalMs(),
+                    config.rebalanceMinGapMs(),
+                    scheduledService::triggerRebalance);
+            rebalanceScheduler.start();
             LeaderElector finalLeaderElector = leaderElector;
             RegionServerWatcher finalRegionServerWatcher = regionServerWatcher;
+            RebalanceScheduler finalRebalanceScheduler = rebalanceScheduler;
             Runtime.getRuntime().addShutdownHook(new Thread(finalLeaderElector::close));
             Runtime.getRuntime().addShutdownHook(new Thread(finalRegionServerWatcher::close));
+            Runtime.getRuntime().addShutdownHook(new Thread(finalRebalanceScheduler::close));
         } catch (Exception e) {
             log.warn("ZooKeeper connection failed at startup — proceeding without ZK: {}", e.getMessage());
         }

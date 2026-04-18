@@ -13,10 +13,11 @@
 - HTTP 管理端点：`GET /health` 与 `GET /status` 返回 JSON（含角色信息）。
 - createTable / dropTable 已通过真实 Thrift 调用把 DDL 转发到 RegionServer，再在成功后更新 ZooKeeper 元数据。
 - `triggerRebalance()` 已具备最小可用迁移闭环：可把热点节点上的一个非主副本迁往更空闲节点，并更新 `/meta/tables` 与 `/assignments`。
+- 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
 
 当前限制：
-- 当前 rebalance 仍是最小可用版本，尚未形成完整定时调度器 + RegionMigrator + 故障恢复闭环。
+- 当前 rebalance 调度器仍是基础版，尚未形成完整 RegionMigrator 状态机 + 故障恢复闭环。
 - rebalance 对数据面迁移回滚当前仍以元数据回滚为主；target 清理虽已支持 best-effort，但尚未形成强一致、可确认完成的补偿协议。
 - 当前选主与脑裂防护已跑通基础路径，尚未补全网络分区/抖动场景下的混沌验证。
 
