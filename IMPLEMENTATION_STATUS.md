@@ -83,6 +83,7 @@
   - `EVENTUAL`：允许 SELECT 在主副本失败时降级到副本读取。
   - `STRONG`：SELECT 仅访问主副本，不进行副本降级读取。
 - 已支持按表路由指标统计（内存态）：重定向次数、MOVING 重试次数、异常重试次数、路由回源次数、读降级命中次数。
+- REPL 已支持 `SHOW ROUTING METRICS` 命令，可直接查看当前进程内按表路由指标快照。
 - 路由缓存支持 TTL 与版本失效。
 - 已支持基于 ZooKeeper `/meta/tables` 事件的主动 route cache 失效（create/change/delete）。
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
@@ -128,6 +129,7 @@ Client：
 - SqlClientRoutingTest
 - RouteCacheAndDiscoveryTest
 - SqlClientDmlRetryTest
+- SqlClientRoutingMetricsCommandTest
 - SqlClientPlannedFeaturesTddTest（已改为可执行测试，不再 `@Disabled`）
 
 新增 TDD 规格测试（默认 `@Disabled`）：

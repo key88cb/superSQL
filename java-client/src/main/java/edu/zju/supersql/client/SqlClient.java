@@ -35,13 +35,14 @@ public class SqlClient {
     private static final Pattern TABLE_NAME_PATTERN =
             Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
     private static final ObjectMapper MAPPER = new ObjectMapper();
-        private static final ClientRoutingMetrics ROUTING_METRICS = new ClientRoutingMetrics();
+    private static final ClientRoutingMetrics ROUTING_METRICS = new ClientRoutingMetrics();
 
-    enum SqlKind { DDL, DML, SHOW_TABLES, UNKNOWN }
+    enum SqlKind { DDL, DML, SHOW_TABLES, SHOW_ROUTING_METRICS, UNKNOWN }
 
     static SqlKind classifySql(String sql) {
         if (sql == null || sql.isBlank()) return SqlKind.UNKNOWN;
         String s = sql.trim().toLowerCase();
+        if (s.startsWith("show routing metrics")) return SqlKind.SHOW_ROUTING_METRICS;
         if (s.startsWith("show tables")) return SqlKind.SHOW_TABLES;
         if (s.startsWith("create") || s.startsWith("drop") || s.startsWith("alter")
                 || s.startsWith("truncate")) return SqlKind.DDL;
@@ -153,9 +154,16 @@ public class SqlClient {
 
         switch (kind) {
             case SHOW_TABLES -> handleShowTables(activeMaster, config);
+            case SHOW_ROUTING_METRICS -> handleShowRoutingMetrics();
             case DDL         -> handleDdl(sql, activeMaster, routeCache, config);
             case DML         -> handleDml(sql, activeMaster, routeCache, config);
             default          -> System.out.println("Unknown SQL: " + sql);
+        }
+    }
+
+    private static void handleShowRoutingMetrics() {
+        for (String line : formatRoutingMetricsLines(snapshotRoutingMetrics())) {
+            System.out.println(line);
         }
     }
 
@@ -413,6 +421,36 @@ public class SqlClient {
 
     static Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshotRoutingMetrics() {
         return ROUTING_METRICS.snapshot();
+    }
+
+    static List<String> formatRoutingMetricsLines(Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot) {
+        List<String> lines = new ArrayList<>();
+        if (snapshot == null || snapshot.isEmpty()) {
+            lines.add("(no routing metrics)");
+            return lines;
+        }
+
+        lines.add("Routing Metrics:");
+        List<String> tables = new ArrayList<>(snapshot.keySet());
+        tables.sort(String::compareTo);
+        for (String table : tables) {
+            ClientRoutingMetrics.MetricsSnapshot metrics = snapshot.get(table);
+            if (metrics == null) {
+                continue;
+            }
+            lines.add(String.format(
+                    "  %s: redirects=%d movingRetries=%d exceptionRetries=%d locationFetches=%d readFallbacks=%d",
+                    table,
+                    metrics.redirectCount(),
+                    metrics.movingRetryCount(),
+                    metrics.retryOnExceptionCount(),
+                    metrics.locationFetchCount(),
+                    metrics.readFallbackCount()));
+        }
+        if (lines.size() == 1) {
+            lines.add("(no routing metrics)");
+        }
+        return lines;
     }
 
     static void resetRoutingMetricsForTests() {
