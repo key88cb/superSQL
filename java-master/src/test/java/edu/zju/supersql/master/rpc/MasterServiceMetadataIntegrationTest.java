@@ -399,6 +399,104 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void triggerRebalanceShouldExposeAndClearMigrationAttemptId() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_rebalance_attempt(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 9);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        AtomicReference<String> preparingAttempt = new AtomicReference<>();
+        AtomicReference<String> movingAttempt = new AtomicReference<>();
+
+        RecordingRegionAdminExecutor observingAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response pauseTableWrite(RegionServerInfo regionServer, String tableName) {
+                try {
+                    Map<?, ?> meta = readJson("/meta/tables/" + tableName);
+                    preparingAttempt.set(String.valueOf(meta.get("migrationAttemptId")));
+                } catch (Exception e) {
+                    preparingAttempt.set("READ_ERROR");
+                }
+                return super.pauseTableWrite(regionServer, tableName);
+            }
+
+            @Override
+            public Response transferTable(RegionServerInfo source, String tableName, RegionServerInfo target) {
+                try {
+                    Map<?, ?> meta = readJson("/meta/tables/" + tableName);
+                    movingAttempt.set(String.valueOf(meta.get("migrationAttemptId")));
+                } catch (Exception e) {
+                    movingAttempt.set("READ_ERROR");
+                }
+                return super.transferTable(source, tableName, target);
+            }
+        };
+
+        MasterServiceImpl observingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                observingAdmin);
+
+        Response rebalance = observingService.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+        Assertions.assertNotNull(preparingAttempt.get());
+        Assertions.assertFalse(preparingAttempt.get().isBlank());
+        Assertions.assertEquals(preparingAttempt.get(), movingAttempt.get());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_rebalance_attempt");
+        Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
+    }
+
+    @Test
+    void triggerRebalanceShouldClearMigrationAttemptIdWhenTransferFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_rebalance_attempt_fail(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 9);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        RecordingRegionAdminExecutor failingAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response transferTable(RegionServerInfo source, String tableName, RegionServerInfo target) {
+                Response response = new Response(StatusCode.ERROR);
+                response.setMessage("simulated transfer failure");
+                return response;
+            }
+        };
+
+        MasterServiceImpl failingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                failingAdmin);
+
+        Response rebalance = failingService.triggerRebalance();
+        Assertions.assertEquals(StatusCode.ERROR, rebalance.getCode());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_rebalance_attempt_fail");
+        Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
+    }
+
+    @Test
     void triggerRebalanceShouldSkipTableWhenStatusIsNotActive() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);

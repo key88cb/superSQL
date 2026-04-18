@@ -48,6 +48,7 @@
 - `triggerRebalance()` 在 transfer 失败分支会回滚为原始 ACTIVE 元数据，避免状态卡在 MOVING。
 - `triggerRebalance()` 在 pause 失败分支会回滚为原始 ACTIVE 元数据，避免状态卡在 PREPARING。
 - `triggerRebalance()` 现会刷新 `statusUpdatedAt` 元数据字段，便于外部观察迁移状态推进时序。
+- `triggerRebalance()` 迁移阶段已写入 `migrationAttemptId` 并在结束（成功/回滚）后清理，为后续幂等恢复提供观测锚点。
 - `triggerRebalance()` 已限制仅对 `ACTIVE` 表挑选候选，避免迁移中的表被重复调度。
 - `createTable` 也会初始化 `statusUpdatedAt`，新表元数据默认具备可观测时间戳。
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。

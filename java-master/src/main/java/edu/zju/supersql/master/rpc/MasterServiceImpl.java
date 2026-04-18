@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -550,13 +551,14 @@ public class MasterServiceImpl implements MasterService.Iface {
     private Response rebalanceReplica(TableLocation location, RegionServerInfo source, RegionServerInfo target) throws Exception {
         RegionServerInfo primary = location.getPrimaryRS();
         String tableName = location.getTableName();
+        String migrationAttemptId = buildMigrationAttemptId(tableName, source, target);
         TableLocation originalLocation = new TableLocation(location);
         List<RegionServerInfo> originalReplicas = new ArrayList<>(location.getReplicas());
         List<String> beforeReplicas = location.getReplicas().stream().map(RegionServerInfo::getId).toList();
         log.info("triggerRebalance executing table={} primary={} source={} target={} replicasBefore={}",
                 tableName, primary.getId(), source.getId(), target.getId(), beforeReplicas);
 
-        if (!markTableStatus(tableName, primary, location.getReplicas(), "PREPARING")) {
+        if (!markTableStatus(tableName, primary, location.getReplicas(), "PREPARING", migrationAttemptId)) {
             Response error = new Response(StatusCode.ERROR);
             error.setMessage("Failed to mark table as PREPARING before pause: " + tableName);
             return error;
@@ -571,7 +573,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         try {
-            if (!markTableStatus(tableName, primary, location.getReplicas(), "MOVING")) {
+            if (!markTableStatus(tableName, primary, location.getReplicas(), "MOVING", migrationAttemptId)) {
                 rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas);
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as MOVING before transfer: " + tableName);
@@ -596,6 +598,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 metaManager.saveTableLocation(updatedLocation);
                 assignmentManager.saveAssignment(tableName, updatedReplicas);
                 touchStatusUpdatedAtBestEffort(tableName);
+                clearMigrationAttemptIdBestEffort(tableName);
             } catch (Exception metadataError) {
                 log.error("triggerRebalance metadata persist failed table={}, rolling back to original replicas={} cause={}",
                         tableName,
@@ -633,13 +636,15 @@ public class MasterServiceImpl implements MasterService.Iface {
     private boolean markTableStatus(String tableName,
                                     RegionServerInfo primary,
                                     List<RegionServerInfo> replicas,
-                                    String status) {
+                        String status,
+                        String migrationAttemptId) {
         try {
             TableLocation intermediate = new TableLocation(tableName, primary, replicas);
             intermediate.setTableStatus(status);
             intermediate.setVersion(System.currentTimeMillis());
             metaManager.saveTableLocation(intermediate);
             touchStatusUpdatedAtBestEffort(tableName);
+            setMigrationAttemptIdBestEffort(tableName, migrationAttemptId);
             log.info("triggerRebalance marked table {} table={} replicas={}",
                     status, tableName, replicas.stream().map(RegionServerInfo::getId).toList());
             return true;
@@ -657,6 +662,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             metaManager.saveTableLocation(originalLocation);
             assignmentManager.saveAssignment(tableName, originalReplicas);
             touchStatusUpdatedAtBestEffort(tableName);
+                clearMigrationAttemptIdBestEffort(tableName);
             log.info("triggerRebalance metadata rollback completed table={} replicasRestored={}",
                     tableName,
                     originalReplicas.stream().map(RegionServerInfo::getId).toList());
@@ -719,6 +725,61 @@ public class MasterServiceImpl implements MasterService.Iface {
         } catch (Exception e) {
             log.warn("triggerRebalance resume writes exception table={} primary={} cause={}",
                     tableName, primary.getId(), e.getMessage());
+        }
+    }
+
+    private String buildMigrationAttemptId(String tableName,
+                                           RegionServerInfo source,
+                                           RegionServerInfo target) {
+        return tableName + "-" + source.getId() + "-" + target.getId() + "-" + System.currentTimeMillis();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void setMigrationAttemptIdBestEffort(String tableName, String migrationAttemptId) {
+        if (migrationAttemptId == null || migrationAttemptId.isBlank() || zk() == null) {
+            return;
+        }
+        try {
+            String path = tableMetaPath(tableName);
+            if (zk().checkExists().forPath(path) == null) {
+                return;
+            }
+            byte[] data = zk().getData().forPath(path);
+            if (data == null || data.length == 0) {
+                return;
+            }
+            Map<String, Object> root = MAPPER.readValue(data, Map.class);
+            if (!Objects.equals(root.get("migrationAttemptId"), migrationAttemptId)) {
+                root.put("migrationAttemptId", migrationAttemptId);
+                zk().setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Exception e) {
+            log.warn("triggerRebalance set migrationAttemptId failed table={} cause={}",
+                    tableName, e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void clearMigrationAttemptIdBestEffort(String tableName) {
+        if (zk() == null) {
+            return;
+        }
+        try {
+            String path = tableMetaPath(tableName);
+            if (zk().checkExists().forPath(path) == null) {
+                return;
+            }
+            byte[] data = zk().getData().forPath(path);
+            if (data == null || data.length == 0) {
+                return;
+            }
+            Map<String, Object> root = MAPPER.readValue(data, Map.class);
+            if (root.remove("migrationAttemptId") != null) {
+                zk().setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Exception e) {
+            log.warn("triggerRebalance clear migrationAttemptId failed table={} cause={}",
+                    tableName, e.getMessage());
         }
     }
 }
