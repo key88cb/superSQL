@@ -317,6 +317,19 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     private void streamFile(RegionAdminService.Client client, String tableName, File file) throws Exception {
         long fileSize = file.length();
+        if (fileSize == 0) {
+            DataChunk emptyChunk = new DataChunk(tableName, file.getName(), 0L,
+                    ByteBuffer.wrap(new byte[0]), true);
+            Response response = client.copyTableData(emptyChunk);
+            if (response.getCode() != StatusCode.OK) {
+                throw new IOException("copyTableData rejected file=" + file.getName()
+                        + " offset=0"
+                        + " code=" + response.getCode()
+                        + " msg=" + response.getMessage());
+            }
+            return;
+        }
+
         long offset = 0;
         byte[] buffer = new byte[CHUNK_SIZE];
 

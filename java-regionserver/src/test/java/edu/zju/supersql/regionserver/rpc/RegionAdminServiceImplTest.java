@@ -23,6 +23,8 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -206,6 +208,32 @@ class RegionAdminServiceImplTest {
         }
     }
 
+    @Test
+    void transferTableShouldSendFinalChunkForEmptyFile() throws Exception {
+        Files.write(dataDir.resolve("orders_empty"), new byte[0]);
+
+        int port = freePort();
+        RecordingCopyService recording = new RecordingCopyService();
+        TServer server = buildServer(port, recording);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        pool.submit(server::serve);
+        Thread.sleep(200);
+
+        try {
+            Response r = service.transferTable("orders", "127.0.0.1", port);
+            Assertions.assertEquals(StatusCode.OK, r.getCode());
+            Assertions.assertEquals(1, recording.chunks.size());
+            DataChunk chunk = recording.chunks.get(0);
+            Assertions.assertEquals("orders_empty", chunk.getFileName());
+            Assertions.assertEquals(0L, chunk.getOffset());
+            Assertions.assertTrue(chunk.isIsLast());
+            Assertions.assertEquals(0, chunk.bufferForData().remaining());
+        } finally {
+            server.stop();
+            pool.shutdownNow();
+        }
+    }
+
     // ── heartbeat / registerRegionServer ──────────────────────────────────────
 
     @Test
@@ -254,6 +282,55 @@ class RegionAdminServiceImplTest {
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("reject by test server");
             return r;
+        }
+
+        @Override
+        public Response deleteLocalTable(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response registerRegionServer(RegionServerInfo info) {
+            return ok();
+        }
+
+        @Override
+        public Response heartbeat(RegionServerInfo info) {
+            return ok();
+        }
+
+        @Override
+        public Response invalidateClientCache(String tableName) {
+            return ok();
+        }
+
+        private static Response ok() {
+            return new Response(StatusCode.OK);
+        }
+    }
+
+    private static final class RecordingCopyService implements RegionAdminService.Iface {
+        private final List<DataChunk> chunks = new CopyOnWriteArrayList<>();
+
+        @Override
+        public Response pauseTableWrite(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response resumeTableWrite(String tableName) {
+            return ok();
+        }
+
+        @Override
+        public Response transferTable(String tableName, String targetHost, int targetPort) {
+            return ok();
+        }
+
+        @Override
+        public Response copyTableData(DataChunk chunk) {
+            chunks.add(chunk.deepCopy());
+            return ok();
         }
 
         @Override

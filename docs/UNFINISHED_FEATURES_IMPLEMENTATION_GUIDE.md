@@ -75,6 +75,7 @@
 - `copyTableData` 已补充 per-file 连续 offset 校验，乱序/跳跃 chunk 会被拒绝。
 - `copyTableData` 已补充“完成后发布”语义：分块先写临时文件，`isLast=true` 后再原子切换为正式文件。
 - `copyTableData` 已补充 fileName 安全校验，禁止路径穿越写入目标 dataDir 之外。
+- `transferTable` 已覆盖空文件场景：会发送最终完成块，确保目标端能正确落地空文件。
 - RegionAdmin 基础管理路径；`deleteLocalTable` 对 assignment 已修复为“仅移除当前 RS”。
 
 ### 仍待实现
