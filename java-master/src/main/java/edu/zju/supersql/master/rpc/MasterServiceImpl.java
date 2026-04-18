@@ -611,19 +611,19 @@ public class MasterServiceImpl implements MasterService.Iface {
                 return r;
             }
 
-            recoverStuckMigrationsForRebalanceBestEffort();
+            int recoveredBeforeSchedule = recoverStuckMigrationsForRebalanceBestEffort();
 
             if (loadBalancer.isBalanced(regionServers, MasterConfig.fromSystemEnv().rebalanceRatio())) {
                 log.info("triggerRebalance skipped: cluster already balanced");
                 Response r = new Response(StatusCode.OK);
-                r.setMessage("Cluster already balanced");
+                r.setMessage(skipMessageWithRecovered("Cluster already balanced", recoveredBeforeSchedule));
                 return r;
             }
             TableLocation candidate = selectRebalanceCandidate(regionServers);
             if (candidate == null) {
                 log.info("triggerRebalance skipped: no migratable replica found");
                 Response r = new Response(StatusCode.OK);
-                r.setMessage("Rebalance skipped: no migratable replica found");
+                r.setMessage(skipMessageWithRecovered("Rebalance skipped: no migratable replica found", recoveredBeforeSchedule));
                 return r;
             }
             RegionServerInfo source = findNonPrimaryReplicaOnHotNode(candidate, regionServers);
@@ -631,7 +631,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 log.info("triggerRebalance skipped: only primary replicas on hotspot table={}",
                         candidate.getTableName());
                 Response r = new Response(StatusCode.OK);
-                r.setMessage("Rebalance skipped: only primary replicas on hotspot");
+                r.setMessage(skipMessageWithRecovered("Rebalance skipped: only primary replicas on hotspot", recoveredBeforeSchedule));
                 return r;
             }
             RegionServerInfo target = loadBalancer.leastLoadedExcluding(regionServers,
@@ -640,7 +640,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 log.info("triggerRebalance skipped: no eligible target region server table={}",
                         candidate.getTableName());
                 Response r = new Response(StatusCode.OK);
-                r.setMessage("Rebalance skipped: no eligible target region server");
+                r.setMessage(skipMessageWithRecovered("Rebalance skipped: no eligible target region server", recoveredBeforeSchedule));
                 return r;
             }
             int sourceLoad = source.isSetTableCount() ? source.getTableCount() : 0;
@@ -649,7 +649,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 log.info("triggerRebalance skipped: target not lighter table={} source={}({}) target={}({})",
                         candidate.getTableName(), source.getId(), sourceLoad, target.getId(), targetLoad);
                 Response r = new Response(StatusCode.OK);
-                r.setMessage("Rebalance skipped: no lighter target region server available");
+                r.setMessage(skipMessageWithRecovered("Rebalance skipped: no lighter target region server available", recoveredBeforeSchedule));
                 return r;
             }
 
@@ -659,7 +659,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
-    private void recoverStuckMigrationsForRebalanceBestEffort() {
+    private int recoverStuckMigrationsForRebalanceBestEffort() {
         try {
             int recovered = 0;
             for (TableLocation location : metaManager.listTables()) {
@@ -671,9 +671,18 @@ public class MasterServiceImpl implements MasterService.Iface {
             if (recovered > 0) {
                 log.warn("triggerRebalance proactively recovered {} stuck migration table(s)", recovered);
             }
+            return recovered;
         } catch (Exception e) {
             log.warn("triggerRebalance stuck migration pre-recovery failed: {}", e.getMessage());
+            return 0;
         }
+    }
+
+    private static String skipMessageWithRecovered(String baseMessage, int recoveredCount) {
+        if (recoveredCount <= 0) {
+            return baseMessage;
+        }
+        return baseMessage + " (recovered " + recoveredCount + " stuck migration(s))";
     }
 
     private void rollbackCreatedReplicas(String tableName, List<RegionServerInfo> createdReplicas) {

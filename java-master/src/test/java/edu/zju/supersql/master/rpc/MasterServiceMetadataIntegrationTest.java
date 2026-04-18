@@ -646,6 +646,7 @@ class MasterServiceMetadataIntegrationTest {
 
         Response rebalance = recoveringService.triggerRebalance();
         Assertions.assertEquals(StatusCode.OK, rebalance.getCode());
+        Assertions.assertTrue(rebalance.getMessage().contains("recovered 1 stuck migration(s)"));
 
         Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_recover_trigger");
         Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
