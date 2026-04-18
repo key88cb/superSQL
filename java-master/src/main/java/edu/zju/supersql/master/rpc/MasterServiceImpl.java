@@ -435,7 +435,12 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         try {
-            return metaManager.listTables();
+            List<TableLocation> locations = metaManager.listTables();
+            List<TableLocation> healed = new ArrayList<>();
+            for (TableLocation location : locations) {
+                healed.add(promotePrimaryIfOfflineBestEffort(location));
+            }
+            return healed;
         } catch (Exception e) {
             throw new TException("Failed to list table metadata", e);
         }
