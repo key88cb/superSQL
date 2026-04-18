@@ -124,6 +124,9 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertEquals("t_assign", assignment.get("tableName"));
         List<?> replicas = (List<?>) assignment.get("replicas");
         Assertions.assertEquals(3, replicas.size());
+
+        Map<?, ?> tableMeta = readJson("/meta/tables/t_assign");
+        Assertions.assertTrue(toLong(tableMeta.get("statusUpdatedAt")) > 0L);
     }
 
     @Test

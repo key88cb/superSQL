@@ -337,6 +337,7 @@ public class MasterServiceImpl implements MasterService.Iface {
 
             metaManager.saveTableLocation(location);
             assignmentManager.saveAssignment(tableName, replicas);
+            touchStatusUpdatedAtBestEffort(tableName);
 
             Response r = new Response(StatusCode.OK);
             r.setMessage("Table metadata created: " + tableName);
