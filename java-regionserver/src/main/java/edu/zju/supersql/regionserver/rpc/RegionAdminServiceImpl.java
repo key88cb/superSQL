@@ -1,8 +1,8 @@
 package edu.zju.supersql.regionserver.rpc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import edu.zju.supersql.regionserver.ReplicaManager;
 import edu.zju.supersql.regionserver.WriteGuard;
+import edu.zju.supersql.regionserver.ZkPaths;
 import edu.zju.supersql.rpc.*;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.thrift.TException;
@@ -13,7 +13,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -81,28 +82,37 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 }
             }
 
-            // Remove ZK assignment node if this RS is listed
+            // Remove only this RS from assignment replicas; keep other replicas intact.
             if (zkClient != null) {
-                String path = "/assignments/" + tableName;
+                String path = ZkPaths.assignment(tableName);
                 if (zkClient.checkExists().forPath(path) != null) {
                     byte[] data = zkClient.getData().forPath(path);
                     if (data != null && data.length > 0) {
                         Map<?, ?> root = MAPPER.readValue(data, Map.class);
                         List<?> replicas = (List<?>) root.get("replicas");
+                        List<Object> filteredReplicas = new ArrayList<>();
                         boolean thisRsListed = false;
                         if (replicas != null) {
                             for (Object item : replicas) {
-                                if (item instanceof Map<?, ?> rs) {
-                                    if (rsId.equals(rs.get("id"))) {
+                                if (item instanceof Map<?, ?> rs && rsId.equals(String.valueOf(rs.get("id")))) {
                                         thisRsListed = true;
-                                        break;
-                                    }
+                                        continue;
                                 }
+                                filteredReplicas.add(item);
                             }
                         }
                         if (thisRsListed) {
-                            zkClient.delete().forPath(path);
-                            log.info("deleteLocalTable: deleted ZK assignment for {}", tableName);
+                            if (filteredReplicas.isEmpty()) {
+                                zkClient.delete().forPath(path);
+                                log.info("deleteLocalTable: removed assignment node for table={} after removing rs={}",
+                                        tableName, rsId);
+                            } else {
+                                ((Map<String, Object>) root).put("replicas", filteredReplicas);
+                                byte[] updated = MAPPER.writeValueAsString(root).getBytes(StandardCharsets.UTF_8);
+                                zkClient.setData().forPath(path, updated);
+                                log.info("deleteLocalTable: removed rs={} from assignment of table={} remainingReplicas={}",
+                                        rsId, tableName, filteredReplicas.size());
+                            }
                         }
                     }
                 }
