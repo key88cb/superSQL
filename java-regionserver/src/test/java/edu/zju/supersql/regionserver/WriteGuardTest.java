@@ -29,7 +29,11 @@ class WriteGuardTest {
         guard.pause("t");
 
         Thread resumeThread = new Thread(() -> {
-            try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             guard.resume("t");
         });
         resumeThread.setDaemon(true);

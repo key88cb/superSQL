@@ -66,7 +66,7 @@ class LeaderElectorTest {
                     Map<?, ?> active = readActiveMaster(zk1);
                     Object id = active.get("masterId");
                     return "master-1".equals(String.valueOf(id)) || "master-2".equals(String.valueOf(id));
-                } catch (Exception ignored) {
+                } catch (Exception e) {
                     return false;
                 }
             });
@@ -117,7 +117,7 @@ class LeaderElectorTest {
                 try {
                     Map<?, ?> active = readActiveMaster(zk1);
                     return ((Number) active.get("epoch")).longValue() == 10L;
-                } catch (Exception ignored) {
+                } catch (Exception e) {
                     return false;
                 }
             });

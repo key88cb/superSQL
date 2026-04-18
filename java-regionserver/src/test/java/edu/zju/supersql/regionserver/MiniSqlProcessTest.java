@@ -26,7 +26,7 @@ class MiniSqlProcessTest {
 
             // Trigger a crash in the child process.
             process.execute("crash;");
-        } catch (Exception ignored) {
+        } catch (Exception expected) {
             // Expected: the child exits before producing a prompt.
         }
 
