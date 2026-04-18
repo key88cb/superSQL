@@ -174,8 +174,8 @@ public class RegionServiceImpl implements RegionService.Iface {
 
             // 3. Sync to replicas
             List<String> replicas = getReplicaAddresses(tableName);
-            int acks = replicaManager.syncToReplicas(entry, replicas);
             int requiredAcks = Math.min(replicas.size(), minReplicaAcks);
+            int acks = replicaManager.syncToReplicas(entry, replicas, requiredAcks);
             if (acks < requiredAcks) {
                 log.warn("executeWrite: insufficient replica ACKs lsn={} table={} required={} actual={} replicas={}",
                         lsn, tableName, requiredAcks, acks, replicas.size());

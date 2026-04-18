@@ -72,6 +72,17 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void syncToReplicasShouldReachRequiredAckCountWhenAvailable() {
+        ReplicaManager manager = new ReplicaManager();
+        WalEntry entry = buildEntry(11L, "orders", "insert into orders values(11);");
+
+        int acks = manager.syncToReplicas(entry,
+                List.of("127.0.0.1:" + port1, "127.0.0.1:" + port2), 2);
+
+        Assertions.assertEquals(2, acks, "Expected all ACKs to be collected for requiredAcks=2");
+    }
+
+    @Test
     void syncToReplicasReturnsZeroWhenNoServersAvailable() {
         ReplicaManager manager = new ReplicaManager();
         WalEntry entry = buildEntry(20L, "orders", "insert into orders values(2);");

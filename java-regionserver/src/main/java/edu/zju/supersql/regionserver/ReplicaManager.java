@@ -14,7 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -54,24 +55,64 @@ public class ReplicaManager {
      * @return number of successful ACKs received (0 if all timed out or failed)
      */
     public int syncToReplicas(WalEntry entry, List<String> addresses) {
+        return syncToReplicas(entry, addresses, 1);
+    }
+
+    /**
+     * Sends a WAL entry to all replicas and waits until required ACKs are reached
+     * or timeout is exceeded.
+     *
+     * @param entry        the WAL entry to replicate
+     * @param addresses    replica addresses in {@code host:port} format
+     * @param requiredAcks required ACK count; if {@code <= 0}, the sync is fire-and-forget
+     * @return number of successful ACKs received before returning
+     */
+    public int syncToReplicas(WalEntry entry, List<String> addresses, int requiredAcks) {
         if (addresses == null || addresses.isEmpty()) {
             return 0;
         }
 
-        AtomicInteger acks = new AtomicInteger(0);
-        CompletableFuture<?>[] futures = addresses.stream()
-                .map(addr -> CompletableFuture.runAsync(() -> {
-                    if (syncOne(entry, addr)) {
-                        acks.incrementAndGet();
-                    }
-                }, executor))
-                .toArray(CompletableFuture[]::new);
+        if (requiredAcks <= 0) {
+            for (String addr : addresses) {
+                executor.submit(() -> syncOne(entry, addr));
+            }
+            return 0;
+        }
 
-        try {
-            CompletableFuture.anyOf(futures).get(SYNC_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-            log.warn("syncToReplicas: timeout or error waiting for first ACK (lsn={}): {}",
-                    entry.getLsn(), e.getMessage());
+        int targetAcks = Math.min(requiredAcks, addresses.size());
+        ExecutorCompletionService<Boolean> completion = new ExecutorCompletionService<>(executor);
+        for (String addr : addresses) {
+            completion.submit(() -> syncOne(entry, addr));
+        }
+
+        AtomicInteger acks = new AtomicInteger(0);
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(SYNC_TIMEOUT_MS);
+        int finished = 0;
+
+        while (finished < addresses.size() && acks.get() < targetAcks) {
+            long remainingNanos = deadline - System.nanoTime();
+            if (remainingNanos <= 0) {
+                break;
+            }
+            try {
+                Future<Boolean> f = completion.poll(remainingNanos, TimeUnit.NANOSECONDS);
+                if (f == null) {
+                    break;
+                }
+                finished++;
+                if (Boolean.TRUE.equals(f.get())) {
+                    acks.incrementAndGet();
+                }
+            } catch (Exception e) {
+                finished++;
+                log.warn("syncToReplicas: failed while waiting ACK (lsn={}): {}",
+                        entry.getLsn(), e.getMessage());
+            }
+        }
+
+        if (acks.get() < targetAcks) {
+            log.warn("syncToReplicas: insufficient ACKs before timeout (lsn={} required={} actual={} replicas={})",
+                    entry.getLsn(), targetAcks, acks.get(), addresses.size());
         }
         return acks.get();
     }

@@ -41,6 +41,7 @@
 - 持久化 WAL 基础能力：按表写入 `.wal` 文件，启动时扫描 WAL 恢复全局 LSN。
 - WriteGuard：per-table 写入暂停/恢复（用于迁移中的 MOVING 保护）。
 - ReplicaManager：主侧通过 Thrift 并发 sync 到副本，支持半同步等待与异步 commit。
+- ReplicaManager 半同步等待已按 requiredAcks 收敛：会在超时窗口内等待达到所需 ACK 数（而非固定等待首个返回）。
 - RegionServiceImpl 已实现基础写路径：WriteGuard 检查、WAL append、副本 sync、本地 MiniSQL 执行、异步 commit、checkpoint 计数。
 - RegionServiceImpl 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`，默认 1）：ACK 不足时拒绝本地执行并返回错误。
 - ACK 不足拒绝写入时，WAL 条目会标记为 ABORT，避免 PREPARE 条目长期滞留。

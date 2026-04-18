@@ -44,7 +44,7 @@ class RegionServiceImplTest {
         // Default: miniSQL returns SUCCESS; replicas return 1 ACK
         Mockito.when(mockMiniSql.execute(Mockito.anyString()))
                 .thenReturn(">>> SUCCESS\n");
-        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList()))
+        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.anyInt()))
                 .thenReturn(1);
 
         walManager = new WalManager(walDir.toString());
@@ -73,7 +73,7 @@ class RegionServiceImplTest {
         Mockito.verify(mockMiniSql).execute(sql);
 
         // syncToReplicas was called (no replicas returned from null zkClient, so empty list)
-        Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.eq(List.of()));
+        Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.eq(List.of()), Mockito.eq(0));
     }
 
     @Test
@@ -95,7 +95,7 @@ class RegionServiceImplTest {
 
         // syncToReplicas should NOT be called
         Mockito.verify(mockReplicaManager, Mockito.never())
-                .syncToReplicas(Mockito.any(), Mockito.anyList());
+            .syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.anyInt());
 
         // miniSQL IS called for reads
         Mockito.verify(mockMiniSql).execute("select * from orders where id=1;");
@@ -119,7 +119,7 @@ class RegionServiceImplTest {
         CuratorFramework zkClient = mockAssignmentZk("orders", "127.0.0.1", 9091);
         RegionServiceImpl strictService = new RegionServiceImpl(
                 mockMiniSql, walManager, mockReplicaManager, writeGuard, zkClient, "rs-1:9090", 1);
-        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList())).thenReturn(0);
+        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(1))).thenReturn(0);
 
         QueryResult result = strictService.execute("orders", "insert into orders values(1,'x');");
 
@@ -134,12 +134,13 @@ class RegionServiceImplTest {
         CuratorFramework zkClient = mockAssignmentZk("orders", "127.0.0.1", 9091);
         RegionServiceImpl strictService = new RegionServiceImpl(
                 mockMiniSql, walManager, mockReplicaManager, writeGuard, zkClient, "rs-1:9090", 1);
-        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList())).thenReturn(1);
+        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(1))).thenReturn(1);
 
         QueryResult result = strictService.execute("orders", "insert into orders values(2,'y');");
 
         Assertions.assertEquals(StatusCode.OK, result.getStatus().getCode());
         Mockito.verify(mockMiniSql).execute("insert into orders values(2,'y');");
+        Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(1));
     }
 
     // ── executeBatch ─────────────────────────────────────────────────────────
