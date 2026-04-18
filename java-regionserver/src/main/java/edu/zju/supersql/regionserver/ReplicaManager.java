@@ -39,6 +39,8 @@ public class ReplicaManager {
     private static final int CONNECT_TIMEOUT_MS = 3_000;
     /** Time to wait for ≥ 1 ACK during semi-sync replication. */
     private static final int SYNC_TIMEOUT_MS    = 3_000;
+    private static final int COMMIT_RETRY_ATTEMPTS = 3;
+    private static final long COMMIT_RETRY_BACKOFF_MS = 200L;
 
     private final ExecutorService executor =
             Executors.newCachedThreadPool(r -> {
@@ -129,7 +131,7 @@ public class ReplicaManager {
             return;
         }
         for (String addr : addresses) {
-            executor.submit(() -> commitOne(tableName, lsn, addr));
+            executor.submit(() -> commitOneWithRetry(tableName, lsn, addr));
         }
     }
 
@@ -172,15 +174,32 @@ public class ReplicaManager {
         }
     }
 
-    private void commitOne(String tableName, long lsn, String address) {
+    boolean commitOneWithRetry(String tableName, long lsn, String address) {
+        for (int attempt = 1; attempt <= COMMIT_RETRY_ATTEMPTS; attempt++) {
+            if (commitOne(tableName, lsn, address)) {
+                return true;
+            }
+            if (attempt < COMMIT_RETRY_ATTEMPTS) {
+                try {
+                    Thread.sleep(COMMIT_RETRY_BACKOFF_MS * attempt);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean commitOne(String tableName, long lsn, String address) {
         String[] parts = address.split(":");
-        if (parts.length != 2) return;
+        if (parts.length != 2) return false;
         String host = parts[0];
         int port;
         try {
             port = Integer.parseInt(parts[1]);
         } catch (NumberFormatException e) {
-            return;
+            return false;
         }
 
         try (TTransport transport = new TFramedTransport(
@@ -190,11 +209,18 @@ public class ReplicaManager {
                     new TBinaryProtocol(transport), "ReplicaSyncService");
             ReplicaSyncService.Client client = new ReplicaSyncService.Client(protocol);
             Response resp = client.commitLog(tableName, lsn);
-            log.debug("commitLog to {} for table={} lsn={}: code={}",
+                if (resp.getCode() == StatusCode.OK) {
+                log.debug("commitLog to {} for table={} lsn={}: code={} attempt=success",
                     address, tableName, lsn, resp.getCode());
+                return true;
+                }
+                log.warn("commitLog to {} for table={} lsn={} returned code={} msg={}",
+                    address, tableName, lsn, resp.getCode(), resp.getMessage());
+                return false;
         } catch (Exception e) {
             log.warn("commitLog to {} failed for table={} lsn={}: {}",
                     address, tableName, lsn, e.getMessage());
+                return false;
         }
     }
 }

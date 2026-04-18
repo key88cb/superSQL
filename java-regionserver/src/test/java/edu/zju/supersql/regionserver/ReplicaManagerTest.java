@@ -110,6 +110,25 @@ class ReplicaManagerTest {
         // No assertion needed — test passes if no exception is thrown
     }
 
+    @Test
+    void commitOneWithRetryShouldReturnFalseForUnreachableReplica() {
+        ReplicaManager manager = new ReplicaManager();
+        boolean committed = manager.commitOneWithRetry("orders", 999L, "127.0.0.1:1");
+        Assertions.assertFalse(committed);
+    }
+
+    @Test
+    void commitOneWithRetryShouldReturnTrueWhenReplicaHasEntry() {
+        ReplicaManager manager = new ReplicaManager();
+        WalEntry entry = buildEntry(44L, "orders", "insert into orders values(44);");
+
+        int acks = manager.syncToReplicas(entry, List.of("127.0.0.1:" + port1), 1);
+        Assertions.assertEquals(1, acks);
+
+        boolean committed = manager.commitOneWithRetry("orders", 44L, "127.0.0.1:" + port1);
+        Assertions.assertTrue(committed);
+    }
+
     // ─────────────────────── helpers ──────────────────────────────────────────
 
     private static TServer buildServer(int port, ReplicaSyncService.Iface impl) throws Exception {

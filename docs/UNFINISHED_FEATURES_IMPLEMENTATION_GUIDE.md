@@ -67,6 +67,7 @@
 - WAL 状态（PREPARE/COMMITTED/ABORTED）语义已在实现层显式化，并通过恢复边界测试验证仅回放 COMMITTED。
 - WAL 文件基础读写与恢复、ReplicaSync 基础同步与回放。
 - ReplicaSync `commitLog` 已具备幂等提交语义，重复提交不会重复回放 SQL。
+- 主副本对副本 `commitLog` 通知已补充有界重试（best-effort），提升短时故障下的收敛稳定性。
 - RegionAdmin 基础管理路径；`deleteLocalTable` 对 assignment 已修复为“仅移除当前 RS”。
 
 ### 仍待实现
