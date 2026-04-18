@@ -19,7 +19,7 @@
 ### 1.1 已实现但历史文档曾写“未实现”的内容（已纠正）
 
 - Client 已具备真实 RPC 链路（`MasterRpcClient` / `RegionRpcClient` + REPL 路由），不再是“演示模式”。
-- Client 已支持 `NOT_LEADER` 重定向、`REDIRECT` 自愈、`MOVING` 有界重试、主副本瞬时不可达重试。
+- Client 已支持 `NOT_LEADER` 重定向、`REDIRECT` 自愈、`MOVING` 有界重试、主副本瞬时不可达重试、`SELECT` 读故障转移（副本降级）与 `/meta/tables` 主动失效 watch。
 - Master 的 `createTable/dropTable` 已通过真实 Thrift 下发 DDL，不是“仅写 ZK”。
 - Master 的 `triggerRebalance()` 已实现最小可用迁移闭环，并且新增了失败回滚与补偿路径。
 - RegionServer 的 `RegionAdminServiceImpl` 核心管理方法已具备基础实现（pause/resume/delete/transfer/copy/invalidate）。
@@ -30,7 +30,7 @@
 - Master：完整动态调度与自治恢复闭环（定时重均衡、故障驱动迁移、稳定迁移编排）。
 - RegionServer：WAL/复制/恢复的最终形态（更强一致语义与恢复协议）。
 - RegionServer：完整迁移协议（包括更可靠的数据校验、幂等补偿与可确认完成语义）。
-- Client：读故障转移、缓存主动失效广播（目前仍以 TTL/回源为主）。
+- Client：更细粒度可观测与一致性分级策略仍待完善。
 
 ---
 
@@ -75,11 +75,12 @@
 - DDL -> Master、DML -> Region 的真实路由。
 - `NOT_LEADER` 与 `REDIRECT` 处理。
 - `MOVING` 有界重试（参数可配）+ route cache 失效后回源。
+- `SELECT` 在主副本不可达时支持按副本列表降级读取。
+- 已支持基于 `/meta/tables` 事件的 route cache 主动失效（create/change/delete）。
 
 ### 仍待实现
 
-- 读故障转移：主副本不可达时的只读降级或副本读策略（需与一致性策略协同）。
-- 主动缓存失效：来自控制面的广播失效机制（替代纯 TTL 被动过期）。
+- 读故障转移与副本读策略的“一致性分级”能力（如强一致/最终一致可切换）尚未定义并落地。
 - 更细粒度可观测：按表统计重试次数、重定向命中率、回源命中率。
 
 ---

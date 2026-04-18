@@ -74,11 +74,11 @@
 - 主副本短暂不可达时，DML 可自动失效缓存并重试，提升瞬时抖动下可用性。
 - SELECT 在主副本不可达时支持按副本列表降级读取，降低读请求对单主副本的依赖。
 - 路由缓存支持 TTL 与版本失效。
+- 已支持基于 ZooKeeper `/meta/tables` 事件的主动 route cache 失效（create/change/delete）。
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
 
 当前限制：
 - MOVING 已支持有界重试，但在重试窗口内若迁移仍未完成，客户端仍会返回 MOVING 给上层；尚未实现无限透明等待策略。
-- 缓存主动失效广播仍未落地（目前以 TTL + 版本校验 + 重定向/迁移信号失效为主）。
 
 ## 4. 已落地测试
 

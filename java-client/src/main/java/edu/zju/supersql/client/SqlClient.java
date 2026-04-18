@@ -79,6 +79,7 @@ public class SqlClient {
         log.info("SuperSQL Client starting, ZK={}", zkConnect);
 
         CuratorFramework zkClient = null;
+        RouteInvalidationWatcher routeInvalidationWatcher = null;
         RouteCache routeCache = new RouteCache(config.cacheTtlMs());
         String activeMaster = masterFallback;
 
@@ -97,6 +98,8 @@ public class SqlClient {
                 log.info("ZooKeeper connected");
                 activeMaster = readActiveMaster(zkClient, masterFallback);
                 log.info("Discovered active master: {}", activeMaster);
+                routeInvalidationWatcher = RouteInvalidationWatcher.start(zkClient, routeCache);
+                log.info("Route invalidation watcher started on {}", ZkPaths.META_TABLES);
             } else {
                 log.warn("ZooKeeper connection timed out — using fallback master: {}", masterFallback);
             }
@@ -136,6 +139,9 @@ public class SqlClient {
             }
         }
 
+        if (routeInvalidationWatcher != null) {
+            routeInvalidationWatcher.close();
+        }
         if (zkClient != null) zkClient.close();
     }
 
