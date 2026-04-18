@@ -778,7 +778,6 @@ class MasterServiceMetadataIntegrationTest {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private void forcePrimaryInMeta(String tableName, String primaryId, int port) throws Exception {
         String path = "/meta/tables/" + tableName;
         Map<String, Object> meta = new HashMap<>();

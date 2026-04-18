@@ -13,7 +13,6 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.thrift.TMultiplexedProcessor;
 import org.apache.thrift.server.TThreadPoolServer;
 import org.apache.thrift.transport.TServerSocket;
-import org.apache.thrift.transport.TTransportException;
 import org.apache.thrift.transport.layered.TFramedTransport;
 import org.apache.zookeeper.CreateMode;
 import org.junit.jupiter.api.AfterEach;

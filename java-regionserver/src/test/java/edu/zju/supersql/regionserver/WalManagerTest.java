@@ -2,7 +2,6 @@ package edu.zju.supersql.regionserver;
 
 import edu.zju.supersql.rpc.WalEntry;
 import edu.zju.supersql.rpc.WalOpType;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

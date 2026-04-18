@@ -4,8 +4,6 @@ import com.sun.net.httpserver.HttpServer;
 import edu.zju.supersql.regionserver.rpc.RegionAdminServiceImpl;
 import edu.zju.supersql.regionserver.rpc.RegionServiceImpl;
 import edu.zju.supersql.regionserver.rpc.ReplicaSyncServiceImpl;
-import edu.zju.supersql.regionserver.ReplicaManager;
-import edu.zju.supersql.regionserver.WriteGuard;
 import edu.zju.supersql.rpc.RegionAdminService;
 import edu.zju.supersql.rpc.RegionService;
 import edu.zju.supersql.rpc.ReplicaSyncService;

@@ -14,7 +14,7 @@ class RebalanceSchedulerTest {
     void tickShouldTriggerWhenEnabled() throws Exception {
         AtomicLong clock = new AtomicLong(1_000L);
         AtomicInteger calls = new AtomicInteger(0);
-        RebalanceScheduler scheduler = new RebalanceScheduler(
+        try (RebalanceScheduler scheduler = new RebalanceScheduler(
                 true,
                 30_000L,
                 10_000L,
@@ -23,24 +23,24 @@ class RebalanceSchedulerTest {
                     return ok();
                 },
                 clock::get
-        );
+        )) {
+            scheduler.tick();
 
-        scheduler.tick();
-
-        Assertions.assertEquals(1, calls.get());
-        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
-        Assertions.assertEquals(1L, snapshot.tickCount());
-        Assertions.assertEquals(1L, snapshot.triggerCount());
-        Assertions.assertEquals(1L, snapshot.successCount());
-        Assertions.assertEquals(0L, snapshot.failureCount());
-        Assertions.assertEquals("scheduled", snapshot.lastTriggerReason());
+            Assertions.assertEquals(1, calls.get());
+            RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+            Assertions.assertEquals(1L, snapshot.tickCount());
+            Assertions.assertEquals(1L, snapshot.triggerCount());
+            Assertions.assertEquals(1L, snapshot.successCount());
+            Assertions.assertEquals(0L, snapshot.failureCount());
+            Assertions.assertEquals("scheduled", snapshot.lastTriggerReason());
+        }
     }
 
     @Test
     void tickShouldBeThrottledByMinGap() throws Exception {
         AtomicLong clock = new AtomicLong(1_000L);
         AtomicInteger calls = new AtomicInteger(0);
-        RebalanceScheduler scheduler = new RebalanceScheduler(
+        try (RebalanceScheduler scheduler = new RebalanceScheduler(
                 true,
                 30_000L,
                 10_000L,
@@ -49,26 +49,26 @@ class RebalanceSchedulerTest {
                     return ok();
                 },
                 clock::get
-        );
+        )) {
+            scheduler.tick();
+            clock.set(5_000L);
+            scheduler.tick();
+            clock.set(11_500L);
+            scheduler.tick();
 
-        scheduler.tick();
-        clock.set(5_000L);
-        scheduler.tick();
-        clock.set(11_500L);
-        scheduler.tick();
-
-        Assertions.assertEquals(2, calls.get());
-        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
-        Assertions.assertEquals(3L, snapshot.tickCount());
-        Assertions.assertEquals(2L, snapshot.triggerCount());
-        Assertions.assertEquals(1L, snapshot.throttledCount());
+            Assertions.assertEquals(2, calls.get());
+            RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+            Assertions.assertEquals(3L, snapshot.tickCount());
+            Assertions.assertEquals(2L, snapshot.triggerCount());
+            Assertions.assertEquals(1L, snapshot.throttledCount());
+        }
     }
 
     @Test
     void tickShouldNotTriggerWhenDisabled() throws Exception {
         AtomicLong clock = new AtomicLong(1_000L);
         AtomicInteger calls = new AtomicInteger(0);
-        RebalanceScheduler scheduler = new RebalanceScheduler(
+        try (RebalanceScheduler scheduler = new RebalanceScheduler(
                 false,
                 30_000L,
                 10_000L,
@@ -77,21 +77,21 @@ class RebalanceSchedulerTest {
                     return ok();
                 },
                 clock::get
-        );
+        )) {
+            scheduler.tick();
 
-        scheduler.tick();
-
-        Assertions.assertEquals(0, calls.get());
-        Assertions.assertFalse(scheduler.isEnabled());
-        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
-        Assertions.assertEquals(0L, snapshot.tickCount());
-        Assertions.assertEquals(0L, snapshot.triggerCount());
+            Assertions.assertEquals(0, calls.get());
+            Assertions.assertFalse(scheduler.isEnabled());
+            RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+            Assertions.assertEquals(0L, snapshot.tickCount());
+            Assertions.assertEquals(0L, snapshot.triggerCount());
+        }
     }
 
     @Test
     void requestTriggerShouldInvokeTickAndIncreaseExternalCounter() {
         AtomicInteger calls = new AtomicInteger(0);
-        RebalanceScheduler scheduler = new RebalanceScheduler(
+        try (RebalanceScheduler scheduler = new RebalanceScheduler(
                 true,
                 30_000L,
                 0L,
@@ -99,23 +99,23 @@ class RebalanceSchedulerTest {
                     calls.incrementAndGet();
                     return ok();
                 }
-        );
+        )) {
+            scheduler.requestTrigger("rs_up:rs-1");
 
-        scheduler.requestTrigger("rs_up:rs-1");
-
-        Assertions.assertEquals(1, calls.get());
-        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
-        Assertions.assertEquals(1L, snapshot.externalRequestCount());
-        Assertions.assertEquals(1L, snapshot.tickCount());
-        Assertions.assertEquals(1L, snapshot.triggerCount());
-        Assertions.assertEquals("rs_up:rs-1", snapshot.lastTriggerReason());
+            Assertions.assertEquals(1, calls.get());
+            RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+            Assertions.assertEquals(1L, snapshot.externalRequestCount());
+            Assertions.assertEquals(1L, snapshot.tickCount());
+            Assertions.assertEquals(1L, snapshot.triggerCount());
+            Assertions.assertEquals("rs_up:rs-1", snapshot.lastTriggerReason());
+        }
     }
 
     @Test
     void requestTriggerShouldRespectMinGapThrottle() {
         AtomicLong clock = new AtomicLong(1_000L);
         AtomicInteger calls = new AtomicInteger(0);
-        RebalanceScheduler scheduler = new RebalanceScheduler(
+        try (RebalanceScheduler scheduler = new RebalanceScheduler(
                 true,
                 30_000L,
                 10_000L,
@@ -124,26 +124,26 @@ class RebalanceSchedulerTest {
                     return ok();
                 },
                 clock::get
-        );
+        )) {
+            scheduler.requestTrigger("rs_down:rs-1");
+            clock.set(5_000L);
+            scheduler.requestTrigger("rs_down:rs-1");
+            clock.set(11_500L);
+            scheduler.requestTrigger("rs_down:rs-1");
 
-        scheduler.requestTrigger("rs_down:rs-1");
-        clock.set(5_000L);
-        scheduler.requestTrigger("rs_down:rs-1");
-        clock.set(11_500L);
-        scheduler.requestTrigger("rs_down:rs-1");
-
-        Assertions.assertEquals(2, calls.get());
-        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
-        Assertions.assertEquals(3L, snapshot.externalRequestCount());
-        Assertions.assertEquals(3L, snapshot.tickCount());
-        Assertions.assertEquals(2L, snapshot.triggerCount());
-        Assertions.assertEquals(1L, snapshot.throttledCount());
+            Assertions.assertEquals(2, calls.get());
+            RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+            Assertions.assertEquals(3L, snapshot.externalRequestCount());
+            Assertions.assertEquals(3L, snapshot.tickCount());
+            Assertions.assertEquals(2L, snapshot.triggerCount());
+            Assertions.assertEquals(1L, snapshot.throttledCount());
+        }
     }
 
     @Test
     void tickShouldRecordFailureWhenTriggerThrows() {
         AtomicLong clock = new AtomicLong(2_000L);
-        RebalanceScheduler scheduler = new RebalanceScheduler(
+        try (RebalanceScheduler scheduler = new RebalanceScheduler(
                 true,
                 30_000L,
                 10_000L,
@@ -151,16 +151,16 @@ class RebalanceSchedulerTest {
                     throw new IllegalStateException("boom");
                 },
                 clock::get
-        );
+        )) {
+            Assertions.assertThrows(IllegalStateException.class, scheduler::tick);
 
-        Assertions.assertThrows(IllegalStateException.class, scheduler::tick);
-
-        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
-        Assertions.assertEquals(1L, snapshot.tickCount());
-        Assertions.assertEquals(1L, snapshot.triggerCount());
-        Assertions.assertEquals(0L, snapshot.successCount());
-        Assertions.assertEquals(1L, snapshot.failureCount());
-        Assertions.assertEquals("boom", snapshot.lastError());
+            RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+            Assertions.assertEquals(1L, snapshot.tickCount());
+            Assertions.assertEquals(1L, snapshot.triggerCount());
+            Assertions.assertEquals(0L, snapshot.successCount());
+            Assertions.assertEquals(1L, snapshot.failureCount());
+            Assertions.assertEquals("boom", snapshot.lastError());
+        }
     }
 
     private static Response ok() {

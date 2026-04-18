@@ -1,6 +1,5 @@
 package edu.zju.supersql.regionserver;
 
-import edu.zju.supersql.regionserver.rpc.ReplicaSyncServiceImpl;
 import edu.zju.supersql.rpc.ReplicaSyncService;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;

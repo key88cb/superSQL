@@ -1,29 +1,7 @@
 package edu.zju.supersql.regionserver;
 
-import edu.zju.supersql.rpc.Response;
-import edu.zju.supersql.rpc.StatusCode;
-import edu.zju.supersql.rpc.WalEntry;
-import edu.zju.supersql.rpc.WalOpType;
-import edu.zju.supersql.rpc.ReplicaSyncService;
-import edu.zju.supersql.regionserver.rpc.ReplicaSyncServiceImpl;
-import org.apache.thrift.protocol.TBinaryProtocol;
-import org.apache.thrift.server.TServer;
-import org.apache.thrift.server.TSimpleServer;
-import org.apache.thrift.transport.TServerSocket;
-import org.apache.thrift.transport.layered.TFramedTransport;
-import org.apache.thrift.server.TServer.Args;
-import org.apache.thrift.TMultiplexedProcessor;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-
-import java.net.ServerSocket;
-import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 class WriteGuardTest {
 

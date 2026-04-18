@@ -118,8 +118,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                                 log.info("deleteLocalTable: removed assignment node for table={} after removing rs={}",
                                         tableName, rsId);
                             } else {
-                                ((Map<String, Object>) root).put("replicas", filteredReplicas);
-                                byte[] updated = MAPPER.writeValueAsString(root).getBytes(StandardCharsets.UTF_8);
+                                Map<String, Object> updatedRoot = copyToStringObjectMap(root);
+                                updatedRoot.put("replicas", filteredReplicas);
+                                byte[] updated = MAPPER.writeValueAsString(updatedRoot).getBytes(StandardCharsets.UTF_8);
                                 zkClient.setData().forPath(path, updated);
                                 log.info("deleteLocalTable: removed rs={} from assignment of table={} remainingReplicas={}",
                                         rsId, tableName, filteredReplicas.size());
@@ -163,7 +164,8 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 return r;
             }
 
-            Map<String, Object> root = MAPPER.readValue(data, Map.class);
+            Map<?, ?> rawRoot = MAPPER.readValue(data, Map.class);
+            Map<String, Object> root = copyToStringObjectMap(rawRoot);
             long oldVersion = toLong(root.get("version"), 0L);
             long newVersion = oldVersion + 1L;
             root.put("version", newVersion);
@@ -459,6 +461,14 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         } catch (NumberFormatException e) {
             return fallback;
         }
+    }
+
+    private static Map<String, Object> copyToStringObjectMap(Map<?, ?> source) {
+        Map<String, Object> copy = new ConcurrentHashMap<>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            copy.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        return copy;
     }
 
     private byte[] regionServerInfoBytes(RegionServerInfo info, long heartbeatTs) throws Exception {

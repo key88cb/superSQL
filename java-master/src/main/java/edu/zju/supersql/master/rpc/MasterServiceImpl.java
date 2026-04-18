@@ -17,8 +17,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -139,13 +137,6 @@ public class MasterServiceImpl implements MasterService.Iface {
         this.routeRepairWindowSize = Math.max(1, routeRepairWindowSize);
     }
 
-    private static Response notImplemented(String method) {
-        log.warn("MasterService.{} called — not yet implemented", method);
-        Response r = new Response(StatusCode.ERROR);
-        r.setMessage("Not implemented: " + method);
-        return r;
-    }
-
     private static Response notLeaderResponse(String method) {
         String redirect = MasterRuntimeContext.readActiveMasterAddress();
         log.warn("MasterService.{} rejected: NOT_LEADER, redirectTo={}", method, redirect);
@@ -180,10 +171,6 @@ public class MasterServiceImpl implements MasterService.Iface {
         return ZkPaths.tableMeta(tableName);
     }
 
-    private static String assignmentPath(String tableName) {
-        return ZkPaths.assignment(tableName);
-    }
-
     private static String stringifyMap(Map<String, Object> map) throws Exception {
         return MAPPER.writeValueAsString(map);
     }
@@ -209,78 +196,6 @@ public class MasterServiceImpl implements MasterService.Iface {
             info.setLastHeartbeat(toLong(node.get("lastHeartbeat"), 0L));
         }
         return info;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static TableLocation bytesToLocation(byte[] bytes, String fallbackTableName) throws Exception {
-        Map<String, Object> raw = MAPPER.readValue(bytes, Map.class);
-        String tableName = (String) raw.getOrDefault("tableName", fallbackTableName);
-        Map<String, Object> primaryRaw = (Map<String, Object>) raw.get("primaryRS");
-        List<Map<String, Object>> replicasRaw = (List<Map<String, Object>>) raw.get("replicas");
-
-        RegionServerInfo primary = primaryRaw == null
-                ? new RegionServerInfo("unknown", "127.0.0.1", 0)
-                : mapToRegionServerInfo(primaryRaw);
-
-        List<RegionServerInfo> replicas = new ArrayList<>();
-        if (replicasRaw != null) {
-            for (Map<String, Object> item : replicasRaw) {
-                replicas.add(mapToRegionServerInfo(item));
-            }
-        }
-        if (replicas.isEmpty()) {
-            replicas.add(primary);
-        }
-
-        TableLocation location = new TableLocation(tableName, primary, replicas);
-        Object status = raw.get("tableStatus");
-        if (status != null) {
-            location.setTableStatus(String.valueOf(status));
-        }
-        Object version = raw.get("version");
-        if (version != null) {
-            location.setVersion(toLong(version, 0L));
-        }
-        return location;
-    }
-
-    private static byte[] locationToBytes(TableLocation location) throws Exception {
-        Map<String, Object> root = new HashMap<>();
-        root.put("tableName", location.getTableName());
-        root.put("tableStatus", location.getTableStatus());
-        root.put("version", location.getVersion());
-        root.put("primaryRS", regionToMap(location.getPrimaryRS()));
-
-        List<Map<String, Object>> replicaMaps = new ArrayList<>();
-        for (RegionServerInfo rs : location.getReplicas()) {
-            replicaMaps.add(regionToMap(rs));
-        }
-        root.put("replicas", replicaMaps);
-
-        return stringifyMap(root).getBytes(StandardCharsets.UTF_8);
-    }
-
-    private static Map<String, Object> regionToMap(RegionServerInfo info) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("id", info.getId());
-        m.put("host", info.getHost());
-        m.put("port", info.getPort());
-        if (info.isSetTableCount()) {
-            m.put("tableCount", info.getTableCount());
-        }
-        if (info.isSetQps1min()) {
-            m.put("qps1min", info.getQps1min());
-        }
-        if (info.isSetCpuUsage()) {
-            m.put("cpuUsage", info.getCpuUsage());
-        }
-        if (info.isSetMemUsage()) {
-            m.put("memUsage", info.getMemUsage());
-        }
-        if (info.isSetLastHeartbeat()) {
-            m.put("lastHeartbeat", info.getLastHeartbeat());
-        }
-        return m;
     }
 
     private static int toInt(Object value, int fallback) {

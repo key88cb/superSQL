@@ -231,7 +231,6 @@ public class RegionServiceImpl implements RegionService.Iface {
      * Returns the {@code host:port} addresses of the replicas for this table,
      * excluding this RS's own address to prevent self-sync.
      */
-    @SuppressWarnings("unchecked")
     private List<String> getReplicaAddresses(String tableName) {
         if (zkClient == null) {
             return Collections.emptyList();

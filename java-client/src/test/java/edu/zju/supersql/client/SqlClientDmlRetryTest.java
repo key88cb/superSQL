@@ -259,7 +259,8 @@ class SqlClientDmlRetryTest {
 
         @Override
         public SqlClient.RegionClientSession open(RegionServerInfo target, ClientConfig config) {
-            openCountByRs.merge(target.getId(), 1, Integer::sum);
+            int current = openCountByRs.getOrDefault(target.getId(), 0);
+            openCountByRs.put(target.getId(), current + 1);
             return new SqlClient.RegionClientSession() {
                 @Override
                 public QueryResult execute(String tableName, String sql) throws Exception {
