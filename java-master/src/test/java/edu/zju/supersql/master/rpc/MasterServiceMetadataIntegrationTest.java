@@ -264,6 +264,56 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void getTableLocationShouldRefillReplicasAfterPrimaryOffline() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_failover_refill(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+
+        TableLocation after = service.getTableLocation("t_failover_refill");
+        List<String> replicaIds = after.getReplicas().stream().map(RegionServerInfo::getId).toList();
+        Assertions.assertTrue(List.of("rs-2", "rs-3", "rs-4").contains(after.getPrimaryRS().getId()));
+        Assertions.assertEquals(3, after.getReplicasSize());
+        Assertions.assertTrue(replicaIds.contains("rs-2"));
+        Assertions.assertTrue(replicaIds.contains("rs-3"));
+        Assertions.assertTrue(replicaIds.contains("rs-4"));
+    }
+
+    @Test
+    void listTablesShouldRefillReplicasAfterPrimaryOffline() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_failover_list_refill(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+
+        TableLocation table = service.listTables().stream()
+                .filter(t -> "t_failover_list_refill".equals(t.getTableName()))
+                .findFirst()
+                .orElseThrow();
+        List<String> replicaIds = table.getReplicas().stream().map(RegionServerInfo::getId).toList();
+
+        Assertions.assertTrue(List.of("rs-2", "rs-3", "rs-4").contains(table.getPrimaryRS().getId()));
+        Assertions.assertEquals(3, table.getReplicasSize());
+        Assertions.assertTrue(replicaIds.contains("rs-2"));
+        Assertions.assertTrue(replicaIds.contains("rs-3"));
+        Assertions.assertTrue(replicaIds.contains("rs-4"));
+
+        Map<?, ?> assignment = readJson("/assignments/t_failover_list_refill");
+        List<?> replicas = (List<?>) assignment.get("replicas");
+        Assertions.assertEquals(3, replicas.size());
+    }
+
+    @Test
     void triggerRebalanceShouldMoveNonPrimaryReplicaToLeastLoadedNode() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);

@@ -54,6 +54,7 @@
 - `createTable` 也会初始化 `statusUpdatedAt`，新表元数据默认具备可观测时间戳。
 - `getTableLocation` 已支持 lazy failover：主副本离线时自动晋升在线副本并回写元数据。
 - `listTables` 也已支持 lazy failover：批量路由查询时会同步修复离线主副本路由。
+- lazy failover 已支持在在线节点充足时自动补齐副本列表（最多 3 副本）并同步 assignment。
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
 - RegionServer 成员变更（up/down）已可触发调度器外部请求（受节流保护）。

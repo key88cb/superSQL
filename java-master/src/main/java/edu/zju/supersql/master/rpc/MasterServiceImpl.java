@@ -279,7 +279,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 notFound.setVersion(-1L);
                 return notFound;
             }
-            return promotePrimaryIfOfflineBestEffort(location);
+            return healTableLocationBestEffort(location);
         } catch (Exception e) {
             throw new TException("Failed to resolve table location: " + tableName, e);
         }
@@ -438,7 +438,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             List<TableLocation> locations = metaManager.listTables();
             List<TableLocation> healed = new ArrayList<>();
             for (TableLocation location : locations) {
-                healed.add(promotePrimaryIfOfflineBestEffort(location));
+                healed.add(healTableLocationBestEffort(location));
             }
             return healed;
         } catch (Exception e) {
@@ -735,7 +735,7 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
-    private TableLocation promotePrimaryIfOfflineBestEffort(TableLocation location) {
+    private TableLocation healTableLocationBestEffort(TableLocation location) {
         if (location == null
                 || !location.isSetPrimaryRS()
                 || !location.isSetReplicas()
@@ -751,53 +751,97 @@ public class MasterServiceImpl implements MasterService.Iface {
             return location;
         }
 
-        Set<String> onlineIds = new HashSet<>();
+        List<RegionServerInfo> onlineServers;
         try {
-            for (RegionServerInfo regionServer : listRegionServers()) {
-                if (regionServer != null && regionServer.isSetId()) {
-                    onlineIds.add(regionServer.getId());
-                }
-            }
+            onlineServers = listRegionServers();
         } catch (Exception e) {
             log.warn("getTableLocation failed to check online region servers table={} cause={}",
                     location.getTableName(), e.getMessage());
             return location;
         }
 
-        if (onlineIds.isEmpty() || onlineIds.contains(currentPrimaryId)) {
+        Set<String> onlineIds = new HashSet<>();
+        for (RegionServerInfo regionServer : onlineServers) {
+            if (regionServer != null && regionServer.isSetId()) {
+                onlineIds.add(regionServer.getId());
+            }
+        }
+
+        if (onlineIds.isEmpty()) {
             return location;
         }
 
-        RegionServerInfo promoted = null;
+        List<RegionServerInfo> onlineReplicas = new ArrayList<>();
         for (RegionServerInfo replica : location.getReplicas()) {
             if (replica != null && replica.isSetId() && onlineIds.contains(replica.getId())) {
-                promoted = replica;
-                break;
+                onlineReplicas.add(replica);
             }
         }
-        if (promoted == null) {
-            log.warn("getTableLocation found offline primary but no online replica table={} primary={}",
+
+        if (onlineReplicas.isEmpty()) {
+            log.warn("getTableLocation found no online replicas table={} primary={}",
                     location.getTableName(), currentPrimaryId);
             return location;
         }
 
-        TableLocation promotedLocation = new TableLocation(location);
-        promotedLocation.setPrimaryRS(promoted);
-        promotedLocation.setVersion(System.currentTimeMillis());
-        if (!promotedLocation.isSetTableStatus() || promotedLocation.getTableStatus().isBlank()) {
-            promotedLocation.setTableStatus("ACTIVE");
+        boolean changed = false;
+        RegionServerInfo newPrimary = location.getPrimaryRS();
+        if (!onlineIds.contains(currentPrimaryId)) {
+            newPrimary = onlineReplicas.get(0);
+            changed = true;
+            log.warn("healTableLocation promoted primary table={} from {} to {}",
+                    location.getTableName(), currentPrimaryId, newPrimary.getId());
         }
+
+        List<RegionServerInfo> healedReplicas = new ArrayList<>(onlineReplicas);
+        int targetReplicaCount = Math.min(3, onlineIds.size());
+        if (healedReplicas.size() < targetReplicaCount) {
+            List<RegionServerInfo> candidates = new ArrayList<>();
+            Set<String> existingIds = new HashSet<>();
+            for (RegionServerInfo replica : healedReplicas) {
+                existingIds.add(replica.getId());
+            }
+            for (RegionServerInfo online : onlineServers) {
+                if (online != null && online.isSetId() && !existingIds.contains(online.getId())) {
+                    candidates.add(online);
+                }
+            }
+            for (RegionServerInfo candidate : loadBalancer.selectReplicas(candidates,
+                    targetReplicaCount - healedReplicas.size())) {
+                healedReplicas.add(candidate);
+                changed = true;
+            }
+        }
+
+        final String primaryId = newPrimary.getId();
+        if (!healedReplicas.stream().anyMatch(rs -> rs.getId().equals(primaryId))) {
+            healedReplicas.add(0, newPrimary);
+            changed = true;
+        }
+
+        if (!changed) {
+            return location;
+        }
+
+        TableLocation promotedLocation = new TableLocation(location.getTableName(), newPrimary, healedReplicas);
+        promotedLocation.setVersion(System.currentTimeMillis());
+        promotedLocation.setTableStatus(
+                (location.isSetTableStatus() && !location.getTableStatus().isBlank())
+                        ? location.getTableStatus()
+                        : "ACTIVE");
 
         try {
             metaManager.saveTableLocation(promotedLocation);
-            assignmentManager.saveAssignment(promotedLocation.getTableName(), promotedLocation.getReplicas());
+            assignmentManager.saveAssignment(promotedLocation.getTableName(), healedReplicas);
             touchStatusUpdatedAtBestEffort(promotedLocation.getTableName());
-            log.warn("getTableLocation promoted primary table={} from {} to {}",
-                    promotedLocation.getTableName(), currentPrimaryId, promoted.getId());
+            log.info("healTableLocation updated table={} primary={} replicas={}",
+                    promotedLocation.getTableName(),
+                    promotedLocation.getPrimaryRS().getId(),
+                    healedReplicas.stream().map(RegionServerInfo::getId).toList());
             return promotedLocation;
         } catch (Exception e) {
-            log.error("getTableLocation failed to persist promoted primary table={} from {} to {} cause={}",
-                    promotedLocation.getTableName(), currentPrimaryId, promoted.getId(), e.getMessage());
+            log.error("healTableLocation failed to persist update table={} primary={} cause={}",
+                    promotedLocation.getTableName(), promotedLocation.getPrimaryRS().getId(), e.getMessage());
             return location;
         }
     }
