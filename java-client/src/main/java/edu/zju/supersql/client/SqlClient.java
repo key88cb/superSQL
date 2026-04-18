@@ -114,8 +114,6 @@ public class SqlClient {
         System.out.flush();
 
         final String finalActiveMaster = activeMaster;
-        final CuratorFramework finalZkClient = zkClient;
-
         try (Scanner sc = new Scanner(System.in)) {
             while (sc.hasNextLine()) {
                 String line = sc.nextLine().trim();
@@ -207,29 +205,99 @@ public class SqlClient {
             return;
         }
 
-        TableLocation loc = resolveLocation(tableName, activeMaster, routeCache, config);
+        QueryResult result = executeDmlWithRetry(
+                tableName,
+                sql,
+                activeMaster,
+                routeCache,
+                config,
+                SqlClient::resolveLocation,
+                SqlClient::openRegionSession,
+                Thread::sleep);
 
-        try (RegionRpcClient region = RegionRpcClient.fromInfo(loc.getPrimaryRS(), config.regionRpcTimeoutMs())) {
-            QueryResult result = region.execute(tableName, sql);
+        if (result != null
+                && result.isSetStatus()
+                && result.getStatus().getCode() == StatusCode.MOVING) {
+            System.out.println("Table is being migrated, retries exhausted. Please retry shortly.");
+            return;
+        }
+        printQueryResult(result);
+    }
 
-            // Handle redirect: primary RS has moved
-            if (result.getStatus().getCode() == StatusCode.REDIRECT) {
-                log.info("REDIRECT received for table={}, invalidating cache", tableName);
+    static QueryResult executeDmlWithRetry(String tableName,
+                                           String sql,
+                                           String activeMaster,
+                                           RouteCache routeCache,
+                                           ClientConfig config,
+                                           LocationResolver locationResolver,
+                                           RegionClientFactory regionClientFactory,
+                                           Sleeper sleeper) throws Exception {
+        int maxAttempts = Math.max(1, config.movingRetryMaxAttempts());
+        long initialBackoffMs = Math.max(0, config.movingRetryInitialBackoffMs());
+        long stepBackoffMs = Math.max(0, config.movingRetryBackoffStepMs());
+
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            TableLocation loc = locationResolver.resolve(tableName, activeMaster, routeCache, config);
+            if (loc == null || !loc.isSetPrimaryRS()) {
+                throw new IOException("Table location is unavailable for " + tableName);
+            }
+
+            try (RegionClientSession region = regionClientFactory.open(loc.getPrimaryRS(), config)) {
+                QueryResult result = region.execute(tableName, sql);
+                if (result == null || !result.isSetStatus()) {
+                    return result;
+                }
+                StatusCode code = result.getStatus().getCode();
+                if (code == StatusCode.OK) {
+                    return result;
+                }
+
+                if (code == StatusCode.REDIRECT) {
+                    log.info("DML REDIRECT: table={}, attempt={}/{}, invalidating cache",
+                            tableName, attempt, maxAttempts);
+                    routeCache.invalidate(tableName);
+                    if (attempt < maxAttempts) {
+                        continue;
+                    }
+                    return result;
+                }
+
+                if (code == StatusCode.MOVING) {
+                    log.info("DML MOVING: table={}, attempt={}/{}, invalidating cache",
+                            tableName, attempt, maxAttempts);
+                    routeCache.invalidate(tableName);
+                    if (attempt >= maxAttempts) {
+                        return result;
+                    }
+                    long backoffMs = initialBackoffMs + (attempt - 1L) * stepBackoffMs;
+                    if (backoffMs > 0) {
+                        try {
+                            sleeper.sleep(backoffMs);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("Interrupted while waiting for MOVING retry", e);
+                        }
+                    }
+                    continue;
+                }
+
+                return result;
+            } catch (Exception e) {
+                lastException = e;
                 routeCache.invalidate(tableName);
-                loc = resolveLocation(tableName, activeMaster, routeCache, config);
-                try (RegionRpcClient retry = RegionRpcClient.fromInfo(loc.getPrimaryRS(), config.regionRpcTimeoutMs())) {
-                    result = retry.execute(tableName, sql);
+                log.warn("DML execution failed: table={}, attempt={}/{}, reason={}",
+                        tableName, attempt, maxAttempts, e.getMessage());
+                if (attempt >= maxAttempts) {
+                    throw e;
                 }
             }
-
-            // Handle MOVING: region migration in progress
-            if (result.getStatus().getCode() == StatusCode.MOVING) {
-                System.out.println("Table is being migrated, please retry shortly.");
-                return;
-            }
-
-            printQueryResult(result);
         }
+
+        if (lastException != null) {
+            throw lastException;
+        }
+        throw new IOException("DML retry exhausted for table " + tableName);
     }
 
     private static TableLocation resolveLocation(String tableName, String activeMaster,
@@ -310,6 +378,47 @@ public class SqlClient {
     @FunctionalInterface
     interface MasterResponseCall {
         Response call(MasterRpcClient master) throws Exception;
+    }
+
+    @FunctionalInterface
+    interface LocationResolver {
+        TableLocation resolve(String tableName,
+                              String activeMaster,
+                              RouteCache routeCache,
+                              ClientConfig config) throws Exception;
+    }
+
+    @FunctionalInterface
+    interface RegionClientFactory {
+        RegionClientSession open(RegionServerInfo target, ClientConfig config) throws Exception;
+    }
+
+    interface RegionClientSession extends AutoCloseable {
+        QueryResult execute(String tableName, String sql) throws Exception;
+
+        @Override
+        void close() throws Exception;
+    }
+
+    @FunctionalInterface
+    interface Sleeper {
+        void sleep(long ms) throws InterruptedException;
+    }
+
+    private static RegionClientSession openRegionSession(RegionServerInfo target,
+                                                         ClientConfig config) throws Exception {
+        RegionRpcClient client = RegionRpcClient.fromInfo(target, config.regionRpcTimeoutMs());
+        return new RegionClientSession() {
+            @Override
+            public QueryResult execute(String tableName, String sql) throws Exception {
+                return client.execute(tableName, sql);
+            }
+
+            @Override
+            public void close() {
+                client.close();
+            }
+        };
     }
 
     static Response invokeMasterResponseWithRedirect(String activeMaster,

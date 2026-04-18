@@ -16,16 +16,25 @@ class ClientConfigTest {
         Assertions.assertEquals(30_000L, config.cacheTtlMs());
         Assertions.assertEquals(5_000, config.masterRpcTimeoutMs());
         Assertions.assertEquals(10_000, config.regionRpcTimeoutMs());
+        Assertions.assertEquals(5, config.movingRetryMaxAttempts());
+        Assertions.assertEquals(300, config.movingRetryInitialBackoffMs());
+        Assertions.assertEquals(200, config.movingRetryBackoffStepMs());
     }
 
     @Test
     void shouldFallbackToLegacyClientZkKeyWhenUnifiedMissing() {
         ClientConfig config = ClientConfig.fromEnv(Map.of(
                 "CLIENT_ZK_CONNECT", "zk-client:2181",
-                "CLIENT_CACHE_TTL_MS", "45000"
+                "CLIENT_CACHE_TTL_MS", "45000",
+                "CLIENT_MOVING_RETRY_MAX_ATTEMPTS", "7",
+                "CLIENT_MOVING_RETRY_INITIAL_BACKOFF_MS", "120",
+                "CLIENT_MOVING_RETRY_BACKOFF_STEP_MS", "80"
         ));
 
         Assertions.assertEquals("zk-client:2181", config.zkConnect());
         Assertions.assertEquals(45_000L, config.cacheTtlMs());
+        Assertions.assertEquals(7, config.movingRetryMaxAttempts());
+        Assertions.assertEquals(120, config.movingRetryInitialBackoffMs());
+        Assertions.assertEquals(80, config.movingRetryBackoffStepMs());
     }
 }

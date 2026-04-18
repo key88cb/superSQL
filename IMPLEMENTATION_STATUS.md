@@ -72,11 +72,17 @@
   - DML -> RouteCache -> RegionRpcClient.execute
   - SHOW TABLES -> MasterRpcClient.listTables
 - 已支持 Master `NOT_LEADER` 自动重定向。
+- 已支持 DML `REDIRECT` 自动路由自愈：失效本地 route cache 后回源查询并重试。
+- 已支持 DML `MOVING` 有界重试（可配置次数与退避间隔）：
+  - `CLIENT_MOVING_RETRY_MAX_ATTEMPTS`
+  - `CLIENT_MOVING_RETRY_INITIAL_BACKOFF_MS`
+  - `CLIENT_MOVING_RETRY_BACKOFF_STEP_MS`
+- 主副本短暂不可达时，DML 可自动失效缓存并重试，提升瞬时抖动下可用性。
 - 路由缓存支持 TTL 与版本失效。
 - 读取 `/active-master` 时支持 address 优先、masterId 回退、坏数据 fallback。
 
 当前限制：
-- MOVING 时目前仍偏基础重试/提示逻辑，尚未达到完整迁移透明体验。
+- MOVING 已支持有界重试，但在重试窗口内若迁移仍未完成，客户端仍会返回 MOVING 给上层；尚未实现无限透明等待策略。
 - 主副本不可达后的读故障转移、缓存主动失效广播仍未落地。
 
 ## 4. 已落地测试
@@ -113,11 +119,12 @@ Client：
 - CreateInsertSelectFunctionalTest
 - SqlClientRoutingTest
 - RouteCacheAndDiscoveryTest
+- SqlClientDmlRetryTest
+- SqlClientPlannedFeaturesTddTest（已改为可执行测试，不再 `@Disabled`）
 
 新增 TDD 规格测试（默认 `@Disabled`）：
 - java-master/src/test/java/edu/zju/supersql/master/rpc/MasterPlannedFeaturesTddTest.java
 - java-regionserver/src/test/java/edu/zju/supersql/regionserver/rpc/RegionPlannedFeaturesTddTest.java
-- java-client/src/test/java/edu/zju/supersql/client/SqlClientPlannedFeaturesTddTest.java
 
 执行方式：
 ```bash

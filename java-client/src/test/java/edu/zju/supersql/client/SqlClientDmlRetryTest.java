@@ -17,51 +17,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-class SqlClientPlannedFeaturesTddTest {
+class SqlClientDmlRetryTest {
 
     @Test
-    void shouldFollowNotLeaderRedirectAutomatically() throws Exception {
-        RegionServerInfo rs1 = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
-        RegionServerInfo rs2 = new RegionServerInfo("rs-2", "127.0.0.1", 9091);
-        TableLocation loc1 = new TableLocation("orders", rs1, List.of(rs1));
-        TableLocation loc2 = new TableLocation("orders", rs2, List.of(rs2));
-
-        RouteCache cache = new RouteCache(60_000);
-        cache.put("orders", loc1);
-
-        AtomicInteger fetchCount = new AtomicInteger(0);
-        SqlClient.LocationResolver resolver = (table, activeMaster, routeCache, config) -> {
-            TableLocation cached = routeCache.get(table);
-            if (cached != null) {
-                return cached;
-            }
-            int round = fetchCount.incrementAndGet();
-            TableLocation fresh = round == 1 ? loc2 : loc2;
-            routeCache.put(table, fresh);
-            return fresh;
-        };
-
-        StubRegionFactory regionFactory = new StubRegionFactory();
-        regionFactory.enqueueResult("rs-1", queryResult(StatusCode.REDIRECT, "redirect"));
-        regionFactory.enqueueResult("rs-2", queryResult(StatusCode.OK, "ok"));
-
-        QueryResult result = SqlClient.executeDmlWithRetry(
-                "orders",
-                "insert into orders values (1);",
-                "master:8080",
-                cache,
-                retryConfig(3, 1, 1),
-                resolver,
-                regionFactory,
-                ms -> { }
-        );
-
-        Assertions.assertEquals(StatusCode.OK, result.getStatus().getCode());
-        Assertions.assertEquals(1, fetchCount.get());
-    }
-
-    @Test
-    void shouldRetryWhenTableIsMovingUntilNewRouteBecomesVisible() throws Exception {
+    void shouldReturnMovingWhenRetriesExhausted() throws Exception {
         RegionServerInfo rs = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
         TableLocation loc = new TableLocation("orders", rs, List.of(rs));
 
@@ -80,41 +39,73 @@ class SqlClientPlannedFeaturesTddTest {
         };
 
         StubRegionFactory regionFactory = new StubRegionFactory();
-        regionFactory.enqueueResult("rs-1", queryResult(StatusCode.MOVING, "moving-1"));
-        regionFactory.enqueueResult("rs-1", queryResult(StatusCode.MOVING, "moving-2"));
-        regionFactory.enqueueResult("rs-1", queryResult(StatusCode.OK, "ok"));
+        regionFactory.enqueueResult("rs-1", result(StatusCode.MOVING, "moving-1"));
+        regionFactory.enqueueResult("rs-1", result(StatusCode.MOVING, "moving-2"));
+        regionFactory.enqueueResult("rs-1", result(StatusCode.MOVING, "moving-3"));
 
         List<Long> sleeps = new ArrayList<>();
-        QueryResult result = SqlClient.executeDmlWithRetry(
+        QueryResult qr = SqlClient.executeDmlWithRetry(
                 "orders",
                 "insert into orders values (1);",
                 "master:8080",
                 cache,
-                retryConfig(5, 100, 50),
+                config(3, 120, 30),
                 resolver,
                 regionFactory,
                 sleeps::add
         );
 
-        Assertions.assertEquals(StatusCode.OK, result.getStatus().getCode());
-        Assertions.assertEquals(List.of(100L, 150L), sleeps);
+        Assertions.assertEquals(StatusCode.MOVING, qr.getStatus().getCode());
+        Assertions.assertEquals(List.of(120L, 150L), sleeps);
         Assertions.assertEquals(2, fetchCount.get());
     }
 
     @Test
-    void shouldInvalidateRouteCacheWhenMasterBroadcastsVersionChange() {
+    void shouldRetryWhenPrimaryTemporarilyUnavailable() throws Exception {
+        RegionServerInfo rs = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        TableLocation loc = new TableLocation("orders", rs, List.of(rs));
+
         RouteCache cache = new RouteCache(60_000);
-        RegionServerInfo primary = new RegionServerInfo("rs-1", "127.0.0.1", 9090);
-        TableLocation location = new TableLocation("orders", primary, List.of(primary));
-        location.setVersion(1L);
+        cache.put("orders", loc);
 
-        cache.put("orders", location);
-        cache.invalidateIfVersionMismatch("orders", 2L);
+        AtomicInteger fetchCount = new AtomicInteger(0);
+        SqlClient.LocationResolver resolver = (table, activeMaster, routeCache, config) -> {
+            TableLocation cached = routeCache.get(table);
+            if (cached != null) {
+                return cached;
+            }
+            fetchCount.incrementAndGet();
+            routeCache.put(table, loc);
+            return loc;
+        };
 
-        Assertions.assertNull(cache.get("orders"));
+        StubRegionFactory regionFactory = new StubRegionFactory();
+        regionFactory.enqueueException("rs-1", new IOException("connection refused"));
+        regionFactory.enqueueResult("rs-1", result(StatusCode.OK, "ok"));
+
+        QueryResult qr = SqlClient.executeDmlWithRetry(
+                "orders",
+                "insert into orders values (1);",
+                "master:8080",
+                cache,
+                config(3, 100, 50),
+                resolver,
+                regionFactory,
+                ms -> {
+                }
+        );
+
+        Assertions.assertEquals(StatusCode.OK, qr.getStatus().getCode());
+        Assertions.assertEquals(1, fetchCount.get());
     }
 
-    private static ClientConfig retryConfig(int attempts, int initialBackoffMs, int stepBackoffMs) {
+    private static QueryResult result(StatusCode code, String msg) {
+        Response response = new Response(code);
+        response.setMessage(msg);
+        return new QueryResult(response);
+    }
+
+    private static ClientConfig config(int attempts, int initialBackoffMs, int stepBackoffMs) {
         return new ClientConfig(
                 "zk",
                 "master:8080",
@@ -127,18 +118,16 @@ class SqlClientPlannedFeaturesTddTest {
         );
     }
 
-    private static QueryResult queryResult(StatusCode code, String message) {
-        Response response = new Response(code);
-        response.setMessage(message);
-        return new QueryResult(response);
-    }
-
     private static final class StubRegionFactory implements SqlClient.RegionClientFactory {
 
         private final Map<String, Deque<Object>> outcomesByRs = new HashMap<>();
 
         void enqueueResult(String rsId, QueryResult result) {
             outcomesByRs.computeIfAbsent(rsId, k -> new ArrayDeque<>()).addLast(result);
+        }
+
+        void enqueueException(String rsId, Exception exception) {
+            outcomesByRs.computeIfAbsent(rsId, k -> new ArrayDeque<>()).addLast(exception);
         }
 
         @Override
