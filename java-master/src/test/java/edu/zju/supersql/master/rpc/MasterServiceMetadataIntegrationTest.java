@@ -314,6 +314,50 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void getTableLocationShouldMarkUnavailableWhenAllReplicasOffline() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_unavailable(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+        zkClient.delete().forPath("/region_servers/rs-2");
+        zkClient.delete().forPath("/region_servers/rs-3");
+
+        TableLocation location = service.getTableLocation("t_unavailable");
+        Assertions.assertEquals("UNAVAILABLE", location.getTableStatus());
+
+        Map<?, ?> meta = readJson("/meta/tables/t_unavailable");
+        Assertions.assertEquals("UNAVAILABLE", String.valueOf(meta.get("tableStatus")));
+    }
+
+    @Test
+    void getTableLocationShouldRecoverToActiveWhenReplicaBackOnline() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_unavailable_recover(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+        zkClient.delete().forPath("/region_servers/rs-2");
+        zkClient.delete().forPath("/region_servers/rs-3");
+        Assertions.assertEquals("UNAVAILABLE", service.getTableLocation("t_unavailable_recover").getTableStatus());
+
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+
+        TableLocation recovered = service.getTableLocation("t_unavailable_recover");
+        Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+        Assertions.assertEquals("rs-2", recovered.getPrimaryRS().getId());
+
+        Map<?, ?> meta = readJson("/meta/tables/t_unavailable_recover");
+        Assertions.assertEquals("ACTIVE", String.valueOf(meta.get("tableStatus")));
+    }
+
+    @Test
     void triggerRebalanceShouldMoveNonPrimaryReplicaToLeastLoadedNode() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);

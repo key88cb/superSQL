@@ -28,6 +28,7 @@
 - `getTableLocation` 在检测到主副本离线且存在在线副本时，会自动晋升在线副本并回写元数据（lazy failover）。
 - `listTables` 同样会在返回前执行主副本离线检测与 lazy failover，减少批量查询场景下的陈旧主路由。
 - lazy failover 过程中会在在线节点足够时自动补齐副本列表（最多恢复到 3 副本），并同步回写 assignment。
+- 当表的所有副本都离线时，路由自愈会将表状态标记为 `UNAVAILABLE`；有副本恢复在线后会自动回升到 `ACTIVE`。
 
 当前限制：
 - 当前 rebalance 调度器仍是基础版，尚未形成完整 RegionMigrator 状态机 + 故障恢复闭环。

@@ -742,7 +742,11 @@ public class MasterServiceImpl implements MasterService.Iface {
                 || location.getReplicas().isEmpty()) {
             return location;
         }
-        if (!"ACTIVE".equalsIgnoreCase(location.getTableStatus())) {
+
+        String currentStatus = (location.isSetTableStatus() && !location.getTableStatus().isBlank())
+                ? location.getTableStatus().toUpperCase()
+                : "ACTIVE";
+        if (!"ACTIVE".equals(currentStatus) && !"UNAVAILABLE".equals(currentStatus)) {
             return location;
         }
 
@@ -767,10 +771,6 @@ public class MasterServiceImpl implements MasterService.Iface {
             }
         }
 
-        if (onlineIds.isEmpty()) {
-            return location;
-        }
-
         List<RegionServerInfo> onlineReplicas = new ArrayList<>();
         for (RegionServerInfo replica : location.getReplicas()) {
             if (replica != null && replica.isSetId() && onlineIds.contains(replica.getId())) {
@@ -779,6 +779,22 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
 
         if (onlineReplicas.isEmpty()) {
+            if (!"UNAVAILABLE".equals(currentStatus)) {
+                TableLocation unavailable = new TableLocation(location);
+                unavailable.setTableStatus("UNAVAILABLE");
+                unavailable.setVersion(System.currentTimeMillis());
+                try {
+                    metaManager.saveTableLocation(unavailable);
+                    assignmentManager.saveAssignment(unavailable.getTableName(), unavailable.getReplicas());
+                    touchStatusUpdatedAtBestEffort(unavailable.getTableName());
+                    log.warn("healTableLocation marked table unavailable table={} primary={}",
+                            unavailable.getTableName(), currentPrimaryId);
+                    return unavailable;
+                } catch (Exception e) {
+                    log.error("healTableLocation failed to persist unavailable status table={} cause={}",
+                            location.getTableName(), e.getMessage());
+                }
+            }
             log.warn("getTableLocation found no online replicas table={} primary={}",
                     location.getTableName(), currentPrimaryId);
             return location;
@@ -819,16 +835,17 @@ public class MasterServiceImpl implements MasterService.Iface {
             changed = true;
         }
 
+        if ("UNAVAILABLE".equals(currentStatus)) {
+            changed = true;
+        }
+
         if (!changed) {
             return location;
         }
 
         TableLocation promotedLocation = new TableLocation(location.getTableName(), newPrimary, healedReplicas);
         promotedLocation.setVersion(System.currentTimeMillis());
-        promotedLocation.setTableStatus(
-                (location.isSetTableStatus() && !location.getTableStatus().isBlank())
-                        ? location.getTableStatus()
-                        : "ACTIVE");
+        promotedLocation.setTableStatus("ACTIVE");
 
         try {
             metaManager.saveTableLocation(promotedLocation);
