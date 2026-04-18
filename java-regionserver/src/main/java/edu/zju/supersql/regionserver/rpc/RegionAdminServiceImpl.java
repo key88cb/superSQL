@@ -16,6 +16,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -40,6 +41,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final CuratorFramework zkClient;
     private final String dataDir;
     private final String rsId;
+    private final Path dataRootPath;
     private final Map<String, Long> nextExpectedOffsets = new ConcurrentHashMap<>();
 
     public RegionAdminServiceImpl(WriteGuard writeGuard,
@@ -50,6 +52,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         this.zkClient   = zkClient;
         this.dataDir    = dataDir;
         this.rsId       = rsId;
+        this.dataRootPath = new File(dataDir).toPath().toAbsolutePath().normalize();
     }
 
     @Override
@@ -254,8 +257,10 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 return r;
             }
 
-            File targetFile = new File(dataDir, chunk.getFileName());
-            File stagingFile = new File(dataDir, chunk.getFileName() + STAGING_SUFFIX);
+            Path targetPath = resolveDataPath(chunk.getFileName());
+            Path stagingPath = resolveDataPath(chunk.getFileName() + STAGING_SUFFIX);
+            File targetFile = targetPath.toFile();
+            File stagingFile = stagingPath.toFile();
             targetFile.getParentFile().mkdirs();
 
             ByteBuffer dataBuf = chunk.bufferForData();
@@ -274,7 +279,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             long nextOffset = chunk.getOffset() + bytes.length;
             if (chunk.isIsLast()) {
                 nextExpectedOffsets.remove(chunk.getFileName());
-                publishCompletedFile(stagingFile.toPath(), targetFile.toPath());
+                publishCompletedFile(stagingPath, targetPath);
             } else {
                 nextExpectedOffsets.put(chunk.getFileName(), nextOffset);
             }
@@ -286,7 +291,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             Response r = new Response(StatusCode.OK);
             r.setMessage("chunk written to " + chunk.getFileName());
             return r;
-        } catch (IOException e) {
+        } catch (IOException | InvalidPathException | SecurityException e) {
             log.error("copyTableData failed for file={}", chunk.getFileName(), e);
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("copyTableData failed: " + e.getMessage());
@@ -367,5 +372,13 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         } catch (AtomicMoveNotSupportedException ignored) {
             Files.move(stagingPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    private Path resolveDataPath(String fileName) {
+        Path resolved = dataRootPath.resolve(fileName).normalize();
+        if (!resolved.startsWith(dataRootPath)) {
+            throw new SecurityException("unsafe fileName: " + fileName);
+        }
+        return resolved;
     }
 }

@@ -163,6 +163,16 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void copyTableDataReturnsErrorOnUnsafeFileName() throws Exception {
+        DataChunk chunk = new DataChunk("users", "../escape", 0L,
+                ByteBuffer.wrap("x".getBytes(StandardCharsets.UTF_8)), true);
+
+        Response r = service.copyTableData(chunk);
+        Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+        Assertions.assertTrue(r.getMessage().contains("unsafe fileName"));
+    }
+
+    @Test
     void copyTableDataAllowsRestartFromZeroAfterCompletedFile() throws Exception {
         byte[] firstPayload = "abc".getBytes(StandardCharsets.UTF_8);
         byte[] secondPayload = "xyz".getBytes(StandardCharsets.UTF_8);
