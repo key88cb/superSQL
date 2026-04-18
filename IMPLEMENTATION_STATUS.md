@@ -52,6 +52,7 @@
 - RegionServiceImpl 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`，默认 1）：ACK 不足时拒绝本地执行并返回错误。
 - ACK 不足拒绝写入时，WAL 条目会标记为 ABORT，避免 PREPARE 条目长期滞留。
 - WAL 状态语义已收敛为明确常量（PREPARE/COMMITTED/ABORTED），恢复路径仅回放 COMMITTED，且已补充边界测试覆盖。
+- WAL checkpoint 已增加按文件压缩：会清理 ABORT 与已持久化的旧 COMMITTED 记录，保留 PREPARE/未持久化 COMMITTED，减少日志膨胀与恢复噪音。
 - RegionServiceImpl 已实现基础读路径：直接 MiniSQL 执行，跳过 WAL 与 replica sync。
 - executeBatch：按序执行，遇错即停。
 - RegionAdminServiceImpl 已实现 pause/resume、deleteLocalTable、invalidateClientCache、transferTable、copyTableData 的基础路径。
@@ -71,7 +72,7 @@
 - 主副本对副本 `commitLog` 通知已增加有界重试（best-effort），降低短暂网络抖动下的提交通知丢失概率。
 
 当前限制：
-- WAL、ReplicaManager 与 ReplicaSyncService 还没有完全达到计划中的 Crash Recovery 与多数派复制最终形态。
+- WAL、ReplicaManager 与 ReplicaSyncService 仍未达到最终语义（例如 PREPARE 的跨节点恢复闭环与多数派故障收敛策略）。
 - Region 迁移、主副本晋升、恢复 3 副本等自治能力还未打通完整闭环。
 - transfer/copyTableData 已有基础实现，但尚未形成完整迁移协议。
 

@@ -196,4 +196,32 @@ class WalManagerTest {
         Assertions.assertTrue(committed.isEmpty(), "Unknown status must not be replayed as committed");
         Assertions.assertTrue(uncommitted.isEmpty(), "Unknown status must not be restored as uncommitted");
     }
+
+    @Test
+    void performCheckpointShouldCompactOldCommittedAndAbortedEntries() throws Exception {
+        wal.appendEntry("t_compact", 10L, 1L, WalOpType.INSERT, "insert into t_compact values(1);");
+        wal.commit("t_compact", 10L);
+
+        wal.appendEntry("t_compact", 11L, 2L, WalOpType.INSERT, "insert into t_compact values(2);");
+        wal.abort("t_compact", 11L);
+
+        wal.appendEntry("t_compact", 12L, 3L, WalOpType.INSERT, "insert into t_compact values(3);");
+        // keep as PREPARE for later commit
+
+        wal.appendEntry("t_compact", 13L, 4L, WalOpType.INSERT, "insert into t_compact values(4);");
+        wal.commit("t_compact", 13L);
+
+        MiniSqlProcess process = Mockito.mock(MiniSqlProcess.class);
+        Mockito.when(process.checkpoint()).thenReturn(10L);
+
+        wal.performCheckpoint(process);
+
+        List<WalEntry> committed = wal.readEntriesAfter("t_compact", 0L);
+        Assertions.assertEquals(1, committed.size());
+        Assertions.assertEquals(13L, committed.get(0).getLsn());
+
+        List<WalEntry> uncommitted = wal.readUncommittedEntries("t_compact");
+        Assertions.assertEquals(1, uncommitted.size());
+        Assertions.assertEquals(12L, uncommitted.get(0).getLsn());
+    }
 }

@@ -11,9 +11,11 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
@@ -363,20 +365,31 @@ public class WalManager {
             File[] files = dir.listFiles((d, name) -> name.endsWith(".wal"));
             if (files != null) {
                 int deleted = 0;
+                int compacted = 0;
                 for (File f : files) {
+                    String tableName = tableNameFromWalFile(f.getName());
+                    ReentrantLock lock = tableLocks.computeIfAbsent(tableName, k -> new ReentrantLock());
+                    lock.lock();
                     try {
                         long fileLsn = scanMaxLsn(f);
                         if (fileLsn < checkpointLsn) {
                             if (f.delete()) {
                                 deleted++;
+                                uncommittedOffsets.remove(tableName);
                             }
+                            continue;
+                        }
+                        if (compactWalFile(f, checkpointLsn)) {
+                            compacted++;
                         }
                     } catch (IOException e) {
                         log.warn("Failed to inspect/delete WAL file: {}", f.getName());
+                    } finally {
+                        lock.unlock();
                     }
                 }
-                log.info("Physical WAL cleanup: deleted {} file(s) (checkpoint LSN={})",
-                        deleted, checkpointLsn);
+                log.info("Physical WAL cleanup: deleted {} file(s), compacted {} file(s) (checkpoint LSN={})",
+                        deleted, compacted, checkpointLsn);
             }
 
             resetWriteCount();
@@ -417,5 +430,120 @@ public class WalManager {
             }
         }
         return maxLsn;
+    }
+
+    private boolean compactWalFile(File walFile, long checkpointLsn) throws IOException {
+        List<WalRawEntry> keptEntries = new ArrayList<>();
+        boolean removedAny = false;
+
+        try (RandomAccessFile raf = new RandomAccessFile(walFile, "r")) {
+            long fileLen = raf.length();
+            while (raf.getFilePointer() < fileLen) {
+                if (fileLen - raf.getFilePointer() < HEADER_SIZE) {
+                    removedAny = true;
+                    break;
+                }
+
+                long lsn = raf.readLong();
+                long txnId = raf.readLong();
+                byte opType = raf.readByte();
+                byte status = raf.readByte();
+                int sqlLen = raf.readInt();
+
+                if (sqlLen < 0 || sqlLen > 1_048_576 || fileLen - raf.getFilePointer() < sqlLen) {
+                    removedAny = true;
+                    break;
+                }
+
+                byte[] sqlBytes = new byte[sqlLen];
+                int read = raf.read(sqlBytes);
+                if (read != sqlLen) {
+                    removedAny = true;
+                    break;
+                }
+
+                boolean keep = status == STATUS_PREPARE || (status == STATUS_COMMITTED && lsn > checkpointLsn);
+                if (keep) {
+                    keptEntries.add(new WalRawEntry(lsn, txnId, opType, status, sqlBytes));
+                } else {
+                    removedAny = true;
+                }
+            }
+        }
+
+        String tableName = tableNameFromWalFile(walFile.getName());
+        if (!removedAny) {
+            return false;
+        }
+
+        if (keptEntries.isEmpty()) {
+            Files.deleteIfExists(walFile.toPath());
+            uncommittedOffsets.remove(tableName);
+            return true;
+        }
+
+        Path source = walFile.toPath();
+        Path temp = source.resolveSibling(walFile.getName() + ".tmp");
+        ConcurrentHashMap<Long, Long> rebuiltOffsets = new ConcurrentHashMap<>();
+
+        try (FileChannel ch = FileChannel.open(temp,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE)) {
+            long currentOffset = 0L;
+            for (WalRawEntry entry : keptEntries) {
+                ByteBuffer buf = ByteBuffer.allocate(HEADER_SIZE + entry.sqlBytes.length);
+                buf.putLong(entry.lsn);
+                buf.putLong(entry.txnId);
+                buf.put(entry.opType);
+                buf.put(entry.status);
+                buf.putInt(entry.sqlBytes.length);
+                buf.put(entry.sqlBytes);
+                buf.flip();
+                while (buf.hasRemaining()) {
+                    ch.write(buf);
+                }
+                if (entry.status == STATUS_PREPARE) {
+                    rebuiltOffsets.put(entry.lsn, currentOffset + 17L);
+                }
+                currentOffset += HEADER_SIZE + entry.sqlBytes.length;
+            }
+            ch.force(false);
+        }
+
+        try {
+            Files.move(temp, source, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, source, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        if (rebuiltOffsets.isEmpty()) {
+            uncommittedOffsets.remove(tableName);
+        } else {
+            uncommittedOffsets.put(tableName, rebuiltOffsets);
+        }
+        return true;
+    }
+
+    private String tableNameFromWalFile(String walFileName) {
+        return walFileName.endsWith(".wal")
+                ? walFileName.substring(0, walFileName.length() - 4)
+                : walFileName;
+    }
+
+    private static final class WalRawEntry {
+        private final long lsn;
+        private final long txnId;
+        private final byte opType;
+        private final byte status;
+        private final byte[] sqlBytes;
+
+        private WalRawEntry(long lsn, long txnId, byte opType, byte status, byte[] sqlBytes) {
+            this.lsn = lsn;
+            this.txnId = txnId;
+            this.opType = opType;
+            this.status = status;
+            this.sqlBytes = sqlBytes;
+        }
     }
 }

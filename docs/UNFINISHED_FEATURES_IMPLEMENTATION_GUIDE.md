@@ -71,6 +71,7 @@
 - ReplicaManager 已按 requiredAcks 等待 ACK，避免仅等待首个返回导致的门槛语义偏差。
 - ACK 不足拒绝写入时会将对应 WAL 条目标记为 ABORT，避免 PREPARE 长期滞留。
 - WAL 状态（PREPARE/COMMITTED/ABORTED）语义已在实现层显式化，并通过恢复边界测试验证仅回放 COMMITTED。
+- WAL checkpoint 已支持按文件压缩清理 ABORT 与已持久化旧 COMMITTED 记录，同时保留 PREPARE 以支持后续提交流转。
 - WAL 文件基础读写与恢复、ReplicaSync 基础同步与回放。
 - ReplicaSync `commitLog` 已具备幂等提交语义，重复提交不会重复回放 SQL。
 - 主副本对副本 `commitLog` 通知已补充有界重试（best-effort），提升短时故障下的收敛稳定性。
