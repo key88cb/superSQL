@@ -45,6 +45,7 @@
 - `createTable/dropTable/getTableLocation/list*` 主链路。
 - `triggerRebalance()` 最小迁移闭环。
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。
+- Master `/status` 已可查看调度器基础运行统计快照。
 - rebalance 的元数据回滚、target 残留清理补偿、cache invalidation/resume best-effort。
 
 ### 仍待实现

@@ -14,6 +14,7 @@
 - createTable / dropTable 已通过真实 Thrift 调用把 DDL 转发到 RegionServer，再在成功后更新 ZooKeeper 元数据。
 - `triggerRebalance()` 已具备最小可用迁移闭环：可把热点节点上的一个非主副本迁往更空闲节点，并更新 `/meta/tables` 与 `/assignments`。
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
+- Master `/status` 已输出 RebalanceScheduler 运行快照（tick/trigger/throttle/success/failure 与最近执行时间）。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
 
 当前限制：

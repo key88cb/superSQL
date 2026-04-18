@@ -31,5 +31,8 @@ class MasterServerHttpPayloadTest {
         Assertions.assertEquals("zk1:2181", json.get("zkConnect"));
         Assertions.assertTrue(json.containsKey("timestamp"));
         Assertions.assertTrue(json.containsKey("zkReady"));
+        Assertions.assertTrue(json.containsKey("rebalanceScheduler"));
+        Map<?, ?> scheduler = (Map<?, ?>) json.get("rebalanceScheduler");
+        Assertions.assertEquals(Boolean.FALSE, scheduler.get("available"));
     }
 }

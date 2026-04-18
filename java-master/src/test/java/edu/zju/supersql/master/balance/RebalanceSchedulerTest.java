@@ -28,6 +28,11 @@ class RebalanceSchedulerTest {
         scheduler.tick();
 
         Assertions.assertEquals(1, calls.get());
+        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+        Assertions.assertEquals(1L, snapshot.tickCount());
+        Assertions.assertEquals(1L, snapshot.triggerCount());
+        Assertions.assertEquals(1L, snapshot.successCount());
+        Assertions.assertEquals(0L, snapshot.failureCount());
     }
 
     @Test
@@ -52,6 +57,10 @@ class RebalanceSchedulerTest {
         scheduler.tick();
 
         Assertions.assertEquals(2, calls.get());
+        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+        Assertions.assertEquals(3L, snapshot.tickCount());
+        Assertions.assertEquals(2L, snapshot.triggerCount());
+        Assertions.assertEquals(1L, snapshot.throttledCount());
     }
 
     @Test
@@ -73,6 +82,32 @@ class RebalanceSchedulerTest {
 
         Assertions.assertEquals(0, calls.get());
         Assertions.assertFalse(scheduler.isEnabled());
+        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+        Assertions.assertEquals(0L, snapshot.tickCount());
+        Assertions.assertEquals(0L, snapshot.triggerCount());
+    }
+
+    @Test
+    void tickShouldRecordFailureWhenTriggerThrows() {
+        AtomicLong clock = new AtomicLong(2_000L);
+        RebalanceScheduler scheduler = new RebalanceScheduler(
+                true,
+                30_000L,
+                10_000L,
+                () -> {
+                    throw new IllegalStateException("boom");
+                },
+                clock::get
+        );
+
+        Assertions.assertThrows(IllegalStateException.class, scheduler::tick);
+
+        RebalanceScheduler.Snapshot snapshot = scheduler.snapshot();
+        Assertions.assertEquals(1L, snapshot.tickCount());
+        Assertions.assertEquals(1L, snapshot.triggerCount());
+        Assertions.assertEquals(0L, snapshot.successCount());
+        Assertions.assertEquals(1L, snapshot.failureCount());
+        Assertions.assertEquals("boom", snapshot.lastError());
     }
 
     private static Response ok() {

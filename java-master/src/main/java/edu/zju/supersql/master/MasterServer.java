@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -69,6 +70,13 @@ public class MasterServer {
     }
 
     static byte[] buildStatusPayload(int thriftPort, int httpPort, String zkConnect) {
+        return buildStatusPayload(thriftPort, httpPort, zkConnect, null);
+    }
+
+    static byte[] buildStatusPayload(int thriftPort,
+                                     int httpPort,
+                                     String zkConnect,
+                                     RebalanceScheduler rebalanceScheduler) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("status", "ok");
         payload.put("role", resolveRole());
@@ -78,12 +86,37 @@ public class MasterServer {
         payload.put("httpPort", httpPort);
         payload.put("zkConnect", zkConnect);
         payload.put("zkReady", MasterRuntimeContext.isReady());
+        payload.put("rebalanceScheduler", buildRebalanceSchedulerPayload(rebalanceScheduler));
         payload.put("timestamp", System.currentTimeMillis());
         try {
             return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to build status payload", e);
         }
+    }
+
+    private static Map<String, Object> buildRebalanceSchedulerPayload(RebalanceScheduler rebalanceScheduler) {
+        Map<String, Object> status = new LinkedHashMap<>();
+        if (rebalanceScheduler == null) {
+            status.put("available", false);
+            return status;
+        }
+        RebalanceScheduler.Snapshot snapshot = rebalanceScheduler.snapshot();
+        status.put("available", true);
+        status.put("enabled", snapshot.enabled());
+        status.put("started", snapshot.started());
+        status.put("intervalMs", snapshot.intervalMs());
+        status.put("minGapMs", snapshot.minGapMs());
+        status.put("tickCount", snapshot.tickCount());
+        status.put("triggerCount", snapshot.triggerCount());
+        status.put("throttledCount", snapshot.throttledCount());
+        status.put("successCount", snapshot.successCount());
+        status.put("failureCount", snapshot.failureCount());
+        status.put("lastAttemptAtMs", snapshot.lastAttemptAtMs());
+        status.put("lastSuccessAtMs", snapshot.lastSuccessAtMs());
+        status.put("lastFailureAtMs", snapshot.lastFailureAtMs());
+        status.put("lastError", snapshot.lastError());
+        return status;
     }
 
     static int preloadMetadataFromZk(CuratorFramework zkClient) {
@@ -173,6 +206,7 @@ public class MasterServer {
 
         // ── HTTP health server ─────────────────────────────────────────────────
         HttpServer healthServer = HttpServer.create(new InetSocketAddress(httpPort), 0);
+        RebalanceScheduler statusScheduler = rebalanceScheduler;
         healthServer.createContext("/health", exchange -> {
             byte[] body = buildHealthPayload();
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
@@ -180,7 +214,7 @@ public class MasterServer {
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
         });
         healthServer.createContext("/status", exchange -> {
-            byte[] body = buildStatusPayload(thriftPort, httpPort, zkConnect);
+            byte[] body = buildStatusPayload(thriftPort, httpPort, zkConnect, statusScheduler);
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
