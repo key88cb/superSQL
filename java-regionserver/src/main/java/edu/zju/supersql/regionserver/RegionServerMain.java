@@ -106,6 +106,7 @@ public class RegionServerMain {
             reasons.put("table_not_found", 0L);
             reasons.put("target_reject", 0L);
             reasons.put("transport_error", 0L);
+            reasons.put("source_io_error", 0L);
             reasons.put("other", 0L);
             defaults.put("failureReasons", reasons);
             defaults.put("lastFailureTs", 0L);

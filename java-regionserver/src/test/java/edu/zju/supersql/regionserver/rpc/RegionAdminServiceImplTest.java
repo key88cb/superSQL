@@ -726,8 +726,33 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(1L, ((Number) reasons.get("table_not_found")).longValue());
         Assertions.assertEquals(1L, ((Number) reasons.get("target_reject")).longValue());
         Assertions.assertEquals(0L, ((Number) reasons.get("transport_error")).longValue());
+        Assertions.assertEquals(0L, ((Number) reasons.get("source_io_error")).longValue());
         Assertions.assertEquals(0L, ((Number) reasons.get("other")).longValue());
         Assertions.assertEquals("target_reject", String.valueOf(snapshot.get("lastFailureReason")));
+    }
+
+    @Test
+    void transferTableStatsShouldClassifySourceIoError() throws Exception {
+        Files.writeString(dataDir.resolve("orders_data"), "payload");
+        Files.createDirectories(dataDir.resolve("orders_bad"));
+
+        int okPort = freePort();
+        TServer okServer = buildServer(okPort, new RecordingCopyService());
+        ExecutorService okPool = Executors.newSingleThreadExecutor();
+        okPool.submit(okServer::serve);
+        Thread.sleep(200);
+        try {
+            Response failed = service.transferTable("orders", "127.0.0.1", okPort);
+            Assertions.assertEquals(StatusCode.ERROR, failed.getCode());
+        } finally {
+            okServer.stop();
+            okPool.shutdownNow();
+        }
+
+        Map<String, Object> snapshot = service.getTransferTableStats();
+        Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
+        Assertions.assertEquals(1L, ((Number) reasons.get("source_io_error")).longValue());
+        Assertions.assertEquals("source_io_error", String.valueOf(snapshot.get("lastFailureReason")));
     }
 
     @Test

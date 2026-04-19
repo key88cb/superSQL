@@ -68,6 +68,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong transferTableFailureTableNotFound = new AtomicLong();
     private final AtomicLong transferTableFailureTargetReject = new AtomicLong();
     private final AtomicLong transferTableFailureTransportError = new AtomicLong();
+    private final AtomicLong transferTableFailureSourceIoError = new AtomicLong();
     private final AtomicLong transferTableFailureOther = new AtomicLong();
     private final AtomicLong transferTableLastFailureTs = new AtomicLong();
     private volatile String transferTableLastFailureReason = "";
@@ -648,6 +649,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         reasons.put("table_not_found", transferTableFailureTableNotFound.get());
         reasons.put("target_reject", transferTableFailureTargetReject.get());
         reasons.put("transport_error", transferTableFailureTransportError.get());
+        reasons.put("source_io_error", transferTableFailureSourceIoError.get());
         reasons.put("other", transferTableFailureOther.get());
 
         payload.put("failureReasons", reasons);
@@ -693,6 +695,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             case "table_not_found" -> transferTableFailureTableNotFound.incrementAndGet();
             case "target_reject" -> transferTableFailureTargetReject.incrementAndGet();
             case "transport_error" -> transferTableFailureTransportError.incrementAndGet();
+            case "source_io_error" -> transferTableFailureSourceIoError.incrementAndGet();
             default -> transferTableFailureOther.incrementAndGet();
         }
 
@@ -727,9 +730,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         if (message != null && message.contains("copyTableData rejected")) {
             return "target_reject";
         }
+        if (e instanceof IOException) {
+            return "source_io_error";
+        }
         Throwable cause = e.getCause();
         if (cause instanceof TTransportException) {
             return "transport_error";
+        }
+        if (cause instanceof IOException) {
+            return "source_io_error";
         }
         return "other";
     }

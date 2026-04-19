@@ -69,6 +69,7 @@ class RegionServerMainStatusPayloadTest {
         reasons.put("table_not_found", 1L);
         reasons.put("target_reject", 2L);
         reasons.put("transport_error", 0L);
+        reasons.put("source_io_error", 0L);
         reasons.put("other", 0L);
         transferTableStats.put("failureReasons", reasons);
         transferTableStats.put("lastFailureTs", 456L);
@@ -107,6 +108,7 @@ class RegionServerMainStatusPayloadTest {
             Assertions.assertEquals(1L, ((Number) failureReasons.get("table_not_found")).longValue());
             Assertions.assertEquals(2L, ((Number) failureReasons.get("target_reject")).longValue());
             Assertions.assertEquals(0L, ((Number) failureReasons.get("transport_error")).longValue());
+            Assertions.assertEquals(0L, ((Number) failureReasons.get("source_io_error")).longValue());
             Assertions.assertEquals("target_reject", transferTable.get("lastFailureReason"));
     }
 }
