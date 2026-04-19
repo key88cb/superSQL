@@ -48,16 +48,22 @@ class ReplicaSyncServiceImplTest {
         Assertions.assertEquals(StatusCode.OK, syncResponse.getCode());
         Assertions.assertTrue(syncResponse.getMessage().contains("ACK"));
 
-        long maxLsn = svc.getMaxLsn("t_user");
-        Assertions.assertEquals(10L, maxLsn);
+        long maxLsnBeforeCommit = svc.getMaxLsn("t_user");
+        Assertions.assertEquals(-1L, maxLsnBeforeCommit);
 
-        List<WalEntry> entries = svc.pullLog("t_user", 1L);
-        Assertions.assertEquals(1, entries.size());
-        Assertions.assertEquals(10L, entries.get(0).getLsn());
+        List<WalEntry> beforeCommitEntries = svc.pullLog("t_user", 1L);
+        Assertions.assertTrue(beforeCommitEntries.isEmpty());
 
         Response commitResponse = svc.commitLog("t_user", 10L);
         Assertions.assertEquals(StatusCode.OK, commitResponse.getCode());
         Assertions.assertTrue(commitResponse.getMessage().contains("COMMITTED"));
+
+        long maxLsnAfterCommit = svc.getMaxLsn("t_user");
+        Assertions.assertEquals(10L, maxLsnAfterCommit);
+
+        List<WalEntry> afterCommitEntries = svc.pullLog("t_user", 1L);
+        Assertions.assertEquals(1, afterCommitEntries.size());
+        Assertions.assertEquals(10L, afterCommitEntries.get(0).getLsn());
 
         // Verify SQL was replayed on local engine
         Mockito.verify(mockMiniSql).execute("insert into t_user values(1,'a');");
@@ -76,6 +82,9 @@ class ReplicaSyncServiceImplTest {
         svc.syncLog(walEntry(8L, "t_order", WalOpType.INSERT));
         svc.syncLog(walEntry(2L, "t_order", WalOpType.UPDATE));
         svc.syncLog(walEntry(5L, "t_order", WalOpType.DELETE));
+        svc.commitLog("t_order", 8L);
+        svc.commitLog("t_order", 2L);
+        svc.commitLog("t_order", 5L);
 
         List<WalEntry> entries = svc.pullLog("t_order", 3L);
         Assertions.assertEquals(2, entries.size());
@@ -120,7 +129,7 @@ class ReplicaSyncServiceImplTest {
     }
 
     @Test
-    void initShouldClearCommittedCache() throws Exception {
+    void initShouldRebuildCommittedCacheFromWal() throws Exception {
         ReplicaSyncServiceImpl svc = service();
         WalEntry entry = walEntry(70L, "t_cache", WalOpType.INSERT);
         svc.syncLog(entry);
@@ -129,9 +138,11 @@ class ReplicaSyncServiceImplTest {
         Assertions.assertTrue(ReplicaSyncServiceImpl.COMMITTED_LSNS.containsKey("t_cache"));
         Assertions.assertTrue(ReplicaSyncServiceImpl.COMMITTED_LSNS.get("t_cache").contains(70L));
 
+        ReplicaSyncServiceImpl.COMMITTED_LSNS.clear();
         svc.init();
 
-        Assertions.assertTrue(ReplicaSyncServiceImpl.COMMITTED_LSNS.isEmpty());
+        Assertions.assertTrue(ReplicaSyncServiceImpl.COMMITTED_LSNS.containsKey("t_cache"));
+        Assertions.assertTrue(ReplicaSyncServiceImpl.COMMITTED_LSNS.get("t_cache").contains(70L));
     }
 
     @Test
@@ -147,12 +158,14 @@ class ReplicaSyncServiceImplTest {
         ReplicaSyncServiceImpl svc2 = new ReplicaSyncServiceImpl(mockMiniSql, walManager);
         svc2.init(); // Recovery
         
-        List<WalEntry> entries = svc2.pullLog(table, 50L);
-        Assertions.assertEquals(1, entries.size(), "Uncommitted log should be restored from disk");
-        Assertions.assertEquals(100L, entries.get(0).getLsn());
+        List<WalEntry> entriesBeforeCommit = svc2.pullLog(table, 50L);
+        Assertions.assertTrue(entriesBeforeCommit.isEmpty(), "Uncommitted log should not be visible to pullLog");
         
         // Verify commit also works after restoration
         svc2.commitLog(table, 100L);
+        List<WalEntry> entriesAfterCommit = svc2.pullLog(table, 50L);
+        Assertions.assertEquals(1, entriesAfterCommit.size());
+        Assertions.assertEquals(100L, entriesAfterCommit.get(0).getLsn());
         Mockito.verify(mockMiniSql).execute("insert into persisted_test values(1);");
     }
 

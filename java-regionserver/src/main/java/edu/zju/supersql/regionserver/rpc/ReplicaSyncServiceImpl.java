@@ -48,7 +48,7 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
     }
 
     /**
-     * Restores uncommitted logs from WAL files into the in-memory map.
+     * Restores committed and uncommitted logs from WAL files into the in-memory map.
      */
     public void init() {
         log.info("ReplicaSyncServiceImpl: restoring pending logs from WAL...");
@@ -62,11 +62,23 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
         for (File f : files) {
             String tableName = f.getName().replace(".wal", "");
             try {
+                List<WalEntry> committed = walManager.readEntriesAfter(tableName, 0L);
+                if (!committed.isEmpty()) {
+                    ConcurrentSkipListMap<Long, WalEntry> tableMap = tableWal(tableName);
+                    Set<Long> committedLsnSet = COMMITTED_LSNS.computeIfAbsent(tableName,
+                            k -> ConcurrentHashMap.newKeySet());
+                    for (WalEntry entry : committed) {
+                        tableMap.put(entry.getLsn(), entry);
+                        committedLsnSet.add(entry.getLsn());
+                    }
+                    log.info("Restored {} committed logs for table={}", committed.size(), tableName);
+                }
+
                 List<WalEntry> uncommitted = walManager.readUncommittedEntries(tableName);
                 if (!uncommitted.isEmpty()) {
                     ConcurrentSkipListMap<Long, WalEntry> tableMap = tableWal(tableName);
                     for (WalEntry entry : uncommitted) {
-                        tableMap.put(entry.getLsn(), entry);
+                        tableMap.putIfAbsent(entry.getLsn(), entry);
                     }
                     log.info("Restored {} pending logs for table={}", uncommitted.size(), tableName);
                 }
@@ -119,12 +131,19 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
             return Collections.emptyList();
         }
         ConcurrentSkipListMap<Long, WalEntry> wal = WAL_BY_TABLE.get(tableName);
+        Set<Long> committed = COMMITTED_LSNS.get(tableName);
+        if (committed == null || committed.isEmpty()) {
+            return Collections.emptyList();
+        }
         if (wal == null || wal.isEmpty()) {
             return Collections.emptyList();
         }
 
         List<WalEntry> result = new ArrayList<>();
         for (WalEntry e : wal.tailMap(startLsn).values()) {
+            if (!committed.contains(e.getLsn())) {
+                continue;
+            }
             result.add(cloneEntry(e));
         }
         result.sort(Comparator.comparingLong(WalEntry::getLsn));
@@ -134,10 +153,19 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
     @Override
     public long getMaxLsn(String tableName) throws TException {
         ConcurrentSkipListMap<Long, WalEntry> wal = WAL_BY_TABLE.get(tableName);
+        Set<Long> committed = COMMITTED_LSNS.get(tableName);
+        if (committed == null || committed.isEmpty()) {
+            return -1L;
+        }
         if (wal == null || wal.isEmpty()) {
             return -1L;
         }
-        return wal.lastKey();
+        for (Map.Entry<Long, WalEntry> entry : wal.descendingMap().entrySet()) {
+            if (committed.contains(entry.getKey())) {
+                return entry.getKey();
+            }
+        }
+        return -1L;
     }
 
     @Override

@@ -94,6 +94,7 @@
 - WAL 清理语义已增强：checkpoint/recover 会裁剪 `LSN<=checkpointLsn` 的陈旧 PREPARE，降低悬挂 PREPARE 对恢复路径的干扰。
 - WAL 文件基础读写与恢复、ReplicaSync 基础同步与回放。
 - ReplicaSync `commitLog` 已具备幂等提交语义，重复提交不会重复回放 SQL。
+- ReplicaSync `pullLog/getMaxLsn` 已收敛为仅对已提交日志可见，避免未提交 PREPARE 进入副本追赶路径。
 - 主副本对副本 `commitLog` 通知已补充有界重试（best-effort），提升短时故障下的收敛稳定性。
 - 主副本已接入基于 `getMaxLsn/pullLog` 的异步追赶编排：写成功后可自动尝试修复落后副本缺口（donor 拉取 + 重放 + commit，best-effort）。
 - 追赶编排已支持 donor 回退：当首选 donor 拉取不到 backlog 时，会自动尝试下一候选 donor 继续修复。
