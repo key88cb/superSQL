@@ -727,6 +727,48 @@ class RegionAdminServiceImplTest {
         Assertions.assertTrue(((Number) last.get("ts")).longValue() > 0L);
         }
 
+        @Test
+        void transferManifestVerificationDuplicateAcksByTableShouldBeBounded() throws Exception {
+        for (int i = 0; i < 70; i++) {
+            String tableName = "orders" + i;
+            byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+            long crc32 = crc32(data);
+
+            Response dataResp = service.copyTableData(new DataChunk(
+                tableName,
+                tableName + "_data",
+                0L,
+                ByteBuffer.wrap(data),
+                true));
+            Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+
+            byte[] manifest = ("{\"tableName\":\"" + tableName + "\",\"files\":[{\"fileName\":\""
+                + tableName + "_data\",\"size\":7,\"crc32\":" + crc32 + "}]}")
+                .getBytes(StandardCharsets.UTF_8);
+
+            Response first = service.copyTableData(new DataChunk(
+                tableName,
+                "__supersql_transfer_manifest__." + tableName + ".json",
+                0L,
+                ByteBuffer.wrap(manifest),
+                true));
+            Assertions.assertEquals(StatusCode.OK, first.getCode());
+
+            Response duplicate = service.copyTableData(new DataChunk(
+                tableName,
+                "__supersql_transfer_manifest__." + tableName + ".json",
+                0L,
+                ByteBuffer.wrap(manifest),
+                true));
+            Assertions.assertEquals(StatusCode.OK, duplicate.getCode());
+        }
+
+        Map<String, Object> snapshot = service.getTransferManifestVerificationStats();
+        Map<?, ?> duplicateByTable = (Map<?, ?>) snapshot.get("duplicateAcksByTable");
+        Assertions.assertTrue(duplicateByTable.size() <= 64);
+        Assertions.assertEquals(6L, ((Number) snapshot.get("duplicateAcksByTableDropped")).longValue());
+        }
+
     @Test
     void transferTableStatsShouldTrackReasonsAndSuccess() throws Exception {
         Map<String, Object> initial = service.getTransferTableStats();

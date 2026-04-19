@@ -52,6 +52,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertTrue(((java.util.List<?>) transferManifestVerification.get("recentFailures")).isEmpty());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("recentFailuresDropped")).longValue());
         Assertions.assertTrue(((Map<?, ?>) transferManifestVerification.get("duplicateAcksByTable")).isEmpty());
+        Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("duplicateAcksByTableDropped")).longValue());
         Map<?, ?> transferTable = (Map<?, ?>) json.get("transferTable");
         Assertions.assertEquals(0L, ((Number) transferTable.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("success")).longValue());
@@ -92,6 +93,7 @@ class RegionServerMainStatusPayloadTest {
         Map<String, Object> manifestDuplicateByTable = new LinkedHashMap<>();
         manifestDuplicateByTable.put("orders", 2L);
         manifestStats.put("duplicateAcksByTable", manifestDuplicateByTable);
+        manifestStats.put("duplicateAcksByTableDropped", 5L);
 
         Map<String, Object> transferTableStats = new LinkedHashMap<>();
         transferTableStats.put("total", 7L);
@@ -149,6 +151,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(3L, ((Number) transferManifestVerification.get("recentFailuresDropped")).longValue());
         Map<?, ?> duplicateAckTables = (Map<?, ?>) transferManifestVerification.get("duplicateAcksByTable");
         Assertions.assertEquals(2L, ((Number) duplicateAckTables.get("orders")).longValue());
+        Assertions.assertEquals(5L, ((Number) transferManifestVerification.get("duplicateAcksByTableDropped")).longValue());
 
             Assertions.assertEquals(7L, ((Number) transferTable.get("total")).longValue());
             Assertions.assertEquals(4L, ((Number) transferTable.get("success")).longValue());

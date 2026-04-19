@@ -67,6 +67,7 @@
 - RegionServer `/status` 的 manifest 校验统计已补充失败原因维度（`failureReasons` + `lastFailureReason`），可区分格式错误、范围违规、缺文件、size/checksum 不一致等失败类型。
 - RegionServer `/status` 的 manifest 校验统计已补充 `recentFailures`（最多 8 条）与 `recentFailuresDropped`，用于观测近期失败序列并反映窗口裁剪量。
 - RegionServer `/status` 的 manifest 校验统计已补充 `duplicateAcksByTable`，可按表观察重复清单确认分布。
+- `duplicateAcksByTable` 已增加有界上限与 `duplicateAcksByTableDropped` 计数，避免高基数表名导致统计结构无限增长。
 - RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure/lastSuccessTs、失败原因分类与最近失败信息），便于快速定位迁移失败类型。
 - `transferTable` 失败原因分类已新增 `source_io_error`（源端文件读取/流式发送阶段 I/O 异常），便于区分网络故障与本地数据面故障。
 - `transferTable` 统计已补充 `recentFailures` 窗口（最多 8 条，含 ts/reason/code/message），便于查看最近失败序列而不放大 `/status` 载荷。

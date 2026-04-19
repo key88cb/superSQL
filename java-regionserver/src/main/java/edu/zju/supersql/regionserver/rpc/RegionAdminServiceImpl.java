@@ -48,6 +48,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private static final int STATUS_FAILURE_MESSAGE_MAX_LEN = 256;
     private static final int TRANSFER_FAILURE_HISTORY_MAX_SIZE = 8;
     private static final int MANIFEST_FAILURE_HISTORY_MAX_SIZE = 8;
+    private static final int MANIFEST_DUPLICATE_ACKS_BY_TABLE_MAX_SIZE = 64;
     private static final String STAGING_SUFFIX = ".part";
     private static final String TRANSFER_MANIFEST_PREFIX = "__supersql_transfer_manifest__.";
 
@@ -75,6 +76,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final Object manifestFailureHistoryLock = new Object();
     private final Deque<Map<String, Object>> manifestRecentFailures = new ArrayDeque<>();
     private final Map<String, AtomicLong> manifestDuplicateAcksByTable = new ConcurrentHashMap<>();
+    private final AtomicLong manifestDuplicateAcksByTableDropped = new AtomicLong();
     private final Map<String, Long> manifestVerifiedDigestByTable = new ConcurrentHashMap<>();
     private final AtomicLong transferTableTotal = new AtomicLong();
     private final AtomicLong transferTableSuccess = new AtomicLong();
@@ -665,6 +667,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("recentFailures", snapshotManifestRecentFailures());
         payload.put("recentFailuresDropped", manifestRecentFailuresDropped.get());
         payload.put("duplicateAcksByTable", snapshotManifestDuplicateAcksByTable());
+        payload.put("duplicateAcksByTableDropped", manifestDuplicateAcksByTableDropped.get());
         return payload;
     }
 
@@ -704,9 +707,16 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         manifestVerificationDuplicateAcks.incrementAndGet();
         manifestVerificationLastSuccessTs.set(System.currentTimeMillis());
         if (tableName != null && !tableName.isBlank()) {
-            manifestDuplicateAcksByTable
-                    .computeIfAbsent(tableName, ignored -> new AtomicLong())
-                    .incrementAndGet();
+            AtomicLong existing = manifestDuplicateAcksByTable.get(tableName);
+            if (existing != null) {
+                existing.incrementAndGet();
+            } else if (manifestDuplicateAcksByTable.size() < MANIFEST_DUPLICATE_ACKS_BY_TABLE_MAX_SIZE) {
+                manifestDuplicateAcksByTable
+                        .computeIfAbsent(tableName, ignored -> new AtomicLong())
+                        .incrementAndGet();
+            } else {
+                manifestDuplicateAcksByTableDropped.incrementAndGet();
+            }
         }
         Response r = new Response(StatusCode.OK);
         r.setMessage("duplicate transfer manifest acknowledged files=" + fileCount);
