@@ -371,6 +371,33 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldApplyLongCooldownAfterDecisionReady() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 9494L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        for (int i = 0; i < 24; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+
+        manager.retryPendingCommitsNowIgnoringBackoff();
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertTrue(((Number) stats.get("decisionReadyCooldownAppliedCount")).longValue() >= 1L);
+        Assertions.assertEquals(900_000L, ((Number) stats.get("decisionReadyCooldownMs")).longValue());
+
+        List<?> preview = (List<?>) stats.get("decisionCandidatesPreview");
+        Assertions.assertFalse(preview.isEmpty());
+        Map<?, ?> first = (Map<?, ?>) preview.get(0);
+        long nextRetryAtMs = ((Number) first.get("nextRetryAtMs")).longValue();
+        long minExpected = System.currentTimeMillis() + 14 * 60_000L;
+        Assertions.assertTrue(nextRetryAtMs >= minExpected,
+                "Decision-ready cooldown should push next retry far into the future");
+    }
+
+    @Test
     void commitOneWithRetryShouldReturnFalseForUnreachableReplica() {
         ReplicaManager manager = new ReplicaManager();
         boolean committed = manager.commitOneWithRetry("orders", 999L, "127.0.0.1:1");

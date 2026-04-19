@@ -60,6 +60,7 @@ public class ReplicaManager {
     private static final long PENDING_COMMIT_DECISION_READY_ATTEMPTS = 24L;
     private static final long PENDING_COMMIT_TRANSPORT_ESCALATION_COOLDOWN_MS = 120_000L;
     private static final long PENDING_COMMIT_DECISION_CANDIDATE_COOLDOWN_MS = 300_000L;
+    private static final long PENDING_COMMIT_DECISION_READY_COOLDOWN_MS = TimeUnit.MINUTES.toMillis(15);
     private static final String COMMIT_ERR_TABLE_NOT_FOUND = "table_not_found";
     private static final String COMMIT_ERR_INVALID_ADDRESS = "invalid replica address";
     private static final String COMMIT_ERR_INVALID_PORT = "invalid replica port";
@@ -117,6 +118,9 @@ public class ReplicaManager {
             boolean escalated = transportFailures >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD;
             if (escalated) {
                 retryBackoffMs = Math.max(retryBackoffMs, PENDING_COMMIT_TRANSPORT_ESCALATION_COOLDOWN_MS);
+            }
+            if (decisionReadyMarked) {
+                retryBackoffMs = Math.max(retryBackoffMs, PENDING_COMMIT_DECISION_READY_COOLDOWN_MS);
             }
             nextRetryAtMs = nowMs + retryBackoffMs;
             lastError = error;
@@ -186,6 +190,7 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitDecisionCandidateCooldownAppliedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitDecisionReadyTransitionCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastDecisionReadyAtMs = new AtomicLong(0L);
+    private final AtomicLong pendingCommitDecisionReadyCooldownAppliedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitDecisionReadyRetainedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastDecisionReadyRetainedAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitRecoveredFromEscalationCount = new AtomicLong(0L);
@@ -325,6 +330,8 @@ public class ReplicaManager {
         stats.put("decisionCandidateCooldownMs", PENDING_COMMIT_DECISION_CANDIDATE_COOLDOWN_MS);
         stats.put("decisionReadyTransitionCount", pendingCommitDecisionReadyTransitionCount.get());
         stats.put("lastDecisionReadyAtMs", pendingCommitLastDecisionReadyAtMs.get());
+        stats.put("decisionReadyCooldownAppliedCount", pendingCommitDecisionReadyCooldownAppliedCount.get());
+        stats.put("decisionReadyCooldownMs", PENDING_COMMIT_DECISION_READY_COOLDOWN_MS);
         stats.put("decisionReadyRetainedCount", pendingCommitDecisionReadyRetainedCount.get());
         stats.put("lastDecisionReadyRetainedAtMs", pendingCommitLastDecisionReadyRetainedAtMs.get());
         stats.put("decisionReadyAttemptsThreshold", PENDING_COMMIT_DECISION_READY_ATTEMPTS);
@@ -706,6 +713,9 @@ public class ReplicaManager {
             if (task.markDecisionReadyIfNeeded()) {
                 pendingCommitDecisionReadyTransitionCount.incrementAndGet();
                 pendingCommitLastDecisionReadyAtMs.set(System.currentTimeMillis());
+            }
+            if (task.decisionReadyMarked) {
+                pendingCommitDecisionReadyCooldownAppliedCount.incrementAndGet();
             }
             pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
             pendingCommitLastError = commitAttempt.error();
