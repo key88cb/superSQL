@@ -349,7 +349,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 }
                 candidateTables++;
                 String before = healSignature(table);
-                TableLocation recovered = regionMigrator.recoverStuckMigrationBestEffort(
+                TableLocation recovered = regionMigrator.recoverStuckMigrationWithConfirmation(
                     table,
                     migrationStuckTimeoutMs,
                     this::readMigrationContextBestEffort,
@@ -527,7 +527,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 notFound.setVersion(-1L);
                 return notFound;
             }
-            TableLocation recovered = regionMigrator.recoverStuckMigrationBestEffort(
+            TableLocation recovered = regionMigrator.recoverStuckMigrationWithConfirmation(
                 location,
                 migrationStuckTimeoutMs,
                 this::readMigrationContextBestEffort,
@@ -692,7 +692,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             List<TableLocation> locations = metaManager.listTables();
             List<TableLocation> healed = new ArrayList<>();
             for (TableLocation location : locations) {
-                TableLocation recovered = regionMigrator.recoverStuckMigrationBestEffort(
+                TableLocation recovered = regionMigrator.recoverStuckMigrationWithConfirmation(
                     location,
                     migrationStuckTimeoutMs,
                     this::readMigrationContextBestEffort,
@@ -781,12 +781,13 @@ public class MasterServiceImpl implements MasterService.Iface {
         try {
             int recovered = 0;
             for (TableLocation location : metaManager.listTables()) {
-                TableLocation recoveredLocation = regionMigrator.recoverStuckMigrationBestEffort(
+                TableLocation recoveredLocation = regionMigrator.recoverStuckMigrationWithConfirmation(
                     location,
                     migrationStuckTimeoutMs,
                     this::readMigrationContextBestEffort,
                     this::resolveRegionServerForRecovery);
-                if (recoveredLocation != location) {
+                if (!Objects.equals(location.getTableStatus(), recoveredLocation.getTableStatus())
+                        && "ACTIVE".equalsIgnoreCase(recoveredLocation.getTableStatus())) {
                     recovered++;
                 }
             }
@@ -1213,30 +1214,42 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     @SuppressWarnings("unchecked")
-    private void setMigrationContextBestEffort(String tableName,
-                                               String migrationAttemptId,
-                                               String sourceReplicaId,
-                                               String targetReplicaId) {
+    private boolean setMigrationContextBestEffort(String tableName,
+                                                  String migrationAttemptId,
+                                                  String sourceReplicaId,
+                                                  String targetReplicaId,
+                                                  String compensationRole,
+                                                  boolean compensationBlocked,
+                                                  String compensationLastError,
+                                                  long compensationUpdatedAtMs) {
         CuratorFramework zk = zk();
         if (migrationAttemptId == null || migrationAttemptId.isBlank() || isZkUnavailable(zk)) {
-            return;
+            return false;
         }
         try {
             String path = tableMetaPath(tableName);
             if (zk.checkExists().forPath(path) == null) {
-                return;
+                return false;
             }
             byte[] data = zk.getData().forPath(path);
             if (data == null || data.length == 0) {
-                return;
+                return false;
             }
             Map<String, Object> root = MAPPER.readValue(data, Map.class);
             Object existingAttempt = root.get("migrationAttemptId");
             Object existingSource = root.get("migrationSourceReplicaId");
             Object existingTarget = root.get("migrationTargetReplicaId");
+                Object existingCompensationRole = root.get("migrationCompensationRole");
+                Object existingCompensationBlocked = root.get("migrationCompensationBlocked");
+                Object existingCompensationError = root.get("migrationCompensationLastError");
+                Object existingCompensationUpdatedAt = root.get("migrationCompensationUpdatedAtMs");
             if (!Objects.equals(existingAttempt, migrationAttemptId)
                     || !Objects.equals(existingSource, sourceReplicaId)
-                    || !Objects.equals(existingTarget, targetReplicaId)) {
+                    || !Objects.equals(existingTarget, targetReplicaId)
+                    || !Objects.equals(existingCompensationRole, compensationRole)
+                    || !Objects.equals(Boolean.parseBoolean(String.valueOf(existingCompensationBlocked)), compensationBlocked)
+                    || !Objects.equals(existingCompensationError, compensationLastError)
+                    || !Objects.equals(toLong(existingCompensationUpdatedAt, 0L), compensationUpdatedAtMs)) {
                 root.put("migrationAttemptId", migrationAttemptId);
                 if (sourceReplicaId != null && !sourceReplicaId.isBlank()) {
                     root.put("migrationSourceReplicaId", sourceReplicaId);
@@ -1248,39 +1261,73 @@ public class MasterServiceImpl implements MasterService.Iface {
                 } else {
                     root.remove("migrationTargetReplicaId");
                 }
+                if (compensationRole != null && !compensationRole.isBlank()) {
+                    root.put("migrationCompensationRole", compensationRole);
+                } else {
+                    root.remove("migrationCompensationRole");
+                }
+                if (compensationBlocked) {
+                    root.put("migrationCompensationBlocked", true);
+                } else {
+                    root.remove("migrationCompensationBlocked");
+                }
+                if (compensationLastError != null && !compensationLastError.isBlank()) {
+                    root.put("migrationCompensationLastError", compensationLastError);
+                } else {
+                    root.remove("migrationCompensationLastError");
+                }
+                if (compensationUpdatedAtMs > 0L) {
+                    root.put("migrationCompensationUpdatedAtMs", compensationUpdatedAtMs);
+                } else {
+                    root.remove("migrationCompensationUpdatedAtMs");
+                }
                 zk.setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
             }
+            return true;
         } catch (Exception e) {
             log.warn("triggerRebalance set migrationAttemptId failed table={} cause={}",
                     tableName, e.getMessage());
+            return false;
         }
     }
 
     @SuppressWarnings("unchecked")
-    private void clearMigrationContextBestEffort(String tableName) {
+    private boolean clearMigrationContextBestEffort(String tableName) {
         CuratorFramework zk = zk();
         if (isZkUnavailable(zk)) {
-            return;
+            return false;
         }
         try {
             String path = tableMetaPath(tableName);
             if (zk.checkExists().forPath(path) == null) {
-                return;
+                return false;
             }
             byte[] data = zk.getData().forPath(path);
             if (data == null || data.length == 0) {
-                return;
+                return false;
             }
             Map<String, Object> root = MAPPER.readValue(data, Map.class);
             Object removedAttempt = root.remove("migrationAttemptId");
             Object removedSource = root.remove("migrationSourceReplicaId");
             Object removedTarget = root.remove("migrationTargetReplicaId");
-            if (removedAttempt != null || removedSource != null || removedTarget != null) {
+            Object removedCompensationRole = root.remove("migrationCompensationRole");
+            Object removedCompensationBlocked = root.remove("migrationCompensationBlocked");
+            Object removedCompensationError = root.remove("migrationCompensationLastError");
+            Object removedCompensationUpdatedAt = root.remove("migrationCompensationUpdatedAtMs");
+            if (removedAttempt != null
+                    || removedSource != null
+                    || removedTarget != null
+                    || removedCompensationRole != null
+                    || removedCompensationBlocked != null
+                    || removedCompensationError != null
+                    || removedCompensationUpdatedAt != null) {
                 zk.setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
             }
+            return true;
         } catch (Exception e) {
             log.warn("triggerRebalance clear migrationAttemptId failed table={} cause={}",
                     tableName, e.getMessage());
+            return false;
         }
     }
 
@@ -1306,10 +1353,18 @@ public class MasterServiceImpl implements MasterService.Iface {
             }
             Object source = root.get("migrationSourceReplicaId");
             Object target = root.get("migrationTargetReplicaId");
+            Object compensationRole = root.get("migrationCompensationRole");
+            Object compensationBlocked = root.get("migrationCompensationBlocked");
+            Object compensationError = root.get("migrationCompensationLastError");
+            Object compensationUpdatedAt = root.get("migrationCompensationUpdatedAtMs");
                 return new RegionMigrator.MigrationContext(
                     String.valueOf(attempt),
                     source == null ? null : String.valueOf(source),
-                    target == null ? null : String.valueOf(target));
+                    target == null ? null : String.valueOf(target),
+                    compensationRole == null ? null : String.valueOf(compensationRole),
+                    compensationBlocked != null && Boolean.parseBoolean(String.valueOf(compensationBlocked)),
+                    compensationError == null ? null : String.valueOf(compensationError),
+                    toLong(compensationUpdatedAt, 0L));
         } catch (Exception e) {
             log.warn("read migration context failed table={} cause={}", tableName, e.getMessage());
             return null;

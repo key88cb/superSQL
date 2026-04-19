@@ -783,7 +783,7 @@ class MasterServiceMetadataIntegrationTest {
         }
 
     @Test
-    void getTableLocationShouldNotRecoverStuckFinalizingWhenSourceCleanupFails() throws Exception {
+    void getTableLocationShouldEnterCompensatingWhenSourceCleanupFails() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
         registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
@@ -826,15 +826,17 @@ class MasterServiceMetadataIntegrationTest {
                 5_000L);
 
         TableLocation recovered = blockedService.getTableLocation("t_stuck_finalizing_blocked");
-        Assertions.assertEquals("FINALIZING", recovered.getTableStatus());
+        Assertions.assertEquals("COMPENSATING", recovered.getTableStatus());
 
         Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_finalizing_blocked");
-        Assertions.assertEquals("FINALIZING", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertEquals("COMPENSATING", String.valueOf(finalMeta.get("tableStatus")));
         Assertions.assertEquals("attempt-finalizing-blocked", String.valueOf(finalMeta.get("migrationAttemptId")));
+        Assertions.assertEquals("source", String.valueOf(finalMeta.get("migrationCompensationRole")));
+        Assertions.assertEquals("true", String.valueOf(finalMeta.get("migrationCompensationBlocked")));
     }
 
     @Test
-    void getTableLocationShouldNotRecoverStuckMovingWhenTargetCleanupFails() throws Exception {
+    void getTableLocationShouldEnterCompensatingWhenTargetCleanupFails() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
         registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
@@ -880,15 +882,17 @@ class MasterServiceMetadataIntegrationTest {
                 5_000L);
 
         TableLocation recovered = blockedService.getTableLocation("t_stuck_moving_blocked");
-        Assertions.assertEquals("MOVING", recovered.getTableStatus());
+        Assertions.assertEquals("COMPENSATING", recovered.getTableStatus());
 
         Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_moving_blocked");
-        Assertions.assertEquals("MOVING", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertEquals("COMPENSATING", String.valueOf(finalMeta.get("tableStatus")));
         Assertions.assertEquals("attempt-moving-blocked", String.valueOf(finalMeta.get("migrationAttemptId")));
+        Assertions.assertEquals("target", String.valueOf(finalMeta.get("migrationCompensationRole")));
+        Assertions.assertEquals("true", String.valueOf(finalMeta.get("migrationCompensationBlocked")));
     }
 
     @Test
-    void getTableLocationShouldNotRecoverStuckFinalizingWhenSourceReplicaMissing() throws Exception {
+    void getTableLocationShouldEnterCompensatingWhenSourceReplicaMissing() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
         registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
@@ -921,15 +925,17 @@ class MasterServiceMetadataIntegrationTest {
                 5_000L);
 
         TableLocation recovered = blockedService.getTableLocation("t_stuck_finalizing_missing_source");
-        Assertions.assertEquals("FINALIZING", recovered.getTableStatus());
+        Assertions.assertEquals("COMPENSATING", recovered.getTableStatus());
 
         Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_finalizing_missing_source");
-        Assertions.assertEquals("FINALIZING", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertEquals("COMPENSATING", String.valueOf(finalMeta.get("tableStatus")));
         Assertions.assertEquals("attempt-finalizing-missing-source", String.valueOf(finalMeta.get("migrationAttemptId")));
+        Assertions.assertEquals("source", String.valueOf(finalMeta.get("migrationCompensationRole")));
+        Assertions.assertEquals("true", String.valueOf(finalMeta.get("migrationCompensationBlocked")));
     }
 
     @Test
-    void getTableLocationShouldNotRecoverStuckMovingWhenTargetReplicaMissing() throws Exception {
+    void getTableLocationShouldEnterCompensatingWhenTargetReplicaMissing() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
         registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
@@ -962,11 +968,13 @@ class MasterServiceMetadataIntegrationTest {
                 5_000L);
 
         TableLocation recovered = blockedService.getTableLocation("t_stuck_moving_missing_target");
-        Assertions.assertEquals("MOVING", recovered.getTableStatus());
+        Assertions.assertEquals("COMPENSATING", recovered.getTableStatus());
 
         Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_moving_missing_target");
-        Assertions.assertEquals("MOVING", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertEquals("COMPENSATING", String.valueOf(finalMeta.get("tableStatus")));
         Assertions.assertEquals("attempt-moving-missing-target", String.valueOf(finalMeta.get("migrationAttemptId")));
+        Assertions.assertEquals("target", String.valueOf(finalMeta.get("migrationCompensationRole")));
+        Assertions.assertEquals("true", String.valueOf(finalMeta.get("migrationCompensationBlocked")));
     }
 
     @Test

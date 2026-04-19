@@ -53,8 +53,9 @@
 - `triggerRebalance()` 迁移阶段已写入 `migrationAttemptId` 并在结束（成功/回滚）后清理，为后续幂等恢复提供观测锚点。
 - `getTableLocation/listTables/repairTableRoutesBestEffort` 已支持卡死迁移超时回收：当迁移状态超时且 `migrationAttemptId` 仍存在时，自动恢复为 `ACTIVE` 并清理尝试标记。
 - 卡死迁移恢复已补充上下文补偿：基于 `migrationSourceReplicaId/migrationTargetReplicaId` 执行阶段化清理（`FINALIZING` 清理 source；`PREPARING/MOVING/ROLLBACK` 清理 target）后再恢复 `ACTIVE`，降低仅元数据回写导致的数据面残留风险。
-- 卡死迁移恢复已补充失败闸门：若可达副本上的必要补偿清理失败，则保持迁移中状态并保留上下文，避免进入“控制面已恢复、数据面未收敛”的不一致窗口。
-- 卡死迁移恢复已补充“补偿对象可解析”闸门：当上下文中的 source/target 无法解析到可操作副本时，恢复同样被阻断并保留上下文，避免在补偿对象不确定时提前切回 `ACTIVE`。
+- 卡死迁移恢复已升级为“补偿确认协议”：必要补偿清理会进行多次确认重试（`OK/TABLE_NOT_FOUND` 才算成功），未确认前不会切回 `ACTIVE`。
+- 当补偿失败或补偿对象不可解析时，迁移状态会进入 `COMPENSATING` 并保留补偿上下文（`migrationCompensationRole/migrationCompensationBlocked/migrationCompensationLastError/migrationCompensationUpdatedAtMs`），由后续读路径/修复路径继续推进直至完成。
+- 对历史残留且缺失 target 上下文的 `MOVING/PREPARING/ROLLBACK` 状态，保留安全兜底恢复路径，避免永久卡死；其它场景继续坚持“补偿确认后完成”的强约束。
 - 卡死迁移恢复逻辑已从 `MasterServiceImpl` 下沉到 `RegionMigrator`，迁移主流程与超时恢复已收敛到同一编排组件；Master 侧仅保留上下文读写与副本解析回调。
 - `triggerRebalance()` 调度入口也会执行卡死迁移预恢复：即使本次调度因“集群已平衡”被跳过，也能先回收超时状态。
 - `triggerRebalance()` 在“跳过调度”响应中会附带本轮卡死迁移回收数量，便于外部调度器做轻量观测而不依赖日志解析。
