@@ -685,7 +685,15 @@ public class SqlClient {
             return lines;
         }
 
+        ClientRoutingMetrics.MetricsSnapshot totals = aggregateRoutingMetrics(snapshot);
         lines.add("Routing Metrics:");
+        lines.add(String.format(
+                "  totals: redirects=%d movingRetries=%d exceptionRetries=%d locationFetches=%d readFallbacks=%d",
+                totals.redirectCount(),
+                totals.movingRetryCount(),
+                totals.retryOnExceptionCount(),
+                totals.locationFetchCount(),
+                totals.readFallbackCount()));
         List<String> tables = new ArrayList<>(snapshot.keySet());
         tables.sort(String::compareTo);
         for (String table : tables) {
@@ -711,6 +719,7 @@ public class SqlClient {
     static String formatRoutingMetricsJson(Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot) {
         Map<String, Object> root = new LinkedHashMap<>();
         List<Map<String, Object>> tables = new ArrayList<>();
+        ClientRoutingMetrics.MetricsSnapshot totals = aggregateRoutingMetrics(snapshot);
 
         if (snapshot != null && !snapshot.isEmpty()) {
             List<String> names = new ArrayList<>(snapshot.keySet());
@@ -731,13 +740,21 @@ public class SqlClient {
             }
         }
 
+        Map<String, Object> totalsRow = new LinkedHashMap<>();
+        totalsRow.put("redirects", totals.redirectCount());
+        totalsRow.put("movingRetries", totals.movingRetryCount());
+        totalsRow.put("exceptionRetries", totals.retryOnExceptionCount());
+        totalsRow.put("locationFetches", totals.locationFetchCount());
+        totalsRow.put("readFallbacks", totals.readFallbackCount());
+
         root.put("tableCount", tables.size());
+        root.put("totals", totalsRow);
         root.put("tables", tables);
         try {
             return MAPPER.writeValueAsString(root);
         } catch (Exception e) {
             log.warn("Failed to render routing metrics json: {}", e.getMessage());
-            return "{\"tableCount\":0,\"tables\":[]}";
+            return "{\"tableCount\":0,\"totals\":{\"redirects\":0,\"movingRetries\":0,\"exceptionRetries\":0,\"locationFetches\":0,\"readFallbacks\":0},\"tables\":[]}";
         }
     }
 
@@ -748,8 +765,19 @@ public class SqlClient {
         sb.append("# TYPE supersql_client_routing_exception_retry_total counter\n");
         sb.append("# TYPE supersql_client_routing_location_fetch_total counter\n");
         sb.append("# TYPE supersql_client_routing_read_fallback_total counter\n");
+        sb.append("# TYPE supersql_client_routing_redirect_all_total counter\n");
+        sb.append("# TYPE supersql_client_routing_moving_retry_all_total counter\n");
+        sb.append("# TYPE supersql_client_routing_exception_retry_all_total counter\n");
+        sb.append("# TYPE supersql_client_routing_location_fetch_all_total counter\n");
+        sb.append("# TYPE supersql_client_routing_read_fallback_all_total counter\n");
+        ClientRoutingMetrics.MetricsSnapshot totals = aggregateRoutingMetrics(snapshot);
 
         if (snapshot == null || snapshot.isEmpty()) {
+            sb.append("supersql_client_routing_redirect_all_total 0\n");
+            sb.append("supersql_client_routing_moving_retry_all_total 0\n");
+            sb.append("supersql_client_routing_exception_retry_all_total 0\n");
+            sb.append("supersql_client_routing_location_fetch_all_total 0\n");
+            sb.append("supersql_client_routing_read_fallback_all_total 0\n");
             sb.append("supersql_client_routing_table_count 0\n");
             return sb.toString();
         }
@@ -775,8 +803,44 @@ public class SqlClient {
                     escapedTable, metrics.readFallbackCount()));
             renderedTables++;
         }
+        sb.append(String.format("supersql_client_routing_redirect_all_total %d%n", totals.redirectCount()));
+        sb.append(String.format("supersql_client_routing_moving_retry_all_total %d%n", totals.movingRetryCount()));
+        sb.append(String.format("supersql_client_routing_exception_retry_all_total %d%n", totals.retryOnExceptionCount()));
+        sb.append(String.format("supersql_client_routing_location_fetch_all_total %d%n", totals.locationFetchCount()));
+        sb.append(String.format("supersql_client_routing_read_fallback_all_total %d%n", totals.readFallbackCount()));
         sb.append(String.format("supersql_client_routing_table_count %d%n", renderedTables));
         return sb.toString();
+    }
+
+    private static ClientRoutingMetrics.MetricsSnapshot aggregateRoutingMetrics(
+            Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshot) {
+        if (snapshot == null || snapshot.isEmpty()) {
+            return new ClientRoutingMetrics.MetricsSnapshot(0, 0, 0, 0, 0);
+        }
+
+        long redirects = 0;
+        long movingRetries = 0;
+        long exceptionRetries = 0;
+        long locationFetches = 0;
+        long readFallbacks = 0;
+
+        for (ClientRoutingMetrics.MetricsSnapshot metrics : snapshot.values()) {
+            if (metrics == null) {
+                continue;
+            }
+            redirects += metrics.redirectCount();
+            movingRetries += metrics.movingRetryCount();
+            exceptionRetries += metrics.retryOnExceptionCount();
+            locationFetches += metrics.locationFetchCount();
+            readFallbacks += metrics.readFallbackCount();
+        }
+
+        return new ClientRoutingMetrics.MetricsSnapshot(
+                redirects,
+                movingRetries,
+                exceptionRetries,
+                locationFetches,
+                readFallbacks);
     }
 
     static void resetRoutingMetricsForTests() {

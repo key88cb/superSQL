@@ -37,11 +37,14 @@ class SqlClientRoutingMetricsCommandTest {
 
         Assertions.assertEquals("Routing Metrics:", lines.get(0));
         Assertions.assertEquals(
+            "  totals: redirects=12 movingRetries=14 exceptionRetries=16 locationFetches=18 readFallbacks=20",
+            lines.get(1));
+        Assertions.assertEquals(
                 "  accounts: redirects=10 movingRetries=11 exceptionRetries=12 locationFetches=13 readFallbacks=14",
-                lines.get(1));
+            lines.get(2));
         Assertions.assertEquals(
                 "  orders: redirects=2 movingRetries=3 exceptionRetries=4 locationFetches=5 readFallbacks=6",
-                lines.get(2));
+            lines.get(3));
     }
 
     @Test
@@ -54,6 +57,12 @@ class SqlClientRoutingMetricsCommandTest {
         Map<?, ?> root = MAPPER.readValue(json, Map.class);
 
         Assertions.assertEquals(2, ((Number) root.get("tableCount")).intValue());
+        Map<?, ?> totals = (Map<?, ?>) root.get("totals");
+        Assertions.assertEquals(12, ((Number) totals.get("redirects")).intValue());
+        Assertions.assertEquals(14, ((Number) totals.get("movingRetries")).intValue());
+        Assertions.assertEquals(16, ((Number) totals.get("exceptionRetries")).intValue());
+        Assertions.assertEquals(18, ((Number) totals.get("locationFetches")).intValue());
+        Assertions.assertEquals(20, ((Number) totals.get("readFallbacks")).intValue());
         List<?> tables = (List<?>) root.get("tables");
         Assertions.assertEquals(2, tables.size());
 
@@ -76,12 +85,16 @@ class SqlClientRoutingMetricsCommandTest {
 
         Assertions.assertTrue(text.contains("supersql_client_routing_redirect_total{table=\"accounts\"} 10"));
         Assertions.assertTrue(text.contains("supersql_client_routing_moving_retry_total{table=\"orders\"} 3"));
+        Assertions.assertTrue(text.contains("supersql_client_routing_redirect_all_total 12"));
+        Assertions.assertTrue(text.contains("supersql_client_routing_read_fallback_all_total 20"));
         Assertions.assertTrue(text.contains("supersql_client_routing_table_count 2"));
     }
 
     @Test
     void formatRoutingMetricsPrometheusShouldHandleEmptySnapshot() {
         String text = SqlClient.formatRoutingMetricsPrometheus(Map.of());
+        Assertions.assertTrue(text.contains("supersql_client_routing_redirect_all_total 0"));
+        Assertions.assertTrue(text.contains("supersql_client_routing_read_fallback_all_total 0"));
         Assertions.assertTrue(text.contains("supersql_client_routing_table_count 0"));
     }
 
