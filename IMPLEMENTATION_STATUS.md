@@ -135,6 +135,9 @@
 - 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再静默丢弃；会保留在待处理队列并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，用于后续决议链路接管。
 - 对持续停留在 `decision-ready` 且超过终态阈值（`decisionTerminalAgeMs`）的待提交项，系统会自动从 active pending 分流到终态人工队列（`terminalQueueCount`），并记录 `decisionTerminalCount/lastDecisionTerminalAtMs/decisionTerminalPreview`，避免长期占用活跃重试队列。
 - `replicaCommitRetry` 统计已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态队列纳入人工处置信号。
+- RegionServer 已新增终态人工队列管理入口 `/admin/replica-commit-terminal`：支持 GET 查询终态队列、POST `action=ack` 单条确认、POST `action=ackAll` 批量确认，形成“可观测 + 可处置”闭环。
+- RegionServer 心跳节点已附带 `replicaCommitTerminalQueueCount/replicaCommitManualInterventionRequired/replicaCommitDecisionTerminalCount/replicaCommitLastDecisionTerminalAtMs`，Master 侧可直接聚合决议终态风险。
+- Master `/status` 已新增 `replicaDecision` 聚合视图（observed/manualIntervention/terminalQueue/decisionTerminal/latestTs/affectedRs），用于跨 RS 统一观测终态人工决议压力。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。

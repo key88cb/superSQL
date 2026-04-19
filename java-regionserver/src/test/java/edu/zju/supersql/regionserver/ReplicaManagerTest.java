@@ -398,8 +398,46 @@ class ReplicaManagerTest {
         List<?> terminalPreview = (List<?>) stats.get("decisionTerminalPreview");
         Assertions.assertFalse(terminalPreview.isEmpty());
         Map<?, ?> first = (Map<?, ?>) terminalPreview.get(0);
+        Assertions.assertTrue(first.containsKey("key"));
         Assertions.assertEquals("orders", first.get("table"));
         Assertions.assertEquals(9595L, ((Number) first.get("lsn")).longValue());
+
+        Map<String, Object> queueSnapshot = manager.getDecisionTerminalQueueSnapshot(10);
+        Assertions.assertTrue(((Number) queueSnapshot.get("count")).longValue() >= 1L);
+        List<?> queueEntries = (List<?>) queueSnapshot.get("entries");
+        Assertions.assertFalse(queueEntries.isEmpty());
+        Map<?, ?> firstQueueEntry = (Map<?, ?>) queueEntries.get(0);
+        Assertions.assertTrue(firstQueueEntry.containsKey("key"));
+
+        boolean removed = manager.acknowledgeDecisionTerminal("orders", 9595L, "127.0.0.1:1");
+        Assertions.assertTrue(removed);
+        Map<String, Object> afterAck = manager.getDecisionTerminalQueueSnapshot(10);
+        Assertions.assertEquals(0L, ((Number) afterAck.get("count")).longValue());
+    }
+
+    @Test
+    void acknowledgeAllDecisionTerminalsShouldClearTerminalQueue() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 9696L, List.of("127.0.0.1:1"));
+        manager.commitOnReplicas("orders", 9797L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 2L,
+                4_000L);
+
+        for (int i = 0; i < 24; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+        manager.setDecisionTerminalAgeMsForTests(1L);
+        Thread.sleep(5L);
+        manager.retryPendingCommitsNowIgnoringBackoff();
+
+        Map<String, Object> queueSnapshot = manager.getDecisionTerminalQueueSnapshot(10);
+        Assertions.assertTrue(((Number) queueSnapshot.get("count")).longValue() >= 1L);
+
+        int removed = manager.acknowledgeAllDecisionTerminals();
+        Assertions.assertTrue(removed >= 1);
+        Map<String, Object> afterClear = manager.getDecisionTerminalQueueSnapshot(10);
+        Assertions.assertEquals(0L, ((Number) afterClear.get("count")).longValue());
     }
 
     @Test

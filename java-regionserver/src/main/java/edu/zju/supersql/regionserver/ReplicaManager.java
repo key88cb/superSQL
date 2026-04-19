@@ -423,6 +423,7 @@ public class ReplicaManager {
             .limit(5)
             .map(decision -> {
                 Map<String, Object> terminal = new LinkedHashMap<>();
+                terminal.put("key", pendingCommitKey(decision.tableName(), decision.lsn(), decision.address()));
                 terminal.put("table", decision.tableName());
                 terminal.put("lsn", decision.lsn());
                 terminal.put("address", decision.address());
@@ -440,6 +441,45 @@ public class ReplicaManager {
         }
         stats.put("errorBreakdown", errorBreakdown);
         return stats;
+    }
+
+    Map<String, Object> getDecisionTerminalQueueSnapshot(int limit) {
+        int boundedLimit = Math.max(1, Math.min(500, limit));
+        List<Map<String, Object>> entries = decisionTerminalQueue.values().stream()
+                .sorted((left, right) -> Long.compare(right.queuedAtMs(), left.queuedAtMs()))
+                .limit(boundedLimit)
+                .map(decision -> {
+                    Map<String, Object> terminal = new LinkedHashMap<>();
+                    terminal.put("key", pendingCommitKey(decision.tableName(), decision.lsn(), decision.address()));
+                    terminal.put("table", decision.tableName());
+                    terminal.put("lsn", decision.lsn());
+                    terminal.put("address", decision.address());
+                    terminal.put("attempts", decision.attempts());
+                    terminal.put("ageMs", decision.ageMs());
+                    terminal.put("queuedAtMs", decision.queuedAtMs());
+                    terminal.put("lastError", decision.lastError());
+                    return terminal;
+                })
+                .toList();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("count", decisionTerminalQueue.size());
+        snapshot.put("limit", boundedLimit);
+        snapshot.put("entries", entries);
+        return snapshot;
+    }
+
+    boolean acknowledgeDecisionTerminal(String tableName, long lsn, String address) {
+        if (tableName == null || tableName.isBlank() || address == null || address.isBlank()) {
+            return false;
+        }
+        String key = pendingCommitKey(tableName, lsn, address);
+        return decisionTerminalQueue.remove(key) != null;
+    }
+
+    int acknowledgeAllDecisionTerminals() {
+        int removed = decisionTerminalQueue.size();
+        decisionTerminalQueue.clear();
+        return removed;
     }
 
     void retryPendingCommitsNow() {

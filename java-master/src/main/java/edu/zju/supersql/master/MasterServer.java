@@ -73,14 +73,14 @@ public class MasterServer {
     }
 
     static byte[] buildStatusPayload(int thriftPort, int httpPort, String zkConnect) {
-        return buildStatusPayload(thriftPort, httpPort, zkConnect, null, null, null);
+        return buildStatusPayload(thriftPort, httpPort, zkConnect, null, null, null, null);
     }
 
     static byte[] buildStatusPayload(int thriftPort,
                                      int httpPort,
                                      String zkConnect,
                                      RebalanceScheduler rebalanceScheduler) {
-        return buildStatusPayload(thriftPort, httpPort, zkConnect, rebalanceScheduler, null, null);
+        return buildStatusPayload(thriftPort, httpPort, zkConnect, rebalanceScheduler, null, null, null);
     }
 
     static byte[] buildStatusPayload(int thriftPort,
@@ -88,7 +88,13 @@ public class MasterServer {
                                      String zkConnect,
                                      RebalanceScheduler rebalanceScheduler,
                                      MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot) {
-        return buildStatusPayload(thriftPort, httpPort, zkConnect, rebalanceScheduler, routeRepairSnapshot, null);
+        return buildStatusPayload(thriftPort,
+            httpPort,
+            zkConnect,
+            rebalanceScheduler,
+            routeRepairSnapshot,
+            null,
+            null);
     }
 
     static byte[] buildStatusPayload(int thriftPort,
@@ -96,7 +102,23 @@ public class MasterServer {
                                      String zkConnect,
                                      RebalanceScheduler rebalanceScheduler,
                                      MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot,
-                                     RegionMigrator.MigrationSnapshot migrationSnapshot) {
+                         RegionMigrator.MigrationSnapshot migrationSnapshot) {
+        return buildStatusPayload(thriftPort,
+            httpPort,
+            zkConnect,
+            rebalanceScheduler,
+            routeRepairSnapshot,
+            migrationSnapshot,
+            null);
+        }
+
+        static byte[] buildStatusPayload(int thriftPort,
+                         int httpPort,
+                         String zkConnect,
+                         RebalanceScheduler rebalanceScheduler,
+                         MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot,
+                         RegionMigrator.MigrationSnapshot migrationSnapshot,
+                         MasterServiceImpl.ReplicaDecisionSnapshot replicaDecisionSnapshot) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("status", "ok");
         payload.put("role", resolveRole());
@@ -109,6 +131,7 @@ public class MasterServer {
         payload.put("rebalanceScheduler", buildRebalanceSchedulerPayload(rebalanceScheduler));
         payload.put("routeRepair", buildRouteRepairPayload(routeRepairSnapshot));
         payload.put("migration", buildMigrationPayload(migrationSnapshot));
+        payload.put("replicaDecision", buildReplicaDecisionPayload(replicaDecisionSnapshot));
         payload.put("timestamp", System.currentTimeMillis());
         try {
             return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
@@ -188,6 +211,23 @@ public class MasterServer {
         status.put("lastError", snapshot.lastError());
         status.put("lastRebalanceError", snapshot.lastRebalanceError());
         status.put("lastRecoveryError", snapshot.lastRecoveryError());
+        return status;
+    }
+
+    private static Map<String, Object> buildReplicaDecisionPayload(MasterServiceImpl.ReplicaDecisionSnapshot snapshot) {
+        Map<String, Object> status = new LinkedHashMap<>();
+        if (snapshot == null) {
+            status.put("available", false);
+            return status;
+        }
+        status.put("available", true);
+        status.put("observedRegionServers", snapshot.observedRegionServers());
+        status.put("manualInterventionRegionServers", snapshot.manualInterventionRegionServers());
+        status.put("totalTerminalQueueCount", snapshot.totalTerminalQueueCount());
+        status.put("totalDecisionTerminalCount", snapshot.totalDecisionTerminalCount());
+        status.put("latestDecisionTerminalAtMs", snapshot.latestDecisionTerminalAtMs());
+        status.put("affectedRegionServers", snapshot.affectedRegionServers());
+        status.put("lastError", snapshot.lastError());
         return status;
     }
 
@@ -342,7 +382,8 @@ public class MasterServer {
                     zkConnect,
                     statusScheduler,
                 statusService == null ? null : statusService.routeRepairSnapshot(),
-                statusService == null ? null : statusService.migrationSnapshot());
+                statusService == null ? null : statusService.migrationSnapshot(),
+                statusService == null ? null : statusService.replicaDecisionSnapshot());
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
