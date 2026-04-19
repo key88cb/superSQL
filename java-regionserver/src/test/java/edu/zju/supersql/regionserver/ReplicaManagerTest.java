@@ -224,6 +224,53 @@ class ReplicaManagerTest {
         }
     }
 
+    @Test
+    void reconcileReplicasShouldSkipNonContiguousDonorAndFallbackToHealthyDonor() throws Exception {
+        int gappedDonorPort = freePort();
+        int healthyDonorPort = freePort();
+        int laggingPort = freePort();
+
+        InMemoryReplicaSyncService gappedDonor = new GappedPullReplicaSyncService();
+        InMemoryReplicaSyncService healthyDonor = new InMemoryReplicaSyncService();
+        InMemoryReplicaSyncService lagging = new InMemoryReplicaSyncService();
+
+        gappedDonor.preload(buildEntry(101L, "orders", "insert into orders values(101);"), true);
+        gappedDonor.preload(buildEntry(102L, "orders", "insert into orders values(102);"), true);
+
+        healthyDonor.preload(buildEntry(101L, "orders", "insert into orders values(101);"), true);
+        healthyDonor.preload(buildEntry(102L, "orders", "insert into orders values(102);"), true);
+
+        lagging.preload(buildEntry(100L, "orders", "insert into orders values(100);"), true);
+
+        TServer gappedDonorServer = buildServer(gappedDonorPort, gappedDonor);
+        TServer healthyDonorServer = buildServer(healthyDonorPort, healthyDonor);
+        TServer laggingServer = buildServer(laggingPort, lagging);
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        pool.submit(gappedDonorServer::serve);
+        pool.submit(healthyDonorServer::serve);
+        pool.submit(laggingServer::serve);
+        Thread.sleep(200);
+
+        try {
+            ReplicaManager manager = new ReplicaManager();
+            String gappedDonorAddress = "127.0.0.1:" + gappedDonorPort;
+            String healthyDonorAddress = "127.0.0.1:" + healthyDonorPort;
+            String laggingAddress = "127.0.0.1:" + laggingPort;
+
+            manager.reconcileReplicas("orders", 102L, List.of(gappedDonorAddress, healthyDonorAddress, laggingAddress));
+
+            Assertions.assertEquals(102L, getMaxLsn(laggingAddress, "orders"));
+            Response secondCommit = commitLog(laggingAddress, "orders", 102L);
+            Assertions.assertEquals(StatusCode.OK, secondCommit.getCode());
+            Assertions.assertTrue(secondCommit.getMessage().contains("ALREADY_COMMITTED"));
+        } finally {
+            gappedDonorServer.stop();
+            healthyDonorServer.stop();
+            laggingServer.stop();
+            pool.shutdownNow();
+        }
+    }
+
     // ─────────────────────── helpers ──────────────────────────────────────────
 
     private static TServer buildServer(int port, ReplicaSyncService.Iface impl) throws Exception {
@@ -345,6 +392,24 @@ class ReplicaManagerTest {
         @Override
         public List<WalEntry> pullLog(String tableName, long startLsn) {
             return Collections.emptyList();
+        }
+    }
+
+    private static final class GappedPullReplicaSyncService extends InMemoryReplicaSyncService {
+        @Override
+        public List<WalEntry> pullLog(String tableName, long startLsn) {
+            List<WalEntry> entries = super.pullLog(tableName, startLsn);
+            if (entries.isEmpty()) {
+                return entries;
+            }
+            List<WalEntry> gapped = new ArrayList<>();
+            for (WalEntry entry : entries) {
+                if (entry.getLsn() == startLsn) {
+                    continue;
+                }
+                gapped.add(entry);
+            }
+            return gapped;
         }
     }
 }

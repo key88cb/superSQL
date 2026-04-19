@@ -187,15 +187,13 @@ public class ReplicaManager {
                         continue;
                     }
                     backlog.sort(Comparator.comparingLong(WalEntry::getLsn));
+                    List<WalEntry> contiguousBacklog = selectContiguousBacklog(backlog, nextStartLsn, replayUpperBound);
+                    if (contiguousBacklog.isEmpty()) {
+                        continue;
+                    }
 
                     int repaired = 0;
-                    for (WalEntry entry : backlog) {
-                        if (entry.getLsn() < nextStartLsn) {
-                            continue;
-                        }
-                        if (entry.getLsn() > replayUpperBound) {
-                            break;
-                        }
+                    for (WalEntry entry : contiguousBacklog) {
                         if (!syncOne(entry, target)) {
                             break;
                         }
@@ -216,6 +214,32 @@ public class ReplicaManager {
             log.warn("reconcileReplicas failed table={} committedLsn={} cause={}",
                     tableName, committedLsn, e.getMessage());
         }
+    }
+
+    private static List<WalEntry> selectContiguousBacklog(List<WalEntry> backlog,
+                                                          long startLsn,
+                                                          long replayUpperBound) {
+        if (backlog == null || backlog.isEmpty() || startLsn > replayUpperBound) {
+            return List.of();
+        }
+
+        List<WalEntry> contiguous = new ArrayList<>();
+        long expectedLsn = startLsn;
+        for (WalEntry entry : backlog) {
+            long lsn = entry.getLsn();
+            if (lsn < expectedLsn) {
+                continue;
+            }
+            if (lsn > replayUpperBound) {
+                break;
+            }
+            if (lsn != expectedLsn) {
+                break;
+            }
+            contiguous.add(entry);
+            expectedLsn++;
+        }
+        return contiguous;
     }
 
     // ─────────────────────── private helpers ──────────────────────────────────

@@ -96,6 +96,7 @@
 - 主副本对副本 `commitLog` 通知已补充有界重试（best-effort），提升短时故障下的收敛稳定性。
 - 主副本已接入基于 `getMaxLsn/pullLog` 的异步追赶编排：写成功后可自动尝试修复落后副本缺口（donor 拉取 + 重放 + commit，best-effort）。
 - 追赶编排已支持 donor 回退：当首选 donor 拉取不到 backlog 时，会自动尝试下一候选 donor 继续修复。
+- 追赶编排已支持连续 LSN 回放约束：当 donor 返回的 backlog 存在缺口时会跳过该 donor 并继续回退，避免跨缺口重放。
 - `transferTable` 已补充逐块返回码校验，目标端拒绝写入时源端会中断迁移并显式报错。
 - `copyTableData` 已补充 per-file 连续 offset 校验，乱序/跳跃 chunk 会被拒绝。
 - `copyTableData` 已补充“完成后发布”语义：分块先写临时文件，`isLast=true` 后再原子切换为正式文件。
