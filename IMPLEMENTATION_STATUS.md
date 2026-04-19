@@ -17,7 +17,7 @@
 - `triggerRebalance()` 在 `transferTable` 失败路径也会立即回滚到原始元数据（含 `ACTIVE` 状态），避免卡在 `MOVING`。
 - `triggerRebalance()` 在 `pauseTableWrite` 失败路径也会回滚元数据，避免停留在 `PREPARING` 中间态。
 - `triggerRebalance()` 在 `deleteLocalTable` 前会进入 `FINALIZING`，使“数据迁移已完成、待源端清理”阶段可观测。
-- `getTableLocation/listTables/repairTableRoutesBestEffort` 已接入卡死迁移自恢复：当 `PREPARING/MOVING/FINALIZING/ROLLBACK` 状态超时且存在 `migrationAttemptId` 时，自动回收为 `ACTIVE` 并清理尝试标记。
+- `getTableLocation/listTables/repairTableRoutesBestEffort`（保留历史方法名）已接入 `recoverStuckMigrationWithConfirmation`：当迁移状态超时且存在 `migrationAttemptId` 时，会按补偿确认协议执行恢复，而非直接回写 `ACTIVE`。
 - `triggerRebalance()` 调度入口已接入卡死迁移预恢复：即使本轮负载均衡最终被跳过，也会先回收超时迁移状态，降低“长期无人读写表”卡死风险。
 - `triggerRebalance()` 在被跳过（如 cluster balanced）时会在响应消息中附带本轮预恢复数量，便于上层调度/日志快速感知是否发生了状态回收。
 - `triggerRebalance()` 状态推进会刷新 `/meta/tables/{table}` 的 `statusUpdatedAt` 时间戳，便于观测迁移阶段更新时间。
