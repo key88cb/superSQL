@@ -51,6 +51,13 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     public record ReplicaDecisionSnapshot(long observedRegionServers,
+                                          long manualInterventionRegionServers,
+                                          long terminalQueueRegionServers,
+                                          long decisionReadyRegionServers,
+                                          long decisionCandidateRegionServers,
+                                          long totalTerminalQueueCount,
+                                          long totalActiveDecisionReadyCount,
+                                          long totalActiveDecisionCandidateCount,
                                           List<String> affectedRegionServers,
                                           String lastError) {
     }
@@ -315,6 +322,23 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
+    private static boolean toBoolean(Object value, boolean fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        String text = String.valueOf(value).trim().toLowerCase();
+        if ("true".equals(text)) {
+            return true;
+        }
+        if ("false".equals(text)) {
+            return false;
+        }
+        return fallback;
+    }
+
     public int repairTableRoutesWithConfirmation() {
         return repairTableRoutesWithConfirmationInternal(null);
     }
@@ -453,6 +477,13 @@ public class MasterServiceImpl implements MasterService.Iface {
         try {
             List<String> children = zk.getChildren().forPath(ZkPaths.REGION_SERVERS);
             long observedRegionServers = 0L;
+            long manualInterventionRegionServers = 0L;
+            long terminalQueueRegionServers = 0L;
+            long decisionReadyRegionServers = 0L;
+            long decisionCandidateRegionServers = 0L;
+            long totalTerminalQueueCount = 0L;
+            long totalActiveDecisionReadyCount = 0L;
+            long totalActiveDecisionCandidateCount = 0L;
             List<String> affectedRegionServers = new ArrayList<>();
 
             for (String child : children) {
@@ -461,17 +492,50 @@ public class MasterServiceImpl implements MasterService.Iface {
                 if (bytes == null || bytes.length == 0) {
                     continue;
                 }
-                MAPPER.readValue(bytes, Map.class);
+                Map<?, ?> payload = MAPPER.readValue(bytes, Map.class);
                 observedRegionServers++;
+                String rsId = String.valueOf(payload.containsKey("id") ? payload.get("id") : child);
+                boolean manualInterventionRequired = toBoolean(payload.get("manualInterventionRequired"), false);
+                long terminalQueueCount = toLong(payload.get("terminalQueueCount"), 0L);
+                long activeDecisionReadyCount = toLong(payload.get("activeDecisionReadyCount"), 0L);
+                long activeDecisionCandidateCount = toLong(payload.get("activeDecisionCandidateCount"), 0L);
+                if (manualInterventionRequired) {
+                    manualInterventionRegionServers++;
+                }
+                if (terminalQueueCount > 0L) {
+                    terminalQueueRegionServers++;
+                }
+                if (activeDecisionReadyCount > 0L) {
+                    decisionReadyRegionServers++;
+                }
+                if (activeDecisionCandidateCount > 0L) {
+                    decisionCandidateRegionServers++;
+                }
+                totalTerminalQueueCount += Math.max(0L, terminalQueueCount);
+                totalActiveDecisionReadyCount += Math.max(0L, activeDecisionReadyCount);
+                totalActiveDecisionCandidateCount += Math.max(0L, activeDecisionCandidateCount);
+                if (manualInterventionRequired
+                        || terminalQueueCount > 0L
+                        || activeDecisionReadyCount > 0L
+                        || activeDecisionCandidateCount > 0L) {
+                    affectedRegionServers.add(rsId);
+                }
             }
 
             return new ReplicaDecisionSnapshot(
                     observedRegionServers,
+                    manualInterventionRegionServers,
+                    terminalQueueRegionServers,
+                    decisionReadyRegionServers,
+                    decisionCandidateRegionServers,
+                    totalTerminalQueueCount,
+                    totalActiveDecisionReadyCount,
+                    totalActiveDecisionCandidateCount,
                     List.copyOf(affectedRegionServers),
                     null);
         } catch (Exception e) {
             log.warn("replicaDecisionSnapshot failed: {}", e.getMessage());
-            return new ReplicaDecisionSnapshot(0L, List.of(), e.getMessage());
+            return new ReplicaDecisionSnapshot(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, List.of(), e.getMessage());
         }
     }
 

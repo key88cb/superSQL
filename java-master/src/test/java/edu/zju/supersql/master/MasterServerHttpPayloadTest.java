@@ -148,6 +148,13 @@ class MasterServerHttpPayloadTest {
                 edu.zju.supersql.master.rpc.MasterServiceImpl.ReplicaDecisionSnapshot snapshot =
                                 new edu.zju.supersql.master.rpc.MasterServiceImpl.ReplicaDecisionSnapshot(
                                                 5L,
+                                                2L,
+                                                1L,
+                                                3L,
+                                                4L,
+                                                7L,
+                                                6L,
+                                                8L,
                                                 java.util.List.of("rs-2", "rs-4"),
                                                 null);
 
@@ -157,6 +164,13 @@ class MasterServerHttpPayloadTest {
 
                 Assertions.assertEquals(Boolean.TRUE, replicaDecision.get("available"));
                 Assertions.assertEquals(5L, ((Number) replicaDecision.get("observedRegionServers")).longValue());
+                Assertions.assertEquals(2L, ((Number) replicaDecision.get("manualInterventionRegionServers")).longValue());
+                Assertions.assertEquals(1L, ((Number) replicaDecision.get("terminalQueueRegionServers")).longValue());
+                Assertions.assertEquals(3L, ((Number) replicaDecision.get("decisionReadyRegionServers")).longValue());
+                Assertions.assertEquals(4L, ((Number) replicaDecision.get("decisionCandidateRegionServers")).longValue());
+                Assertions.assertEquals(7L, ((Number) replicaDecision.get("totalTerminalQueueCount")).longValue());
+                Assertions.assertEquals(6L, ((Number) replicaDecision.get("totalActiveDecisionReadyCount")).longValue());
+                Assertions.assertEquals(8L, ((Number) replicaDecision.get("totalActiveDecisionCandidateCount")).longValue());
                 Assertions.assertEquals(java.util.List.of("rs-2", "rs-4"), replicaDecision.get("affectedRegionServers"));
                 Assertions.assertNull(replicaDecision.get("lastError"));
         }

@@ -1531,11 +1531,29 @@ class MasterServiceMetadataIntegrationTest {
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
         registerRegionServer("rs-3", "127.0.0.1", 9092, 3);
 
+        Map<String, Object> rs2 = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/region_servers/rs-2").entrySet()) {
+            rs2.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        rs2.put("manualInterventionRequired", true);
+        rs2.put("terminalQueueCount", 2L);
+        rs2.put("activeDecisionReadyCount", 1L);
+        rs2.put("activeDecisionCandidateCount", 3L);
+        zkClient.setData().forPath("/region_servers/rs-2",
+                MAPPER.writeValueAsString(rs2).getBytes(StandardCharsets.UTF_8));
+
         MasterServiceImpl.ReplicaDecisionSnapshot snapshot = service.replicaDecisionSnapshot();
 
         Assertions.assertNotNull(snapshot);
         Assertions.assertEquals(3L, snapshot.observedRegionServers());
-        Assertions.assertTrue(snapshot.affectedRegionServers().isEmpty());
+        Assertions.assertEquals(1L, snapshot.manualInterventionRegionServers());
+        Assertions.assertEquals(1L, snapshot.terminalQueueRegionServers());
+        Assertions.assertEquals(1L, snapshot.decisionReadyRegionServers());
+        Assertions.assertEquals(1L, snapshot.decisionCandidateRegionServers());
+        Assertions.assertEquals(2L, snapshot.totalTerminalQueueCount());
+        Assertions.assertEquals(1L, snapshot.totalActiveDecisionReadyCount());
+        Assertions.assertEquals(3L, snapshot.totalActiveDecisionCandidateCount());
+        Assertions.assertEquals(List.of("rs-2"), snapshot.affectedRegionServers());
         Assertions.assertNull(snapshot.lastError());
     }
 

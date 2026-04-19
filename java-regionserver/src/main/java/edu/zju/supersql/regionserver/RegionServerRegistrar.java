@@ -70,6 +70,17 @@ public class RegionServerRegistrar {
                           double qps1min,
                           double cpuUsage,
                           double memUsage) {
+        heartbeat(host, port, httpPort, tableCount, qps1min, cpuUsage, memUsage, null);
+    }
+
+    public void heartbeat(String host,
+                          int port,
+                          int httpPort,
+                          int tableCount,
+                          double qps1min,
+                          double cpuUsage,
+                          double memUsage,
+                          Map<String, Object> replicaDecisionSignal) {
         try {
             RegionServerInfo info = new RegionServerInfo(rsId, host, port);
             info.setTableCount(tableCount);
@@ -77,7 +88,7 @@ public class RegionServerRegistrar {
             info.setCpuUsage(cpuUsage);
             info.setMemUsage(memUsage);
             info.setLastHeartbeat(System.currentTimeMillis());
-            byte[] payload = toPayload(info, httpPort);
+            byte[] payload = toPayload(info, httpPort, replicaDecisionSignal);
 
             if (zkClient.checkExists().forPath(path) == null) {
                 zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
@@ -92,6 +103,12 @@ public class RegionServerRegistrar {
     }
 
     private byte[] toPayload(RegionServerInfo info, int httpPort) throws Exception {
+        return toPayload(info, httpPort, null);
+    }
+
+    private byte[] toPayload(RegionServerInfo info,
+                             int httpPort,
+                             Map<String, Object> replicaDecisionSignal) throws Exception {
         Map<String, Object> map = new HashMap<>();
         map.put("id", info.getId());
         map.put("host", info.getHost());
@@ -102,6 +119,35 @@ public class RegionServerRegistrar {
         map.put("cpuUsage", info.getCpuUsage());
         map.put("memUsage", info.getMemUsage());
         map.put("lastHeartbeat", info.getLastHeartbeat());
+        map.put("manualInterventionRequired", getBooleanSignal(replicaDecisionSignal, "manualInterventionRequired"));
+        map.put("terminalQueueCount", getLongSignal(replicaDecisionSignal, "terminalQueueCount"));
+        map.put("activeDecisionReadyCount", getLongSignal(replicaDecisionSignal, "activeDecisionReadyCount"));
+        map.put("activeDecisionCandidateCount", getLongSignal(replicaDecisionSignal, "activeDecisionCandidateCount"));
         return MAPPER.writeValueAsString(map).getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static long getLongSignal(Map<String, Object> signal, String key) {
+        if (signal == null) {
+            return 0L;
+        }
+        Object value = signal.get(key);
+        if (value instanceof Number number) {
+            return Math.max(0L, number.longValue());
+        }
+        return 0L;
+    }
+
+    private static boolean getBooleanSignal(Map<String, Object> signal, String key) {
+        if (signal == null) {
+            return false;
+        }
+        Object value = signal.get(key);
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(value));
     }
 }

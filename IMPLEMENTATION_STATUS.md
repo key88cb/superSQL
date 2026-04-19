@@ -42,6 +42,7 @@
 - Master `/status` 已输出 route repair 运行指标（修复运行次数、累计修复表数、最近修复时间、最近修复表、最近错误），并新增近 N 次运行窗口统计（成功率、平均修复数）。
 - Master `/status` 的 route repair 指标已补充最近一次扫描范围观测（`lastRunTotalTables`/`lastRunCandidateTables`/`lastRunFilterRegionServerId`），便于区分全量修复与按 RS 定向修复的覆盖面。
 - Master `/status` 已新增并细化迁移编排指标快照：在总量指标（`attemptCount/successCount/failureCount`）之外，提供 `rebalance*` 与 `recovery*` 分项计数，以及 `lastRebalanceError/lastRecoveryError`，便于区分迁移主流程失败与卡死恢复失败。
+- Master `/status` 的 `replicaDecision` 已改为聚合 RegionServer 心跳中的自动决议信号：除 `observedRegionServers/affectedRegionServers` 外，新增 `manualInterventionRegionServers`、`terminalQueueRegionServers`、`decisionReadyRegionServers`、`decisionCandidateRegionServers` 以及对应总量计数，便于快速判断受影响范围与压力级别。
 - RegionServer 上下线事件已接入调度器外部触发（`rs_up` / `rs_down`），在节流保护下可即时请求一次 rebalance。
 - RebalanceScheduler 定时 tick 已接入 route repair 预扫描：即使没有读流量和 membership 事件，也会周期性后台修复离线路由再进入 rebalance。
 - RebalanceScheduler 已覆盖外部触发节流测试：连续 membership 事件会受 `minGapMs` 保护，避免抖动时触发风暴。
@@ -152,6 +153,7 @@
 - ReplicaManager 已补充 suspected 副本观测：当同步阶段 ACK 不足或 commit 重试阶段出现连续 `transport_error` 时，会记录 `suspectedReplicaCount/suspectedReplicaMarkCount/suspectedReplicaPreview` 等字段，用于识别可疑副本并辅助决议收敛定位。
 - suspected 副本在后续提交通知恢复成功时会自动从 suspected 集合移除，并上报 `suspectedReplicaRecoveredCount/suspectedReplicaLastRecoveredAtMs`，便于区分短暂抖动与持续异常。
 - RegionServer 心跳不再携带人工确认终态队列字段；Master `/status` 的 `replicaDecision` 聚合段不再暴露人工终态队列信号。
+- RegionServer 心跳已补充自动决议观测信号（`manualInterventionRequired`、`terminalQueueCount`、`activeDecisionReadyCount`、`activeDecisionCandidateCount`），供 Master 侧 `replicaDecision` 聚合视图消费。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。

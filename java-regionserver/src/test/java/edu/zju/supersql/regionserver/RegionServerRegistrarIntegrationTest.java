@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 class RegionServerRegistrarIntegrationTest {
 
@@ -95,6 +96,27 @@ class RegionServerRegistrarIntegrationTest {
         Assertions.assertEquals(1.0, ((Number) payload.get("qps1min")).doubleValue(), 0.0001);
         Assertions.assertEquals(2.0, ((Number) payload.get("cpuUsage")).doubleValue(), 0.0001);
         Assertions.assertEquals(3.0, ((Number) payload.get("memUsage")).doubleValue(), 0.0001);
+    }
+
+    @Test
+    void heartbeatShouldPublishReplicaDecisionSignals() throws Exception {
+        RegionServerRegistrar registrar = new RegionServerRegistrar(zkClient, "rs-decision");
+        registrar.register("127.0.0.1", 9093, 9193);
+
+        Map<String, Object> signal = new LinkedHashMap<>();
+        signal.put("manualInterventionRequired", true);
+        signal.put("terminalQueueCount", 2L);
+        signal.put("activeDecisionReadyCount", 1L);
+        signal.put("activeDecisionCandidateCount", 3L);
+        registrar.heartbeat("127.0.0.1", 9093, 9193, 1, 2.0, 3.0, 4.0, signal);
+
+        byte[] bytes = zkClient.getData().forPath("/region_servers/rs-decision");
+        Map<?, ?> payload = MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
+
+        Assertions.assertEquals(Boolean.TRUE, payload.get("manualInterventionRequired"));
+        Assertions.assertEquals(2L, ((Number) payload.get("terminalQueueCount")).longValue());
+        Assertions.assertEquals(1L, ((Number) payload.get("activeDecisionReadyCount")).longValue());
+        Assertions.assertEquals(3L, ((Number) payload.get("activeDecisionCandidateCount")).longValue());
     }
 
 }

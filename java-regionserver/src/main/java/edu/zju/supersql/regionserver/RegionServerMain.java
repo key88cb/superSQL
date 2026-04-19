@@ -124,6 +124,33 @@ public class RegionServerMain {
         return value;
     }
 
+    private static Map<String, Object> buildReplicaDecisionSignal(ReplicaManager replicaManager) {
+        if (replicaManager == null) {
+            return java.util.Collections.emptyMap();
+        }
+        Map<String, Object> retryStats = replicaManager.getCommitRetryStats();
+        Map<String, Object> signal = new LinkedHashMap<>();
+        signal.put("manualInterventionRequired", toBooleanMetric(retryStats.get("manualInterventionRequired")));
+        signal.put("terminalQueueCount", toLongMetric(retryStats.get("terminalQueueCount")));
+        signal.put("activeDecisionReadyCount", toLongMetric(retryStats.get("activeDecisionReadyCount")));
+        signal.put("activeDecisionCandidateCount", toLongMetric(retryStats.get("activeDecisionCandidateCount")));
+        return signal;
+    }
+
+    private static long toLongMetric(Object value) {
+        if (value instanceof Number number) {
+            return Math.max(0L, number.longValue());
+        }
+        return 0L;
+    }
+
+    private static boolean toBooleanMetric(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return value != null && "true".equalsIgnoreCase(String.valueOf(value));
+    }
+
     static int countAssignedTablesForRegionServer(CuratorFramework zkClient, String rsId) {
         if (zkClient == null || rsId == null || rsId.isBlank()) {
             return 0;
@@ -438,6 +465,7 @@ public class RegionServerMain {
                 double qps1min = computeRecentQps(currentExecuted, prevExecuted, nowMs - prevTsMs);
                 double cpuUsage = sampleProcessCpuUsagePercent();
                 double memUsage = sampleHeapMemoryUsagePercent();
+                Map<String, Object> replicaDecisionSignal = buildReplicaDecisionSignal(replicaManagerRef[0]);
                 finalRegistrar.heartbeat(
                         rsHost,
                         thriftPort,
@@ -445,7 +473,8 @@ public class RegionServerMain {
                         tableCount,
                         qps1min,
                         cpuUsage,
-                        memUsage);
+                    memUsage,
+                    replicaDecisionSignal);
             },
                     config.heartbeatIntervalMs(),
                     config.heartbeatIntervalMs(),
