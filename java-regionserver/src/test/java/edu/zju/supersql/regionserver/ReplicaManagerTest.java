@@ -348,6 +348,29 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldRetainDecisionReadyWhenMaxAgeExceeded() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 9393L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        for (int i = 0; i < 24; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+
+        manager.setPendingCommitMaxAgeMsForTests(1L);
+        Thread.sleep(5L);
+        manager.retryPendingCommitsNowIgnoringBackoff();
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("pendingCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("decisionReadyRetainedCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("lastDecisionReadyRetainedAtMs")).longValue() > 0L);
+    }
+
+    @Test
     void commitOneWithRetryShouldReturnFalseForUnreachableReplica() {
         ReplicaManager manager = new ReplicaManager();
         boolean committed = manager.commitOneWithRetry("orders", 999L, "127.0.0.1:1");

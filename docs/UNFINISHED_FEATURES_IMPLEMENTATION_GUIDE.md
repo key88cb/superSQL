@@ -124,6 +124,7 @@
 - 决议候选项已增加 `decisionCandidatesPreview`（最多5条）用于展示 table/lsn/address/attempts/连续 transport 失败数/age，支持快速巡检和后续决议执行。
 - 对决议候选项已增加二级冷却窗口（默认 300s）：触发后会上报 `decisionCandidateCooldownAppliedCount/decisionCandidateCooldownMs`，并在预览中输出 `nextRetryAtMs` 以便观测下一次重试时间。
 - 在候选项持续失败达到阈值后，系统会标记为 `decisionReady` 并上报 `decisionReadyTransitionCount/activeDecisionReadyCount`（阈值由 `decisionReadyAttemptsThreshold` 表示），为下一步自动决议动作提供触发条件。
+- 对达到 `decisionReady` 且超过 `maxAge` 的待提交项，系统会继续保留并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，避免静默丢弃。
 - 主副本已接入基于 `getMaxLsn/pullLog` 的异步追赶编排：写成功后可自动尝试修复落后副本缺口（donor 拉取 + 重放 + commit，best-effort）。
 - 追赶编排已支持 donor 回退：当首选 donor 拉取不到 backlog 时，会自动尝试下一候选 donor 继续修复。
 - 追赶编排已支持连续 LSN 回放约束：当 donor 返回的 backlog 存在缺口时会跳过该 donor 并继续回退，避免跨缺口重放。

@@ -86,7 +86,10 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionCandidateCooldownMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionReadyTransitionCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastDecisionReadyAtMs")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionReadyRetainedCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastDecisionReadyRetainedAtMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionReadyAttemptsThreshold")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("maxAgeMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("recoveredFromEscalationCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastRecoveredFromEscalationAtMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("repairTriggeredCount")).longValue());
@@ -192,7 +195,10 @@ class RegionServerMainStatusPayloadTest {
         replicaCommitRetry.put("decisionCandidateCooldownMs", 300000L);
         replicaCommitRetry.put("decisionReadyTransitionCount", 1L);
         replicaCommitRetry.put("lastDecisionReadyAtMs", 778L);
+        replicaCommitRetry.put("decisionReadyRetainedCount", 1L);
+        replicaCommitRetry.put("lastDecisionReadyRetainedAtMs", 779L);
         replicaCommitRetry.put("decisionReadyAttemptsThreshold", 24L);
+        replicaCommitRetry.put("maxAgeMs", 1800000L);
         replicaCommitRetry.put("recoveredFromEscalationCount", 1L);
         replicaCommitRetry.put("lastRecoveredFromEscalationAtMs", 777L);
         replicaCommitRetry.put("repairTriggeredCount", 4L);
@@ -297,7 +303,10 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(300000L, ((Number) commitRetryStats.get("decisionCandidateCooldownMs")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("decisionReadyTransitionCount")).longValue());
         Assertions.assertEquals(778L, ((Number) commitRetryStats.get("lastDecisionReadyAtMs")).longValue());
+        Assertions.assertEquals(1L, ((Number) commitRetryStats.get("decisionReadyRetainedCount")).longValue());
+        Assertions.assertEquals(779L, ((Number) commitRetryStats.get("lastDecisionReadyRetainedAtMs")).longValue());
         Assertions.assertEquals(24L, ((Number) commitRetryStats.get("decisionReadyAttemptsThreshold")).longValue());
+        Assertions.assertEquals(1800000L, ((Number) commitRetryStats.get("maxAgeMs")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("recoveredFromEscalationCount")).longValue());
         Assertions.assertEquals(777L, ((Number) commitRetryStats.get("lastRecoveredFromEscalationAtMs")).longValue());
         Assertions.assertEquals(4L, ((Number) commitRetryStats.get("repairTriggeredCount")).longValue());

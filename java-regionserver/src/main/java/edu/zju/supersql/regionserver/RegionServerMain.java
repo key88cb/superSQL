@@ -194,7 +194,10 @@ public class RegionServerMain {
             defaults.put("decisionCandidateCooldownMs", 0L);
             defaults.put("decisionReadyTransitionCount", 0L);
             defaults.put("lastDecisionReadyAtMs", 0L);
+            defaults.put("decisionReadyRetainedCount", 0L);
+            defaults.put("lastDecisionReadyRetainedAtMs", 0L);
             defaults.put("decisionReadyAttemptsThreshold", 0L);
+            defaults.put("maxAgeMs", 0L);
             defaults.put("recoveredFromEscalationCount", 0L);
             defaults.put("lastRecoveredFromEscalationAtMs", 0L);
             defaults.put("repairTriggeredCount", 0L);

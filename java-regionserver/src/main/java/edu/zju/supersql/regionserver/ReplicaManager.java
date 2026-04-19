@@ -79,6 +79,7 @@ public class ReplicaManager {
         private final AtomicLong consecutiveTransportFailures = new AtomicLong(0L);
         private volatile boolean decisionCandidateMarked;
         private volatile boolean decisionReadyMarked;
+        private volatile boolean decisionReadyRetentionReported;
         private volatile long lastAttemptAtMs;
         private volatile long nextRetryAtMs;
         private volatile String lastError;
@@ -99,6 +100,7 @@ public class ReplicaManager {
             this.lastError = initialError;
             this.decisionCandidateMarked = false;
             this.decisionReadyMarked = false;
+            this.decisionReadyRetentionReported = false;
         }
 
         private boolean markAttemptFailure(String error, long nowMs) {
@@ -152,6 +154,7 @@ public class ReplicaManager {
                 return false;
             }
             decisionReadyMarked = true;
+            decisionReadyRetentionReported = false;
             return true;
         }
     }
@@ -169,6 +172,7 @@ public class ReplicaManager {
                 return t;
             });
     private final ConcurrentHashMap<String, PendingCommit> pendingCommits = new ConcurrentHashMap<>();
+    private volatile long pendingCommitMaxAgeMs;
     private final AtomicLong pendingCommitEnqueuedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRecoveredCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRetryAttemptCount = new AtomicLong(0L);
@@ -182,6 +186,8 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitDecisionCandidateCooldownAppliedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitDecisionReadyTransitionCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastDecisionReadyAtMs = new AtomicLong(0L);
+    private final AtomicLong pendingCommitDecisionReadyRetainedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitLastDecisionReadyRetainedAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitRecoveredFromEscalationCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastRecoveredFromEscalationAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairTriggeredCount = new AtomicLong(0L);
@@ -191,10 +197,15 @@ public class ReplicaManager {
     private volatile String pendingCommitLastError = "";
 
     public ReplicaManager() {
-        this(true);
+        this(true, PENDING_COMMIT_MAX_AGE_MS);
     }
 
     ReplicaManager(boolean startRetryWorker) {
+        this(startRetryWorker, PENDING_COMMIT_MAX_AGE_MS);
+    }
+
+    ReplicaManager(boolean startRetryWorker, long pendingCommitMaxAgeMs) {
+        this.pendingCommitMaxAgeMs = Math.max(1L, pendingCommitMaxAgeMs);
         if (startRetryWorker) {
             pendingCommitRetryExecutor.scheduleWithFixedDelay(
                     this::retryPendingCommits,
@@ -314,7 +325,10 @@ public class ReplicaManager {
         stats.put("decisionCandidateCooldownMs", PENDING_COMMIT_DECISION_CANDIDATE_COOLDOWN_MS);
         stats.put("decisionReadyTransitionCount", pendingCommitDecisionReadyTransitionCount.get());
         stats.put("lastDecisionReadyAtMs", pendingCommitLastDecisionReadyAtMs.get());
+        stats.put("decisionReadyRetainedCount", pendingCommitDecisionReadyRetainedCount.get());
+        stats.put("lastDecisionReadyRetainedAtMs", pendingCommitLastDecisionReadyRetainedAtMs.get());
         stats.put("decisionReadyAttemptsThreshold", PENDING_COMMIT_DECISION_READY_ATTEMPTS);
+        stats.put("maxAgeMs", pendingCommitMaxAgeMs);
         stats.put("recoveredFromEscalationCount", pendingCommitRecoveredFromEscalationCount.get());
         stats.put("lastRecoveredFromEscalationAtMs", pendingCommitLastRecoveredFromEscalationAtMs.get());
         stats.put("repairTriggeredCount", pendingCommitRepairTriggeredCount.get());
@@ -388,6 +402,10 @@ public class ReplicaManager {
             task.nextRetryAtMs = 0L;
         }
         retryPendingCommits();
+    }
+
+    void setPendingCommitMaxAgeMsForTests(long pendingCommitMaxAgeMs) {
+        this.pendingCommitMaxAgeMs = Math.max(1L, pendingCommitMaxAgeMs);
     }
 
     /**
@@ -692,7 +710,21 @@ public class ReplicaManager {
             pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
             pendingCommitLastError = commitAttempt.error();
 
-            if (now - task.firstQueuedAtMs > PENDING_COMMIT_MAX_AGE_MS) {
+            if (now - task.firstQueuedAtMs > pendingCommitMaxAgeMs) {
+                if (task.decisionReadyMarked) {
+                    if (!task.decisionReadyRetentionReported) {
+                        task.decisionReadyRetentionReported = true;
+                        pendingCommitDecisionReadyRetainedCount.incrementAndGet();
+                        pendingCommitLastDecisionReadyRetainedAtMs.set(System.currentTimeMillis());
+                        log.warn("retryPendingCommits: retained decision-ready pending commit table={} lsn={} address={} ageMs={} maxAgeMs={}",
+                                task.tableName,
+                                task.lsn,
+                                task.address,
+                                task.ageMs(now),
+                                pendingCommitMaxAgeMs);
+                    }
+                    continue;
+                }
                 if (pendingCommits.remove(key, task)) {
                     pendingCommitDroppedCount.incrementAndGet();
                 }
