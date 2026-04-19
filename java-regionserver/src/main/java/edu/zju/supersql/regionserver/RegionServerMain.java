@@ -186,9 +186,13 @@ public class RegionServerMain {
             defaults.put("recoveredCount", 0L);
             defaults.put("retryAttemptCount", 0L);
             defaults.put("droppedCount", 0L);
+            defaults.put("repairTriggeredCount", 0L);
+            defaults.put("repairSuccessCount", 0L);
+            defaults.put("repairFailureCount", 0L);
             defaults.put("lastSuccessAtMs", 0L);
             defaults.put("lastFailureAtMs", 0L);
             defaults.put("lastError", "");
+            defaults.put("errorBreakdown", java.util.Collections.emptyMap());
             payload.put("replicaCommitRetry", defaults);
         } else {
             payload.put("replicaCommitRetry", replicaCommitRetry);

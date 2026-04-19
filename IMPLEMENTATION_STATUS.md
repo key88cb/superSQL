@@ -120,11 +120,12 @@
 - ReplicaSyncServiceImpl 的 `pullLog/getMaxLsn` 已收敛为仅暴露 COMMITTED 日志（并在启动时恢复 committed 索引），避免将未提交 PREPARE 暴露给追赶链路。
 - ReplicaSyncServiceImpl 已新增超时 PREPARE 自动决议（超时后本地标记 ABORT 并从内存待提交集合移除），降低跨节点提交确认丢失时 PREPARE 长期滞留风险。
 - 主副本对副本 `commitLog` 通知已增加有界重试（best-effort），降低短暂网络抖动下的提交通知丢失概率。
+- 当 `commitLog` 因 `TABLE_NOT_FOUND` 失败进入待重试队列时，ReplicaManager 会基于 donor 的 `pullLog` 定向回填缺失日志后再重试 commit，提升无新写入场景下的自愈收敛能力。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。
 - RegionServiceImpl 写成功后会异步触发副本追赶编排（`reconcileReplicasAsync`），使 `pullLog/getMaxLsn` 从“能力预留”进入主写链路后的收敛路径。
-- RegionServer `/status` 已补充 `prepareDecision` 与 `replicaCommitRetry` 统计，支持观测 PREPARE 超时决议与副本提交通知重试收敛情况。
+- RegionServer `/status` 已补充 `prepareDecision` 与 `replicaCommitRetry` 统计，支持观测 PREPARE 超时决议与副本提交通知重试收敛情况；其中 `replicaCommitRetry` 进一步包含 repair 计数与错误分类分布（如 `table_not_found`/`transport_error`）。
 
 当前限制：
 - WAL、ReplicaManager 与 ReplicaSyncService 仍未达到最终语义（当前已具备“超时 PREPARE 自动 ABORT”的基础闭环，但多数派决议/跨节点一致提交协议仍未完成）。

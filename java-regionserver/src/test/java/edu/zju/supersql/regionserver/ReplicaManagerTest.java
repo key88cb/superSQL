@@ -165,6 +165,56 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldRepairTableNotFoundUsingDonorPull() throws Exception {
+        int donorPort = freePort();
+        int targetPort = freePort();
+        InMemoryReplicaSyncService donor = new InMemoryReplicaSyncService();
+        InMemoryReplicaSyncService target = new InMemoryReplicaSyncService();
+
+        TServer donorServer = buildServer(donorPort, donor);
+        TServer targetServer = buildServer(targetPort, target);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        pool.submit(donorServer::serve);
+        pool.submit(targetServer::serve);
+        Thread.sleep(200);
+
+        try {
+            ReplicaManager manager = new ReplicaManager();
+            String donorAddress = "127.0.0.1:" + donorPort;
+            String targetAddress = "127.0.0.1:" + targetPort;
+            String table = "orders";
+            long lsn = 5555L;
+
+            WalEntry entry = buildEntry(lsn, table, "insert into orders values(5555);");
+            Assertions.assertEquals(1, manager.syncToReplicas(entry, List.of(donorAddress), 1));
+            Assertions.assertTrue(manager.commitOneWithRetry(table, lsn, donorAddress));
+
+            manager.commitOnReplicas(table, lsn, List.of(donorAddress, targetAddress));
+            waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                    4_000L);
+
+            manager.retryPendingCommitsNow();
+
+            waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() == 0L,
+                    4_000L);
+
+            Response secondCommit = commitLog(targetAddress, table, lsn);
+            Assertions.assertEquals(StatusCode.OK, secondCommit.getCode());
+            Assertions.assertTrue(secondCommit.getMessage().contains("ALREADY_COMMITTED"));
+
+            Map<String, Object> stats = manager.getCommitRetryStats();
+            Assertions.assertTrue(((Number) stats.get("repairTriggeredCount")).longValue() >= 1L);
+            Assertions.assertTrue(((Number) stats.get("repairSuccessCount")).longValue() >= 1L);
+            Map<?, ?> errorBreakdown = (Map<?, ?>) stats.get("errorBreakdown");
+            Assertions.assertTrue(((Number) errorBreakdown.get("table_not_found")).longValue() >= 1L);
+        } finally {
+            donorServer.stop();
+            targetServer.stop();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
     void commitOneWithRetryShouldReturnFalseForUnreachableReplica() {
         ReplicaManager manager = new ReplicaManager();
         boolean committed = manager.commitOneWithRetry("orders", 999L, "127.0.0.1:1");
