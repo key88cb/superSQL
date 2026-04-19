@@ -39,17 +39,35 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("failure")).longValue());
+        Map<?, ?> transferTable = (Map<?, ?>) json.get("transferTable");
+        Assertions.assertEquals(0L, ((Number) transferTable.get("total")).longValue());
+        Assertions.assertEquals(0L, ((Number) transferTable.get("success")).longValue());
+        Assertions.assertEquals(0L, ((Number) transferTable.get("failure")).longValue());
         Assertions.assertTrue(json.containsKey("timestamp"));
     }
 
     @Test
-    void statusPayloadShouldIncludeProvidedManifestStats() throws Exception {
-        Map<String, Object> transferStats = new LinkedHashMap<>();
-        transferStats.put("total", 5L);
-        transferStats.put("success", 3L);
-        transferStats.put("failure", 2L);
-        transferStats.put("lastFailureTs", 123L);
-        transferStats.put("lastFailureMessage", "checksum mismatch");
+    void statusPayloadShouldIncludeProvidedTransferStats() throws Exception {
+        Map<String, Object> manifestStats = new LinkedHashMap<>();
+        manifestStats.put("total", 5L);
+        manifestStats.put("success", 3L);
+        manifestStats.put("failure", 2L);
+        manifestStats.put("lastFailureTs", 123L);
+        manifestStats.put("lastFailureMessage", "checksum mismatch");
+
+        Map<String, Object> transferTableStats = new LinkedHashMap<>();
+        transferTableStats.put("total", 7L);
+        transferTableStats.put("success", 4L);
+        transferTableStats.put("failure", 3L);
+        Map<String, Object> reasons = new LinkedHashMap<>();
+        reasons.put("table_not_found", 1L);
+        reasons.put("target_reject", 2L);
+        reasons.put("transport_error", 0L);
+        reasons.put("other", 0L);
+        transferTableStats.put("failureReasons", reasons);
+        transferTableStats.put("lastFailureTs", 456L);
+        transferTableStats.put("lastFailureReason", "target_reject");
+        transferTableStats.put("lastFailureMessage", "copyTableData rejected");
 
         byte[] payload = RegionServerMain.buildStatusPayload(
                 "rs-9",
@@ -60,15 +78,26 @@ class RegionServerMainStatusPayloadTest {
                 "./data",
                 "./wal",
                 true,
-                transferStats);
+                manifestStats,
+                transferTableStats);
 
         Map<?, ?> json = MAPPER.readValue(new String(payload, StandardCharsets.UTF_8), Map.class);
         Map<?, ?> transferManifestVerification = (Map<?, ?>) json.get("transferManifestVerification");
+            Map<?, ?> transferTable = (Map<?, ?>) json.get("transferTable");
 
         Assertions.assertEquals(5L, ((Number) transferManifestVerification.get("total")).longValue());
         Assertions.assertEquals(3L, ((Number) transferManifestVerification.get("success")).longValue());
         Assertions.assertEquals(2L, ((Number) transferManifestVerification.get("failure")).longValue());
         Assertions.assertEquals(123L, ((Number) transferManifestVerification.get("lastFailureTs")).longValue());
         Assertions.assertEquals("checksum mismatch", transferManifestVerification.get("lastFailureMessage"));
+
+            Assertions.assertEquals(7L, ((Number) transferTable.get("total")).longValue());
+            Assertions.assertEquals(4L, ((Number) transferTable.get("success")).longValue());
+            Assertions.assertEquals(3L, ((Number) transferTable.get("failure")).longValue());
+            Map<?, ?> failureReasons = (Map<?, ?>) transferTable.get("failureReasons");
+            Assertions.assertEquals(1L, ((Number) failureReasons.get("table_not_found")).longValue());
+            Assertions.assertEquals(2L, ((Number) failureReasons.get("target_reject")).longValue());
+            Assertions.assertEquals(0L, ((Number) failureReasons.get("transport_error")).longValue());
+            Assertions.assertEquals("target_reject", transferTable.get("lastFailureReason"));
     }
 }

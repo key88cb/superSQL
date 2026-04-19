@@ -6,6 +6,7 @@ import edu.zju.supersql.regionserver.ZkPaths;
 import edu.zju.supersql.rpc.*;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.thrift.TException;
+import org.apache.thrift.transport.TTransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +57,16 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong manifestVerificationFailure = new AtomicLong();
     private final AtomicLong manifestVerificationLastFailureTs = new AtomicLong();
     private volatile String manifestVerificationLastFailureMessage = "";
+    private final AtomicLong transferTableTotal = new AtomicLong();
+    private final AtomicLong transferTableSuccess = new AtomicLong();
+    private final AtomicLong transferTableFailure = new AtomicLong();
+    private final AtomicLong transferTableFailureTableNotFound = new AtomicLong();
+    private final AtomicLong transferTableFailureTargetReject = new AtomicLong();
+    private final AtomicLong transferTableFailureTransportError = new AtomicLong();
+    private final AtomicLong transferTableFailureOther = new AtomicLong();
+    private final AtomicLong transferTableLastFailureTs = new AtomicLong();
+    private volatile String transferTableLastFailureReason = "";
+    private volatile String transferTableLastFailureMessage = "";
 
     public RegionAdminServiceImpl(WriteGuard writeGuard,
                                   CuratorFramework zkClient,
@@ -200,20 +211,23 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     @Override
     public Response transferTable(String tableName, String targetHost, int targetPort) throws TException {
         log.info("transferTable: table={} → {}:{}", tableName, targetHost, targetPort);
+        transferTableTotal.incrementAndGet();
         try {
             File dir = new File(dataDir);
             if (!dir.exists() || !dir.isDirectory()) {
-                Response r = new Response(StatusCode.ERROR);
-                r.setMessage("dataDir not found: " + dataDir);
-                return r;
+                return transferTableFailed(
+                        StatusCode.ERROR,
+                        "other",
+                        "dataDir not found: " + dataDir);
             }
 
             File[] tableFiles = dir.listFiles(f -> f.getName().startsWith(tableName)
                     && !f.getName().endsWith(STAGING_SUFFIX));
             if (tableFiles == null || tableFiles.length == 0) {
-                Response r = new Response(StatusCode.TABLE_NOT_FOUND);
-                r.setMessage("No files found for table: " + tableName);
-                return r;
+                return transferTableFailed(
+                    StatusCode.TABLE_NOT_FOUND,
+                    "table_not_found",
+                    "No files found for table: " + tableName);
             }
 
             // Open Thrift connection to target RS
@@ -238,14 +252,16 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 transport.close();
             }
 
+            transferTableSuccess.incrementAndGet();
             Response r = new Response(StatusCode.OK);
             r.setMessage("transfer completed for " + tableName);
             return r;
         } catch (Exception e) {
             log.error("transferTable failed for table={}", tableName, e);
-            Response r = new Response(StatusCode.ERROR);
-            r.setMessage("transferTable failed: " + e.getMessage());
-            return r;
+            return transferTableFailed(
+                    StatusCode.ERROR,
+                    classifyTransferFailureReason(e),
+                    "transferTable failed: " + e.getMessage());
         }
     }
 
@@ -607,6 +623,25 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         return payload;
     }
 
+    public Map<String, Object> getTransferTableStats() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("total", transferTableTotal.get());
+        payload.put("success", transferTableSuccess.get());
+        payload.put("failure", transferTableFailure.get());
+
+        Map<String, Object> reasons = new LinkedHashMap<>();
+        reasons.put("table_not_found", transferTableFailureTableNotFound.get());
+        reasons.put("target_reject", transferTableFailureTargetReject.get());
+        reasons.put("transport_error", transferTableFailureTransportError.get());
+        reasons.put("other", transferTableFailureOther.get());
+
+        payload.put("failureReasons", reasons);
+        payload.put("lastFailureTs", transferTableLastFailureTs.get());
+        payload.put("lastFailureReason", transferTableLastFailureReason);
+        payload.put("lastFailureMessage", transferTableLastFailureMessage);
+        return payload;
+    }
+
     private Response manifestVerificationSucceeded(int fileCount) {
         manifestVerificationSuccess.incrementAndGet();
         Response r = new Response(StatusCode.OK);
@@ -621,6 +656,42 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         Response r = new Response(StatusCode.ERROR);
         r.setMessage(message);
         return r;
+    }
+
+    private Response transferTableFailed(StatusCode code, String reason, String message) {
+        transferTableFailure.incrementAndGet();
+        transferTableLastFailureTs.set(System.currentTimeMillis());
+        transferTableLastFailureReason = reason;
+        transferTableLastFailureMessage = message;
+
+        switch (reason) {
+            case "table_not_found" -> transferTableFailureTableNotFound.incrementAndGet();
+            case "target_reject" -> transferTableFailureTargetReject.incrementAndGet();
+            case "transport_error" -> transferTableFailureTransportError.incrementAndGet();
+            default -> transferTableFailureOther.incrementAndGet();
+        }
+
+        Response r = new Response(code);
+        r.setMessage(message);
+        return r;
+    }
+
+    private static String classifyTransferFailureReason(Exception e) {
+        if (e == null) {
+            return "other";
+        }
+        if (e instanceof TTransportException) {
+            return "transport_error";
+        }
+        String message = e.getMessage();
+        if (message != null && message.contains("copyTableData rejected")) {
+            return "target_reject";
+        }
+        Throwable cause = e.getCause();
+        if (cause instanceof TTransportException) {
+            return "transport_error";
+        }
+        return "other";
     }
 
     private void sendChunkWithRetry(RegionAdminService.Client client,

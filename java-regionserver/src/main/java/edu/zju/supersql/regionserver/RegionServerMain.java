@@ -58,7 +58,8 @@ public class RegionServerMain {
             dataDir,
             walDir,
             miniSqlAlive,
-            null);
+                null,
+                null);
         }
 
         static byte[] buildStatusPayload(String rsId,
@@ -69,7 +70,8 @@ public class RegionServerMain {
                          String dataDir,
                          String walDir,
                          boolean miniSqlAlive,
-                         Map<String, Object> transferManifestVerification) {
+                                     Map<String, Object> transferManifestVerification,
+                                     Map<String, Object> transferTable) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("status", "ok");
         payload.put("rsId", rsId);
@@ -90,6 +92,25 @@ public class RegionServerMain {
             payload.put("transferManifestVerification", defaults);
         } else {
             payload.put("transferManifestVerification", transferManifestVerification);
+        }
+
+        if (transferTable == null) {
+            Map<String, Object> defaults = new LinkedHashMap<>();
+            defaults.put("total", 0L);
+            defaults.put("success", 0L);
+            defaults.put("failure", 0L);
+            Map<String, Object> reasons = new LinkedHashMap<>();
+            reasons.put("table_not_found", 0L);
+            reasons.put("target_reject", 0L);
+            reasons.put("transport_error", 0L);
+            reasons.put("other", 0L);
+            defaults.put("failureReasons", reasons);
+            defaults.put("lastFailureTs", 0L);
+            defaults.put("lastFailureReason", "");
+            defaults.put("lastFailureMessage", "");
+            payload.put("transferTable", defaults);
+        } else {
+            payload.put("transferTable", transferTable);
         }
         payload.put("timestamp", System.currentTimeMillis());
         try {
@@ -177,6 +198,9 @@ public class RegionServerMain {
             Map<String, Object> manifestStats = adminServiceRef[0] != null
                     ? adminServiceRef[0].getTransferManifestVerificationStats()
                     : null;
+            Map<String, Object> transferTableStats = adminServiceRef[0] != null
+                ? adminServiceRef[0].getTransferTableStats()
+                : null;
             byte[] body = buildStatusPayload(
                     rsId,
                     rsHost,
@@ -186,7 +210,8 @@ public class RegionServerMain {
                     dataDir,
                     walDir,
                     miniSql.isAlive(),
-                    manifestStats);
+                    manifestStats,
+                    transferTableStats);
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }

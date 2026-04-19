@@ -632,6 +632,58 @@ class RegionAdminServiceImplTest {
         }
 
     @Test
+    void transferTableStatsShouldTrackReasonsAndSuccess() throws Exception {
+        Map<String, Object> initial = service.getTransferTableStats();
+        Assertions.assertEquals(0L, ((Number) initial.get("total")).longValue());
+        Assertions.assertEquals(0L, ((Number) initial.get("success")).longValue());
+        Assertions.assertEquals(0L, ((Number) initial.get("failure")).longValue());
+
+        Response notFound = service.transferTable("orders", "127.0.0.1", 9999);
+        Assertions.assertEquals(StatusCode.TABLE_NOT_FOUND, notFound.getCode());
+
+        Files.writeString(dataDir.resolve("orders_data"), "payload");
+
+        int rejectPort = freePort();
+        TServer rejectServer = buildServer(rejectPort, new RejectingCopyService());
+        ExecutorService rejectPool = Executors.newSingleThreadExecutor();
+        rejectPool.submit(rejectServer::serve);
+        Thread.sleep(200);
+        try {
+            Response rejected = service.transferTable("orders", "127.0.0.1", rejectPort);
+            Assertions.assertEquals(StatusCode.ERROR, rejected.getCode());
+            Assertions.assertTrue(rejected.getMessage().contains("copyTableData rejected"));
+        } finally {
+            rejectServer.stop();
+            rejectPool.shutdownNow();
+        }
+
+        int okPort = freePort();
+        TServer okServer = buildServer(okPort, new RecordingCopyService());
+        ExecutorService okPool = Executors.newSingleThreadExecutor();
+        okPool.submit(okServer::serve);
+        Thread.sleep(200);
+        try {
+            Response ok = service.transferTable("orders", "127.0.0.1", okPort);
+            Assertions.assertEquals(StatusCode.OK, ok.getCode());
+        } finally {
+            okServer.stop();
+            okPool.shutdownNow();
+        }
+
+        Map<String, Object> snapshot = service.getTransferTableStats();
+        Assertions.assertEquals(3L, ((Number) snapshot.get("total")).longValue());
+        Assertions.assertEquals(1L, ((Number) snapshot.get("success")).longValue());
+        Assertions.assertEquals(2L, ((Number) snapshot.get("failure")).longValue());
+
+        Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
+        Assertions.assertEquals(1L, ((Number) reasons.get("table_not_found")).longValue());
+        Assertions.assertEquals(1L, ((Number) reasons.get("target_reject")).longValue());
+        Assertions.assertEquals(0L, ((Number) reasons.get("transport_error")).longValue());
+        Assertions.assertEquals(0L, ((Number) reasons.get("other")).longValue());
+        Assertions.assertEquals("target_reject", String.valueOf(snapshot.get("lastFailureReason")));
+    }
+
+    @Test
     void transferTableShouldReturnTableNotFoundWhenOnlyStagingFilesExist() throws Exception {
         Files.writeString(dataDir.resolve("orders_orphan.part"), "staging");
 
