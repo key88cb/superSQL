@@ -212,6 +212,9 @@ public class RegionServerMain {
             defaults.put("repairTriggeredCount", 0L);
             defaults.put("repairSuccessCount", 0L);
             defaults.put("repairFailureCount", 0L);
+            defaults.put("finalDecisionEvaluatedCount", 0L);
+            defaults.put("finalDecisionCommittedCount", 0L);
+            defaults.put("lastFinalDecisionAtMs", 0L);
             defaults.put("stalledCount", 0L);
             defaults.put("oldestPendingAgeMs", 0L);
             defaults.put("activeEscalatedCount", 0L);

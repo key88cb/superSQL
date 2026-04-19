@@ -214,6 +214,9 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitRepairTriggeredCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairSuccessCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairFailureCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitFinalDecisionEvaluatedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitFinalDecisionCommittedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitLastFinalDecisionAtMs = new AtomicLong(0L);
     private final ConcurrentHashMap<String, AtomicLong> pendingCommitErrorBreakdown = new ConcurrentHashMap<>();
     private volatile String pendingCommitLastError = "";
 
@@ -363,6 +366,9 @@ public class ReplicaManager {
         stats.put("repairTriggeredCount", pendingCommitRepairTriggeredCount.get());
         stats.put("repairSuccessCount", pendingCommitRepairSuccessCount.get());
         stats.put("repairFailureCount", pendingCommitRepairFailureCount.get());
+        stats.put("finalDecisionEvaluatedCount", pendingCommitFinalDecisionEvaluatedCount.get());
+        stats.put("finalDecisionCommittedCount", pendingCommitFinalDecisionCommittedCount.get());
+        stats.put("lastFinalDecisionAtMs", pendingCommitLastFinalDecisionAtMs.get());
         stats.put("lastSuccessAtMs", pendingCommitLastSuccessAtMs.get());
         stats.put("lastFailureAtMs", pendingCommitLastFailureAtMs.get());
         stats.put("lastError", pendingCommitLastError);
@@ -802,49 +808,21 @@ public class ReplicaManager {
             }
             if (task.decisionReadyMarked) {
                 pendingCommitDecisionReadyCooldownAppliedCount.incrementAndGet();
+                if (finalizeDecisionReadyCommitIfPossible(key, task, now)) {
+                    continue;
+                }
             }
             pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
             pendingCommitLastError = commitAttempt.error();
 
             if (task.decisionReadyMarked && now - task.firstQueuedAtMs > pendingCommitDecisionTerminalAgeMs) {
-                if (pendingCommits.remove(key, task)) {
-                    pendingCommitDecisionTerminalCount.incrementAndGet();
-                    pendingCommitLastDecisionTerminalAtMs.set(System.currentTimeMillis());
-                    if (decisionTerminalQueue.size() >= PENDING_COMMIT_DECISION_TERMINAL_MAX_QUEUE_SIZE) {
-                        pendingCommitDecisionTerminalDroppedCount.incrementAndGet();
-                    } else {
-                        decisionTerminalQueue.put(key, new DecisionTerminal(
-                                task.tableName,
-                                task.lsn,
-                                task.address,
-                                task.attempts.get(),
-                                task.ageMs(now),
-                                System.currentTimeMillis(),
-                                task.lastError));
-                    }
-                    log.warn("retryPendingCommits: moved decision-ready pending commit to terminal queue table={} lsn={} address={} ageMs={} terminalAgeMs={}",
-                            task.tableName,
-                            task.lsn,
-                            task.address,
-                            task.ageMs(now),
-                            pendingCommitDecisionTerminalAgeMs);
-                }
+                moveToDecisionTerminalQueue(key, task, now, "terminalAgeMs", pendingCommitDecisionTerminalAgeMs);
                 continue;
             }
 
             if (now - task.firstQueuedAtMs > pendingCommitMaxAgeMs) {
                 if (task.decisionReadyMarked) {
-                    if (!task.decisionReadyRetentionReported) {
-                        task.decisionReadyRetentionReported = true;
-                        pendingCommitDecisionReadyRetainedCount.incrementAndGet();
-                        pendingCommitLastDecisionReadyRetainedAtMs.set(System.currentTimeMillis());
-                        log.warn("retryPendingCommits: retained decision-ready pending commit table={} lsn={} address={} ageMs={} maxAgeMs={}",
-                                task.tableName,
-                                task.lsn,
-                                task.address,
-                                task.ageMs(now),
-                                pendingCommitMaxAgeMs);
-                    }
+                    moveToDecisionTerminalQueue(key, task, now, "maxAgeMs", pendingCommitMaxAgeMs);
                     continue;
                 }
                 if (pendingCommits.remove(key, task)) {
@@ -926,6 +904,75 @@ public class ReplicaManager {
             return false;
         }
         return error.toLowerCase().contains(COMMIT_ERR_TRANSPORT);
+    }
+
+    private void moveToDecisionTerminalQueue(String key,
+                                             PendingCommit task,
+                                             long nowMs,
+                                             String reason,
+                                             long thresholdMs) {
+        if (!pendingCommits.remove(key, task)) {
+            return;
+        }
+        pendingCommitDecisionTerminalCount.incrementAndGet();
+        pendingCommitLastDecisionTerminalAtMs.set(System.currentTimeMillis());
+        if (decisionTerminalQueue.size() >= PENDING_COMMIT_DECISION_TERMINAL_MAX_QUEUE_SIZE) {
+            pendingCommitDecisionTerminalDroppedCount.incrementAndGet();
+        } else {
+            decisionTerminalQueue.put(key, new DecisionTerminal(
+                    task.tableName,
+                    task.lsn,
+                    task.address,
+                    task.attempts.get(),
+                    task.ageMs(nowMs),
+                    System.currentTimeMillis(),
+                    task.lastError));
+        }
+        log.warn("retryPendingCommits: moved decision-ready pending commit to terminal queue table={} lsn={} address={} ageMs={} {}={}",
+                task.tableName,
+                task.lsn,
+                task.address,
+                task.ageMs(nowMs),
+                reason,
+                thresholdMs);
+    }
+
+    private boolean finalizeDecisionReadyCommitIfPossible(String key, PendingCommit task, long nowMs) {
+        pendingCommitFinalDecisionEvaluatedCount.incrementAndGet();
+        int replicaCount = task.replicaAddresses.size() + 1; // include primary itself
+        int quorum = replicaCount / 2 + 1;
+        int committedVotes = 1; // primary commit already persisted before async replica commit
+
+        for (String replica : task.replicaAddresses) {
+            long maxLsn = getMaxLsn(task.tableName, replica);
+            if (maxLsn >= task.lsn) {
+                committedVotes++;
+            }
+        }
+
+        if (committedVotes < quorum) {
+            return false;
+        }
+
+        if (!pendingCommits.remove(key, task)) {
+            return true;
+        }
+
+        if (task.consecutiveTransportFailures.getAndSet(0L) >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD) {
+            pendingCommitRecoveredFromEscalationCount.incrementAndGet();
+            pendingCommitLastRecoveredFromEscalationAtMs.set(nowMs);
+        }
+        pendingCommitRecoveredCount.incrementAndGet();
+        pendingCommitLastSuccessAtMs.set(nowMs);
+        pendingCommitFinalDecisionCommittedCount.incrementAndGet();
+        pendingCommitLastFinalDecisionAtMs.set(nowMs);
+        log.info("retryPendingCommits: finalized decision-ready commit via quorum table={} lsn={} target={} votes={}/{}",
+                task.tableName,
+                task.lsn,
+                task.address,
+                committedVotes,
+                replicaCount);
+        return true;
     }
 
     private boolean repairMissingReplicaEntry(PendingCommit task) {

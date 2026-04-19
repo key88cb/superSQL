@@ -127,12 +127,13 @@
 - ReplicaManager 待重试队列已引入退避节流窗口，避免对故障副本持续高频无效重试；并新增 `throttledSkipCount/stalledCount/oldestPendingAgeMs` 观测字段用于识别重试停滞。
 - ReplicaManager 对连续 `transport_error` 已增加分级降频策略：达到阈值后进入升级重试窗口（更长冷却），并输出 `escalatedCount/activeEscalatedCount/maxConsecutiveTransportFailures` 观测字段。
 - 当升级态 pending commit 最终成功收敛时，ReplicaManager 会记录升级恢复信号（`recoveredFromEscalationCount/lastRecoveredFromEscalationAtMs`），用于确认降频后是否真实恢复。
-- 对于长时间处于升级态且重试次数持续累积的 pending commit，ReplicaManager 会标记为决议候选并输出 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，为后续“多数派最终决议”提供前置信号。
+- 对于长时间处于升级态且重试次数持续累积的 pending commit，ReplicaManager 会标记为决议候选并输出 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，作为自动最终决议前置阶段。
 - 决议候选项已提供预览视图 `decisionCandidatesPreview`（table/lsn/address/attempts/consecutiveTransportFailures/ageMs，最多5条），便于快速定位需要人工或自动决议的对象。
 - 决议候选项引入二级冷却窗口（`decisionCandidateCooldownMs`，默认 300s），触发时记录 `decisionCandidateCooldownAppliedCount`，并在预览项中输出 `nextRetryAtMs`，用于降低长故障期重试噪音。
-- 在决议候选基础上新增“decision-ready”阶段：持续失败达到阈值后记录 `decisionReadyTransitionCount/lastDecisionReadyAtMs`，并输出 `activeDecisionReadyCount/decisionReadyAttemptsThreshold`，用于后续多数派最终决议动作触发。
+- 在决议候选基础上新增“decision-ready”阶段：持续失败达到阈值后记录 `decisionReadyTransitionCount/lastDecisionReadyAtMs`，并输出 `activeDecisionReadyCount/decisionReadyAttemptsThreshold`，用于触发最终决议流程。
 - 进入 `decision-ready` 后，待提交重试会切换到更长冷却窗口（15 分钟）并上报 `decisionReadyCooldownAppliedCount/decisionReadyCooldownMs`，降低长故障期间的无效重试噪音。
-- 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再静默丢弃；会保留在待处理队列并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，用于后续决议链路接管。
+- 对进入 `decision-ready` 的待提交项，系统会执行“多数派已提交”最终决议判定（基于副本 `getMaxLsn` 与法定票数），满足法定票数时自动完成终局并清理 active pending；同时上报 `finalDecisionEvaluatedCount/finalDecisionCommittedCount/lastFinalDecisionAtMs`。
+- 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再走“仅保留等待”的临时路径，而是直接分流到终态人工队列，避免长期占用 active pending。
 - 对持续停留在 `decision-ready` 且超过终态阈值（`decisionTerminalAgeMs`）的待提交项，系统会自动从 active pending 分流到终态人工队列（`terminalQueueCount`），并记录 `decisionTerminalCount/lastDecisionTerminalAtMs/decisionTerminalPreview`，避免长期占用活跃重试队列。
 - `replicaCommitRetry` 统计已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态队列纳入人工处置信号。
 - RegionServer 已新增终态人工队列管理入口 `/admin/replica-commit-terminal`：支持 GET 查询终态队列、POST `action=ack` 单条确认、POST `action=ackAll` 批量确认，形成“可观测 + 可处置”闭环。
@@ -145,7 +146,7 @@
 - RegionServer `/status` 已补充 `prepareDecision` 与 `replicaCommitRetry` 统计，支持观测 PREPARE 超时决议与副本提交通知重试收敛情况；其中 `replicaCommitRetry` 进一步包含 repair 计数与错误分类分布（如 `table_not_found`/`transport_error`）。
 
 当前限制：
-- WAL、ReplicaManager 与 ReplicaSyncService 仍未达到最终语义（当前已具备“超时 PREPARE 自动 ABORT”的基础闭环，但多数派决议/跨节点一致提交协议仍未完成）。
+- WAL、ReplicaManager 与 ReplicaSyncService 尚未达到完整最终协议语义（当前已具备“超时 PREPARE 自动 ABORT”与 `decision-ready` 后多数派已提交自动终局；但跨节点显式最终决议确认链路仍未完全闭环）。
 - Region 迁移、主副本晋升、恢复 3 副本等自治能力还未打通完整闭环。
 - transfer/copyTableData 已有基础实现，但尚未形成完整迁移协议。
 

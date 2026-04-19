@@ -350,7 +350,50 @@ class ReplicaManagerTest {
     }
 
     @Test
-    void retryPendingCommitsShouldRetainDecisionReadyWhenMaxAgeExceeded() throws Exception {
+    void retryPendingCommitsShouldFinalizeDecisionReadyCommitWhenQuorumAlreadyCommitted() throws Exception {
+        int donorPort = freePort();
+        InMemoryReplicaSyncService donor = new InMemoryReplicaSyncService();
+        TServer donorServer = buildServer(donorPort, donor);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        pool.submit(donorServer::serve);
+        Thread.sleep(200);
+
+        try {
+            ReplicaManager manager = new ReplicaManager(false);
+            String donorAddress = "127.0.0.1:" + donorPort;
+            String unavailableReplica = "127.0.0.1:1";
+            long lsn = 9399L;
+
+            WalEntry entry = buildEntry(lsn, "orders", "insert into orders values(9399);");
+            Assertions.assertEquals(1, manager.syncToReplicas(entry, List.of(donorAddress), 1));
+            Assertions.assertTrue(manager.commitOneWithRetry("orders", lsn, donorAddress));
+
+            manager.commitOnReplicas("orders", lsn, List.of(donorAddress, unavailableReplica));
+
+            waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                    4_000L);
+
+            for (int i = 0; i < 24; i++) {
+                manager.retryPendingCommitsNowIgnoringBackoff();
+            }
+
+            waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() == 0L,
+                    4_000L);
+
+            Map<String, Object> stats = manager.getCommitRetryStats();
+            Assertions.assertTrue(((Number) stats.get("finalDecisionEvaluatedCount")).longValue() >= 1L);
+            Assertions.assertTrue(((Number) stats.get("finalDecisionCommittedCount")).longValue() >= 1L);
+            Assertions.assertTrue(((Number) stats.get("lastFinalDecisionAtMs")).longValue() > 0L);
+            Assertions.assertEquals(0L, ((Number) stats.get("terminalQueueCount")).longValue());
+            Assertions.assertEquals(Boolean.FALSE, stats.get("manualInterventionRequired"));
+        } finally {
+            donorServer.stop();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void retryPendingCommitsShouldMoveDecisionReadyToTerminalQueueWhenMaxAgeExceeded() throws Exception {
         ReplicaManager manager = new ReplicaManager(false);
         manager.commitOnReplicas("orders", 9393L, List.of("127.0.0.1:1"));
 
@@ -366,11 +409,11 @@ class ReplicaManagerTest {
         manager.retryPendingCommitsNowIgnoringBackoff();
 
         Map<String, Object> stats = manager.getCommitRetryStats();
-        Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
-        Assertions.assertTrue(((Number) stats.get("pendingCount")).longValue() >= 1L);
+        Assertions.assertEquals(0L, ((Number) stats.get("activeDecisionReadyCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) stats.get("pendingCount")).longValue());
         Assertions.assertEquals(Boolean.TRUE, stats.get("manualInterventionRequired"));
-        Assertions.assertTrue(((Number) stats.get("decisionReadyRetainedCount")).longValue() >= 1L);
-        Assertions.assertTrue(((Number) stats.get("lastDecisionReadyRetainedAtMs")).longValue() > 0L);
+        Assertions.assertTrue(((Number) stats.get("decisionTerminalCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("terminalQueueCount")).longValue() >= 1L);
     }
 
     @Test
