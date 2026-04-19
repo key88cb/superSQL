@@ -591,6 +591,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(0L, ((Number) initial.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("failure")).longValue());
+        Assertions.assertEquals(0L, ((Number) initial.get("lastSuccessTs")).longValue());
 
         byte[] failureManifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing\",\"size\":1,\"crc32\":0}]}"
             .getBytes(StandardCharsets.UTF_8);
@@ -627,6 +628,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(2L, ((Number) snapshot.get("total")).longValue());
         Assertions.assertEquals(1L, ((Number) snapshot.get("success")).longValue());
         Assertions.assertEquals(1L, ((Number) snapshot.get("failure")).longValue());
+        Assertions.assertTrue(((Number) snapshot.get("lastSuccessTs")).longValue() > 0L);
         Assertions.assertTrue(((Number) snapshot.get("lastFailureTs")).longValue() > 0L);
         Assertions.assertTrue(String.valueOf(snapshot.get("lastFailureMessage")).contains("missing"));
         }
@@ -637,6 +639,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(0L, ((Number) initial.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("failure")).longValue());
+        Assertions.assertEquals(0L, ((Number) initial.get("lastSuccessTs")).longValue());
 
         Response notFound = service.transferTable("orders", "127.0.0.1", 9999);
         Assertions.assertEquals(StatusCode.TABLE_NOT_FOUND, notFound.getCode());
@@ -674,6 +677,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(3L, ((Number) snapshot.get("total")).longValue());
         Assertions.assertEquals(1L, ((Number) snapshot.get("success")).longValue());
         Assertions.assertEquals(2L, ((Number) snapshot.get("failure")).longValue());
+        Assertions.assertTrue(((Number) snapshot.get("lastSuccessTs")).longValue() > 0L);
 
         Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
         Assertions.assertEquals(1L, ((Number) reasons.get("table_not_found")).longValue());

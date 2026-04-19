@@ -55,11 +55,13 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong manifestVerificationTotal = new AtomicLong();
     private final AtomicLong manifestVerificationSuccess = new AtomicLong();
     private final AtomicLong manifestVerificationFailure = new AtomicLong();
+    private final AtomicLong manifestVerificationLastSuccessTs = new AtomicLong();
     private final AtomicLong manifestVerificationLastFailureTs = new AtomicLong();
     private volatile String manifestVerificationLastFailureMessage = "";
     private final AtomicLong transferTableTotal = new AtomicLong();
     private final AtomicLong transferTableSuccess = new AtomicLong();
     private final AtomicLong transferTableFailure = new AtomicLong();
+    private final AtomicLong transferTableLastSuccessTs = new AtomicLong();
     private final AtomicLong transferTableFailureTableNotFound = new AtomicLong();
     private final AtomicLong transferTableFailureTargetReject = new AtomicLong();
     private final AtomicLong transferTableFailureTransportError = new AtomicLong();
@@ -253,6 +255,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             }
 
             transferTableSuccess.incrementAndGet();
+            transferTableLastSuccessTs.set(System.currentTimeMillis());
             Response r = new Response(StatusCode.OK);
             r.setMessage("transfer completed for " + tableName);
             return r;
@@ -618,6 +621,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("total", manifestVerificationTotal.get());
         payload.put("success", manifestVerificationSuccess.get());
         payload.put("failure", manifestVerificationFailure.get());
+        payload.put("lastSuccessTs", manifestVerificationLastSuccessTs.get());
         payload.put("lastFailureTs", manifestVerificationLastFailureTs.get());
         payload.put("lastFailureMessage", manifestVerificationLastFailureMessage);
         return payload;
@@ -628,6 +632,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("total", transferTableTotal.get());
         payload.put("success", transferTableSuccess.get());
         payload.put("failure", transferTableFailure.get());
+        payload.put("lastSuccessTs", transferTableLastSuccessTs.get());
 
         Map<String, Object> reasons = new LinkedHashMap<>();
         reasons.put("table_not_found", transferTableFailureTableNotFound.get());
@@ -644,6 +649,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     private Response manifestVerificationSucceeded(int fileCount) {
         manifestVerificationSuccess.incrementAndGet();
+        manifestVerificationLastSuccessTs.set(System.currentTimeMillis());
         Response r = new Response(StatusCode.OK);
         r.setMessage("transfer manifest verified files=" + fileCount);
         return r;

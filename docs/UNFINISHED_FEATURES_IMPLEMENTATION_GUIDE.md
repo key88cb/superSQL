@@ -87,7 +87,8 @@
 - 注册/心跳、MiniSQL 进程管理（含自动重启）。
 - RegionServer HTTP 端点已补充 `/status` JSON 运行态输出，便于外部探活与诊断接入。
 - RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/lastFailureTs/lastFailureMessage），便于外部诊断迁移校验失败。
-- RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure、失败原因分类、最近失败信息），便于外部排查迁移失败类型。
+- RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/lastSuccessTs/lastFailureTs/lastFailureMessage），便于外部诊断迁移校验失败。
+- RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure/lastSuccessTs、失败原因分类、最近失败信息），便于外部排查迁移失败类型。
 - `RegionServiceImpl` 读写基础路径、`executeBatch`、索引相关接口。
 - 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`）用于拒绝 ACK 不足写入。
 - ReplicaManager 已按 requiredAcks 等待 ACK，避免仅等待首个返回导致的门槛语义偏差。

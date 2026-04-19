@@ -87,6 +87,7 @@ public class RegionServerMain {
             defaults.put("total", 0L);
             defaults.put("success", 0L);
             defaults.put("failure", 0L);
+            defaults.put("lastSuccessTs", 0L);
             defaults.put("lastFailureTs", 0L);
             defaults.put("lastFailureMessage", "");
             payload.put("transferManifestVerification", defaults);
@@ -99,6 +100,7 @@ public class RegionServerMain {
             defaults.put("total", 0L);
             defaults.put("success", 0L);
             defaults.put("failure", 0L);
+            defaults.put("lastSuccessTs", 0L);
             Map<String, Object> reasons = new LinkedHashMap<>();
             reasons.put("table_not_found", 0L);
             reasons.put("target_reject", 0L);
