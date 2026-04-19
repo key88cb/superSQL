@@ -535,6 +535,12 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                     r.setMessage("transfer manifest has empty fileName");
                     return r;
                 }
+                if (fileName.endsWith(STAGING_SUFFIX)
+                        || fileName.startsWith(TRANSFER_MANIFEST_PREFIX)) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest has invalid data fileName " + fileName);
+                    return r;
+                }
                 long expectedSize = toLong(fileItem.get("size"), -1L);
                 if (expectedSize < 0L) {
                     Response r = new Response(StatusCode.ERROR);

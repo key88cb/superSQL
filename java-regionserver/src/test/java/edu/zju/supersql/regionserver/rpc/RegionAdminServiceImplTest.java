@@ -443,6 +443,23 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void copyTableDataShouldRejectTransferManifestWithStagingEntry() throws Exception {
+        Files.writeString(dataDir.resolve("orders_data.part"), "staging");
+        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data.part\",\"size\":7}]}"
+                .getBytes(StandardCharsets.UTF_8);
+
+        Response r = service.copyTableData(new DataChunk(
+                "orders",
+                "__supersql_transfer_manifest__.orders.json",
+                0L,
+                ByteBuffer.wrap(manifest),
+                true));
+
+        Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+        Assertions.assertTrue(r.getMessage().contains("invalid data fileName"));
+    }
+
+    @Test
     void copyTableDataShouldAcceptTransferManifestWhenFilesMatch() throws Exception {
         byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
         Response dataResp = service.copyTableData(new DataChunk(
