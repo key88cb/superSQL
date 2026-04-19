@@ -78,9 +78,12 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("recoveredCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("retryAttemptCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("droppedCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("throttledSkipCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("repairTriggeredCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("repairSuccessCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("repairFailureCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("stalledCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("oldestPendingAgeMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastSuccessAtMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastFailureAtMs")).longValue());
         Assertions.assertEquals("", replicaCommitRetry.get("lastError"));
@@ -166,9 +169,12 @@ class RegionServerMainStatusPayloadTest {
         replicaCommitRetry.put("recoveredCount", 8L);
         replicaCommitRetry.put("retryAttemptCount", 21L);
         replicaCommitRetry.put("droppedCount", 1L);
+        replicaCommitRetry.put("throttledSkipCount", 6L);
         replicaCommitRetry.put("repairTriggeredCount", 4L);
         replicaCommitRetry.put("repairSuccessCount", 3L);
         replicaCommitRetry.put("repairFailureCount", 1L);
+        replicaCommitRetry.put("stalledCount", 2L);
+        replicaCommitRetry.put("oldestPendingAgeMs", 120000L);
         replicaCommitRetry.put("lastSuccessAtMs", 321L);
         replicaCommitRetry.put("lastFailureAtMs", 654L);
         replicaCommitRetry.put("lastError", "commit returned TABLE_NOT_FOUND");
@@ -242,9 +248,12 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(8L, ((Number) commitRetryStats.get("recoveredCount")).longValue());
         Assertions.assertEquals(21L, ((Number) commitRetryStats.get("retryAttemptCount")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("droppedCount")).longValue());
+        Assertions.assertEquals(6L, ((Number) commitRetryStats.get("throttledSkipCount")).longValue());
         Assertions.assertEquals(4L, ((Number) commitRetryStats.get("repairTriggeredCount")).longValue());
         Assertions.assertEquals(3L, ((Number) commitRetryStats.get("repairSuccessCount")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("repairFailureCount")).longValue());
+        Assertions.assertEquals(2L, ((Number) commitRetryStats.get("stalledCount")).longValue());
+        Assertions.assertEquals(120000L, ((Number) commitRetryStats.get("oldestPendingAgeMs")).longValue());
         Assertions.assertEquals(321L, ((Number) commitRetryStats.get("lastSuccessAtMs")).longValue());
         Assertions.assertEquals(654L, ((Number) commitRetryStats.get("lastFailureAtMs")).longValue());
         Assertions.assertEquals("commit returned TABLE_NOT_FOUND", commitRetryStats.get("lastError"));

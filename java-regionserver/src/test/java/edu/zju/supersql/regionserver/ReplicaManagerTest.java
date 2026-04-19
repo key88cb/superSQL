@@ -215,6 +215,29 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldThrottleImmediateRepeatedAttempts() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 7777L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        manager.retryPendingCommitsNow();
+        long firstRetryAttempts = ((Number) manager.getCommitRetryStats().get("retryAttemptCount")).longValue();
+        Assertions.assertTrue(firstRetryAttempts >= 1L);
+
+        manager.retryPendingCommitsNow();
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        long secondRetryAttempts = ((Number) stats.get("retryAttemptCount")).longValue();
+
+        Assertions.assertEquals(firstRetryAttempts, secondRetryAttempts,
+                "Second immediate retry should be throttled by backoff");
+        Assertions.assertTrue(((Number) stats.get("throttledSkipCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("oldestPendingAgeMs")).longValue() >= 0L);
+        Assertions.assertTrue(((Number) stats.get("stalledCount")).longValue() >= 0L);
+    }
+
+    @Test
     void commitOneWithRetryShouldReturnFalseForUnreachableReplica() {
         ReplicaManager manager = new ReplicaManager();
         boolean committed = manager.commitOneWithRetry("orders", 999L, "127.0.0.1:1");
