@@ -137,10 +137,11 @@
 - 决议候选项引入二级冷却窗口（`decisionCandidateCooldownMs`，默认 300s），触发时记录 `decisionCandidateCooldownAppliedCount`，并在预览项中输出 `nextRetryAtMs`，用于降低长故障期重试噪音。
 - 在决议候选基础上新增“decision-ready”阶段：持续失败达到阈值后记录 `decisionReadyTransitionCount/lastDecisionReadyAtMs`，并输出 `activeDecisionReadyCount/decisionReadyAttemptsThreshold`，用于触发最终决议流程。
 - 进入 `decision-ready` 后，待提交重试会切换到更长冷却窗口（15 分钟）并上报 `decisionReadyCooldownAppliedCount/decisionReadyCooldownMs`，降低长故障期间的无效重试噪音。
-- 对进入 `decision-ready` 的待提交项，系统会执行“多数派已提交”最终决议判定（基于副本 `getMaxLsn` 与法定票数），满足法定票数时自动完成终局并清理 active pending；同时上报 `finalDecisionEvaluatedCount/finalDecisionCommittedCount/lastFinalDecisionAtMs`。
 - 对进入 `decision-ready` 的待提交项，系统会持续自动重试并周期评估多数派提交条件，不再分流到人工确认队列。
 - `replicaCommitRetry` 统计已收敛为自动决议观测字段（如 `activeDecisionReadyCount`、`decisionReadyOldestAgeMs`、`finalDecisionCommittedCount`），用于判断自动收敛进度。
-- RegionServer 心跳不再携带人工确认相关字段，Master `/status` 的 `replicaDecision` 聚合段同步移除人工终态队列信号。
+- ReplicaManager 已补充 suspected 副本观测：当同步阶段 ACK 不足或 commit 重试阶段出现连续 `transport_error` 时，会记录 `suspectedReplicaCount/suspectedReplicaMarkCount/suspectedReplicaPreview` 等字段，用于识别可疑副本并辅助决议收敛定位。
+- suspected 副本在后续提交通知恢复成功时会自动从 suspected 集合移除，并上报 `suspectedReplicaRecoveredCount/suspectedReplicaLastRecoveredAtMs`，便于区分短暂抖动与持续异常。
+- RegionServer 心跳不再携带人工确认终态队列字段；Master `/status` 的 `replicaDecision` 聚合段不再暴露人工终态队列信号。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。
@@ -264,6 +265,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：`copyTableData` 在“重复 offset 但内容冲突”场景下会返回错误且保持传输进度，后续正确 chunk 可继续完成迁移。
 - 2026-04-19 已补充覆盖：`triggerRebalance` 在“集群已平衡”返回前会先执行卡死迁移预恢复，验证调度路径不再依赖读路径才能回收超时状态。
 - 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（总量 + `rebalance/recovery` 分项 + 分项最近错误）与 Master `/status` 中 `migration` 字段契约。
+- 已补充基础版网络分区混沌脚本：`scripts/chaos_test.sh network_partition` 会对 `rs-1` / `rs-2` 注入双向网络阻断，归档分区期间 SQL 返回与 `/status` 观测结果，用于推进 S7-05 的脚本、注入方式与结果归档闭环。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 

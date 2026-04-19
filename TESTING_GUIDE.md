@@ -185,6 +185,23 @@ chmod +x scripts/chaos_test.sh
  
 # 仅测试 RS 宕机恢复与数据一致性
 ./scripts/chaos_test.sh rs_crash
+
+# 仅测试 S7-04 随机 RS 宕机混沌场景
+./scripts/chaos_test.sh random_rs_crash
+
+# 仅测试 S7-05 基础版网络分区场景
+./scripts/chaos_test.sh network_partition
+
+# 自定义随机宕机轮数与等待时间
+CHAOS_RANDOM_ROUNDS=5 \
+CHAOS_STOP_WAIT_SECONDS=10 \
+CHAOS_RECOVERY_WAIT_SECONDS=30 \
+./scripts/chaos_test.sh random_rs_crash
+
+# 自定义网络分区持续时间，并把结果归档到指定目录
+CHAOS_PARTITION_DURATION_SECONDS=15 \
+CHAOS_LOG_DIR=artifacts/chaos \
+./scripts/chaos_test.sh network_partition
 ```
  
 ### 验证项：
@@ -193,3 +210,99 @@ chmod +x scripts/chaos_test.sh
    - 即使其中一个副本宕机，查询仍应能从剩余副本成功返回。
    - 宕机节点重启后，应能通过 WAL 回放恢复丢失的数据。
 3. **数据完整性**：对比故障前后的 `SELECT` 结果，确保无数据丢失。
+
+### S7-04 随机宕机混沌测试说明
+
+该场景用于覆盖开发计划中的 `S7-04`：
+
+- 随机选择 `rs-1 / rs-2 / rs-3` 中的一个节点执行 `docker stop`
+- 故障期间持续执行 `SELECT` 与 `INSERT`
+- 重启故障节点并等待恢复
+- 校验故障期间写入的数据在恢复后仍可读
+- 默认执行 3 轮，可通过 `CHAOS_RANDOM_ROUNDS` 调整
+
+脚本实现位置：
+
+- [scripts/chaos_test.sh](C:/Users/Lenovo/Desktop/新建文件夹/superSQL/scripts/chaos_test.sh)
+
+默认验收标准：
+
+1. 任一轮随机停机期间，种子数据 `seed` 仍可被查询到。
+2. 任一轮随机停机期间，新的 `INSERT` 请求仍能成功返回。
+3. 故障节点恢复 healthy 后，故障期间写入的记录仍可通过客户端查询到。
+4. 连续多轮执行后，脚本退出码为 `0`。
+
+推荐执行前检查：
+
+```bash
+docker compose up -d
+docker compose ps
+curl -sf http://localhost:8880/health
+curl -sf http://localhost:8881/health
+curl -sf http://localhost:8882/health
+```
+
+推荐执行后补充观察：
+
+```bash
+docker logs --tail=200 master-1
+docker logs --tail=200 master-2
+docker logs --tail=200 master-3
+docker logs --tail=200 rs-1
+docker logs --tail=200 rs-2
+docker logs --tail=200 rs-3
+```
+
+### S7-04 验收记录模板
+
+可直接在测试报告中填写如下记录：
+
+| 字段 | 内容 |
+| :--- | :--- |
+| 测试日期 |  |
+| 测试人 |  |
+| 脚本命令 | `CHAOS_RANDOM_ROUNDS=3 ./scripts/chaos_test.sh random_rs_crash` |
+| 集群版本/提交 |  |
+| 轮数 |  |
+| 实际故障节点序列 |  |
+| 结果 | 通过 / 失败 |
+| 失败轮次 |  |
+| 现象摘要 |  |
+| 日志位置 |  |
+
+建议在“现象摘要”中至少记录：
+
+- 每轮被停止的 RS
+- 故障期间 `SELECT` 是否成功
+- 故障期间 `INSERT` 是否成功
+- 重启后数据是否仍可查询
+
+### S7-05 基础版网络分区混沌测试说明
+
+该场景用于先完成 `S7-05` 的基础版验证，重点不是证明最终一致性协议已经完全收敛，而是先把注入方式、观测指标和结果归档跑通：
+
+- 对 `rs-1` 与 `rs-2` 注入双向网络阻断
+- 分区期间执行 `INSERT`
+- 采集 `rs-1` / `rs-2` 的 `/status` 结果并归档到日志文件
+- 重点观察 `transport_error`、`suspectedReplica*`、`replicaCommitRetry` 等字段
+- 分区恢复后再次查询，观察数据是否追赶成功、是否有明显脏状态
+
+脚本执行后的归档日志默认落在：
+
+- `artifacts/chaos/`
+
+基础版验收标准：
+
+1. 能稳定注入并恢复 `rs-1` 与 `rs-2` 的网络分区。
+2. 分区期间的 SQL 返回结果被完整记录到 chaos 日志。
+3. 至少成功抓取一份包含 `replicaCommitRetry` 的 `/status` 输出。
+4. 恢复后种子数据仍可查询。
+5. 如果分区期间写入返回成功，则恢复后该行应最终可查询；如果返回失败或超时，则允许只做现象记录。
+
+建议在测试记录中额外填写：
+
+- 分区注入开始时间 / 恢复时间
+- 分区期间写入返回值
+- `suspectedReplicaCount` 是否大于 0
+- `transport_error` 是否出现
+- 恢复后数据快照

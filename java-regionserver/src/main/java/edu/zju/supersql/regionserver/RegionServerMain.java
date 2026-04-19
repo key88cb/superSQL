@@ -203,6 +203,13 @@ public class RegionServerMain {
             defaults.put("repairTriggeredCount", 0L);
             defaults.put("repairSuccessCount", 0L);
             defaults.put("repairFailureCount", 0L);
+            defaults.put("suspectedReplicaCount", 0L);
+            defaults.put("suspectedReplicaMarkCount", 0L);
+            defaults.put("suspectedReplicaSyncFailureMarkCount", 0L);
+            defaults.put("suspectedReplicaCommitTransportMarkCount", 0L);
+            defaults.put("suspectedReplicaRecoveredCount", 0L);
+            defaults.put("suspectedReplicaLastMarkedAtMs", 0L);
+            defaults.put("suspectedReplicaLastRecoveredAtMs", 0L);
             defaults.put("finalDecisionEvaluatedCount", 0L);
             defaults.put("finalDecisionCommittedCount", 0L);
             defaults.put("lastFinalDecisionAtMs", 0L);
@@ -213,6 +220,7 @@ public class RegionServerMain {
             defaults.put("activeDecisionReadyCount", 0L);
             defaults.put("decisionReadyOldestAgeMs", 0L);
             defaults.put("maxConsecutiveTransportFailures", 0L);
+            defaults.put("suspectedReplicaPreview", java.util.Collections.emptyList());
             defaults.put("decisionCandidatesPreview", java.util.Collections.emptyList());
             defaults.put("lastSuccessAtMs", 0L);
             defaults.put("lastFailureAtMs", 0L);

@@ -102,6 +102,11 @@ class ReplicaManagerTest {
         // Use non-existent ports
         int acks = manager.syncToReplicas(entry, List.of("127.0.0.1:1", "127.0.0.1:2"));
         Assertions.assertEquals(0, acks);
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertEquals(2L, ((Number) stats.get("suspectedReplicaCount")).longValue());
+        Assertions.assertEquals(2L, ((Number) stats.get("suspectedReplicaSyncFailureMarkCount")).longValue());
+        List<?> suspected = (List<?>) stats.get("suspectedReplicaPreview");
+        Assertions.assertEquals(2, suspected.size());
     }
 
     @Test
@@ -254,6 +259,8 @@ class ReplicaManagerTest {
         Assertions.assertTrue(((Number) stats.get("escalatedCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("activeEscalatedCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("maxConsecutiveTransportFailures")).longValue() >= 8L);
+        Assertions.assertTrue(((Number) stats.get("suspectedReplicaCommitTransportMarkCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("suspectedReplicaCount")).longValue() >= 1L);
     }
 
     @Test
@@ -319,6 +326,8 @@ class ReplicaManagerTest {
             Assertions.assertTrue(((Number) stats.get("recoveredFromEscalationCount")).longValue() >= 1L);
             Assertions.assertTrue(((Number) stats.get("lastRecoveredFromEscalationAtMs")).longValue() > 0L);
             Assertions.assertEquals(0L, ((Number) stats.get("activeEscalatedCount")).longValue());
+            Assertions.assertTrue(((Number) stats.get("suspectedReplicaRecoveredCount")).longValue() >= 1L);
+            Assertions.assertEquals(0L, ((Number) stats.get("suspectedReplicaCount")).longValue());
         } finally {
             recoveryServer.stop();
             recoveryPool.shutdownNow();
