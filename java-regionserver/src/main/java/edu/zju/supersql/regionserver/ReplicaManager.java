@@ -350,6 +350,7 @@ public class ReplicaManager {
         long activeEscalatedCount = 0L;
         long activeDecisionCandidateCount = 0L;
         long activeDecisionReadyCount = 0L;
+        long decisionReadyOldestAgeMs = 0L;
         long maxConsecutiveTransportFailures = 0L;
         for (PendingCommit pendingCommit : pendingCommits.values()) {
             if (pendingCommit.attempts.get() >= PENDING_COMMIT_STALLED_ATTEMPTS) {
@@ -365,6 +366,7 @@ public class ReplicaManager {
             }
             if (pendingCommit.decisionReadyMarked) {
                 activeDecisionReadyCount++;
+                decisionReadyOldestAgeMs = Math.max(decisionReadyOldestAgeMs, pendingCommit.ageMs(now));
             }
             maxConsecutiveTransportFailures = Math.max(maxConsecutiveTransportFailures, transportFailures);
         }
@@ -373,6 +375,8 @@ public class ReplicaManager {
         stats.put("activeEscalatedCount", activeEscalatedCount);
         stats.put("activeDecisionCandidateCount", activeDecisionCandidateCount);
         stats.put("activeDecisionReadyCount", activeDecisionReadyCount);
+        stats.put("decisionReadyOldestAgeMs", decisionReadyOldestAgeMs);
+        stats.put("manualInterventionRequired", activeDecisionReadyCount > 0L);
         stats.put("maxConsecutiveTransportFailures", maxConsecutiveTransportFailures);
         List<Map<String, Object>> decisionCandidatesPreview = pendingCommits.values().stream()
             .filter(pendingCommit -> pendingCommit.decisionCandidateMarked)

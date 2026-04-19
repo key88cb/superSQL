@@ -210,6 +210,8 @@ public class RegionServerMain {
             defaults.put("activeEscalatedCount", 0L);
             defaults.put("activeDecisionCandidateCount", 0L);
             defaults.put("activeDecisionReadyCount", 0L);
+            defaults.put("decisionReadyOldestAgeMs", 0L);
+            defaults.put("manualInterventionRequired", false);
             defaults.put("maxConsecutiveTransportFailures", 0L);
             defaults.put("decisionCandidatesPreview", java.util.Collections.emptyList());
             defaults.put("lastSuccessAtMs", 0L);

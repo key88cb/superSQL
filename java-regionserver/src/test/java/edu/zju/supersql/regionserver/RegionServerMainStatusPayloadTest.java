@@ -102,6 +102,8 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("activeEscalatedCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("activeDecisionCandidateCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("activeDecisionReadyCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionReadyOldestAgeMs")).longValue());
+        Assertions.assertEquals(Boolean.FALSE, replicaCommitRetry.get("manualInterventionRequired"));
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("maxConsecutiveTransportFailures")).longValue());
         Assertions.assertTrue(((java.util.List<?>) replicaCommitRetry.get("decisionCandidatesPreview")).isEmpty());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastSuccessAtMs")).longValue());
@@ -213,6 +215,8 @@ class RegionServerMainStatusPayloadTest {
         replicaCommitRetry.put("activeEscalatedCount", 1L);
         replicaCommitRetry.put("activeDecisionCandidateCount", 1L);
         replicaCommitRetry.put("activeDecisionReadyCount", 1L);
+        replicaCommitRetry.put("decisionReadyOldestAgeMs", 240000L);
+        replicaCommitRetry.put("manualInterventionRequired", true);
         replicaCommitRetry.put("maxConsecutiveTransportFailures", 12L);
         java.util.List<Map<String, Object>> decisionCandidatesPreview = new java.util.ArrayList<>();
         Map<String, Object> candidate = new LinkedHashMap<>();
@@ -323,6 +327,8 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("activeEscalatedCount")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("activeDecisionCandidateCount")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("activeDecisionReadyCount")).longValue());
+        Assertions.assertEquals(240000L, ((Number) commitRetryStats.get("decisionReadyOldestAgeMs")).longValue());
+        Assertions.assertEquals(Boolean.TRUE, commitRetryStats.get("manualInterventionRequired"));
         Assertions.assertEquals(12L, ((Number) commitRetryStats.get("maxConsecutiveTransportFailures")).longValue());
         java.util.List<?> preview = (java.util.List<?>) commitRetryStats.get("decisionCandidatesPreview");
         Assertions.assertEquals(1, preview.size());

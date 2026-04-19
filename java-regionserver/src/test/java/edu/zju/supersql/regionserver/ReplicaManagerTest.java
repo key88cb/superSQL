@@ -339,6 +339,8 @@ class ReplicaManagerTest {
         Map<String, Object> stats = manager.getCommitRetryStats();
         Assertions.assertTrue(((Number) stats.get("decisionReadyTransitionCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("decisionReadyOldestAgeMs")).longValue() >= 0L);
+        Assertions.assertEquals(Boolean.TRUE, stats.get("manualInterventionRequired"));
         Assertions.assertTrue(((Number) stats.get("lastDecisionReadyAtMs")).longValue() > 0L);
         Assertions.assertEquals(24L, ((Number) stats.get("decisionReadyAttemptsThreshold")).longValue());
         List<?> preview = (List<?>) stats.get("decisionCandidatesPreview");
@@ -366,6 +368,7 @@ class ReplicaManagerTest {
         Map<String, Object> stats = manager.getCommitRetryStats();
         Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("pendingCount")).longValue() >= 1L);
+        Assertions.assertEquals(Boolean.TRUE, stats.get("manualInterventionRequired"));
         Assertions.assertTrue(((Number) stats.get("decisionReadyRetainedCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("lastDecisionReadyRetainedAtMs")).longValue() > 0L);
     }
