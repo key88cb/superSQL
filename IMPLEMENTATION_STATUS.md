@@ -87,6 +87,7 @@
 - ReplicaManager 半同步等待已按 requiredAcks 收敛：会在超时窗口内等待达到所需 ACK 数（而非固定等待首个返回）。
 - RegionServiceImpl 已实现基础写路径：WriteGuard 检查、WAL append、副本 sync、本地 MiniSQL 执行、异步 commit、checkpoint 计数。
 - RegionServiceImpl 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`，默认 1）：ACK 不足时拒绝本地执行并返回错误。
+- RegionServiceImpl 写路径在“可见副本数低于 `RS_MIN_REPLICA_ACKS`”时会直接拒绝写入并将 WAL 条目标记为 ABORT，不再按可见副本数自动降低 ACK 门槛。
 - ACK 不足拒绝写入时，WAL 条目会标记为 ABORT，避免 PREPARE 条目长期滞留。
 - WAL 状态语义已收敛为明确常量（PREPARE/COMMITTED/ABORTED），恢复路径仅回放 COMMITTED，且已补充边界测试覆盖。
 - WAL checkpoint 已增加按文件压缩：会清理 ABORT 与已持久化的旧 COMMITTED 记录，保留 PREPARE/未持久化 COMMITTED，减少日志膨胀与恢复噪音。

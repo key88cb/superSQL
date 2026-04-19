@@ -50,9 +50,10 @@ class RegionServiceImplTest {
 
         writeGuard = new WriteGuard();
 
-        // ZkClient = null → no replica address lookup, empty list
+        // ZkClient = null → no replica address lookup, empty list.
+        // Use minReplicaAcks=0 as permissive unit-test baseline; strict behavior is covered by dedicated tests below.
         service = new RegionServiceImpl(mockMiniSql, walManager, mockReplicaManager,
-                writeGuard, null, "rs-1:9090");
+            writeGuard, null, "rs-1:9090", 0);
     }
 
     // ── write path ───────────────────────────────────────────────────────────
@@ -145,6 +146,21 @@ class RegionServiceImplTest {
         Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(1));
         Mockito.verify(mockReplicaManager)
             .reconcileReplicasAsync(Mockito.eq("orders"), Mockito.anyLong(), Mockito.anyList());
+    }
+
+    @Test
+    void writeShouldFailWhenReplicaTargetsBelowConfiguredMinimum() throws Exception {
+        RegionServiceImpl strictService = new RegionServiceImpl(
+                mockMiniSql, walManager, mockReplicaManager, writeGuard, null, "rs-1:9090", 1);
+
+        QueryResult result = strictService.execute("orders", "insert into orders values(3,'z');");
+
+        Assertions.assertEquals(StatusCode.ERROR, result.getStatus().getCode());
+        Assertions.assertTrue(result.getStatus().getMessage().contains("Insufficient replica targets"));
+        Mockito.verify(mockReplicaManager, Mockito.never())
+            .syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.anyInt());
+        Mockito.verify(mockMiniSql, Mockito.never()).execute("insert into orders values(3,'z');");
+        Assertions.assertTrue(walManager.readUncommittedEntries("orders").isEmpty());
     }
 
     // ── executeBatch ─────────────────────────────────────────────────────────

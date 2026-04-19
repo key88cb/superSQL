@@ -131,7 +131,8 @@ class CreateInsertSelectFunctionalTest {
                 new ReplicaManager(),
                 new WriteGuard(),
                 zkClient,
-                "127.0.0.1:" + regionPort
+            "127.0.0.1:" + regionPort,
+            0
         );
 
         TMultiplexedProcessor processor = new TMultiplexedProcessor();

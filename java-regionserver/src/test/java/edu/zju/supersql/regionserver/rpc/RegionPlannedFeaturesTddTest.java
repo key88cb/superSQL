@@ -46,7 +46,8 @@ class RegionPlannedFeaturesTddTest {
                 new ReplicaManager(),
                 new WriteGuard(),
                 null,
-                "rs-1:9090");
+                "rs-1:9090",
+                0);
 
         QueryResult result = service.executeBatch("users", List.of(
                 "insert into users values(1);",
@@ -69,7 +70,8 @@ class RegionPlannedFeaturesTddTest {
                 new ReplicaManager(),
                 new WriteGuard(),
                 null,
-                "rs-1:9090");
+                "rs-1:9090",
+                0);
 
         Response create = service.createIndex("users", "create index idx_users_id on users(id);");
         Response drop = service.dropIndex("users", "idx_users_id");
