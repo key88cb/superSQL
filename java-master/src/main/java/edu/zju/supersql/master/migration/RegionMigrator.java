@@ -558,7 +558,9 @@ public final class RegionMigrator {
                         "missing replica instance for compensation role=" + compensationRole + " replicaId=" + compensationReplicaId,
                         now);
             }
-            String cleanupReason = "recover_stuck_" + currentStatus.toLowerCase();
+                    String cleanupReason = "recover_stuck_" + (currentStatus == null
+                        ? "unknown"
+                        : currentStatus.toLowerCase());
             boolean cleaned = cleanupReplicaWithConfirmation(
                     compensationReplica,
                     location.getTableName(),

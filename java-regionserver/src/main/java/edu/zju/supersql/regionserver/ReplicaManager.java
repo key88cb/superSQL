@@ -98,7 +98,6 @@ public class ReplicaManager {
         private final AtomicLong consecutiveTransportFailures = new AtomicLong(0L);
         private volatile boolean decisionCandidateMarked;
         private volatile boolean decisionReadyMarked;
-        private volatile long lastAttemptAtMs;
         private volatile long nextRetryAtMs;
         private volatile String lastError;
 
@@ -113,7 +112,6 @@ public class ReplicaManager {
             this.address = address;
             this.replicaAddresses = List.copyOf(replicaAddresses);
             this.firstQueuedAtMs = nowMs;
-            this.lastAttemptAtMs = nowMs;
             this.nextRetryAtMs = nowMs;
             this.lastError = initialError;
             this.decisionCandidateMarked = false;
@@ -129,7 +127,6 @@ public class ReplicaManager {
                 consecutiveTransportFailures.set(0L);
                 transportFailures = 0L;
             }
-            lastAttemptAtMs = nowMs;
             long retryBackoffMs = computePendingRetryBackoffMs(currentAttempts);
             boolean escalated = transportFailures >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD;
             if (escalated) {

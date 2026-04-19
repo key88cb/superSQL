@@ -555,8 +555,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     }
 
     private Response validateTransferManifestChunk(DataChunk chunk) {
+        if (chunk == null) {
+            return manifestVerificationFailed("", "invalid_manifest", "Invalid transfer manifest chunk: null chunk");
+        }
         manifestVerificationTotal.incrementAndGet();
-        String failureTable = chunk != null && chunk.isSetTableName() ? chunk.getTableName() : "";
+        String failureTable = chunk.isSetTableName() ? chunk.getTableName() : "";
         if (chunk.getOffset() != 0L || !chunk.isIsLast()) {
             return manifestVerificationFailed(failureTable, "invalid_manifest", "Invalid transfer manifest chunk metadata");
         }

@@ -460,7 +460,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 if (bytes == null || bytes.length == 0) {
                     continue;
                 }
-                Map<?, ?> node = MAPPER.readValue(bytes, Map.class);
+                MAPPER.readValue(bytes, Map.class);
                 observedRegionServers++;
             }
 
