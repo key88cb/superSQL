@@ -63,6 +63,7 @@ public class ReplicaManager {
     private static final long PENDING_COMMIT_DECISION_READY_COOLDOWN_MS = TimeUnit.MINUTES.toMillis(15);
     private static final long PENDING_COMMIT_DECISION_TERMINAL_AGE_MS = TimeUnit.HOURS.toMillis(1);
     private static final int PENDING_COMMIT_DECISION_TERMINAL_MAX_QUEUE_SIZE = 10_000;
+    private static final long SUSPECTED_PREVIEW_LIMIT = 8L;
     private static final String COMMIT_ERR_TABLE_NOT_FOUND = "table_not_found";
     private static final String COMMIT_ERR_INVALID_ADDRESS = "invalid replica address";
     private static final String COMMIT_ERR_INVALID_PORT = "invalid replica port";
@@ -79,6 +80,22 @@ public class ReplicaManager {
                                     long ageMs,
                                     long queuedAtMs,
                                     String lastError) {
+    }
+
+    private static final class SuspectedReplica {
+        private final String address;
+        private final AtomicLong syncFailureCount = new AtomicLong(0L);
+        private final AtomicLong commitTransportFailureCount = new AtomicLong(0L);
+        private volatile String reason = "";
+        private volatile String lastTable = "";
+        private volatile long lastLsn = -1L;
+        private volatile long firstSuspectedAtMs;
+        private volatile long lastSuspectedAtMs;
+        private volatile long maxConsecutiveTransportFailures;
+
+        private SuspectedReplica(String address) {
+            this.address = address;
+        }
     }
 
     private static final class PendingCommit {
@@ -215,6 +232,13 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitRepairSuccessCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairFailureCount = new AtomicLong(0L);
     private final ConcurrentHashMap<String, AtomicLong> pendingCommitErrorBreakdown = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SuspectedReplica> suspectedReplicas = new ConcurrentHashMap<>();
+    private final AtomicLong suspectedReplicaMarkCount = new AtomicLong(0L);
+    private final AtomicLong suspectedReplicaSyncFailureMarkCount = new AtomicLong(0L);
+    private final AtomicLong suspectedReplicaCommitTransportMarkCount = new AtomicLong(0L);
+    private final AtomicLong suspectedReplicaRecoveredCount = new AtomicLong(0L);
+    private final AtomicLong suspectedReplicaLastMarkedAtMs = new AtomicLong(0L);
+    private final AtomicLong suspectedReplicaLastRecoveredAtMs = new AtomicLong(0L);
     private volatile String pendingCommitLastError = "";
 
     public ReplicaManager() {
@@ -303,6 +327,9 @@ public class ReplicaManager {
         if (acks.get() < targetAcks) {
             log.warn("syncToReplicas: insufficient ACKs before timeout (lsn={} required={} actual={} replicas={})",
                     entry.getLsn(), targetAcks, acks.get(), addresses.size());
+            for (String address : addresses) {
+                markReplicaSuspected(address, "sync_ack_timeout", entry.getTableName(), entry.getLsn(), 1L, 0L);
+            }
         }
         return acks.get();
     }
@@ -363,6 +390,13 @@ public class ReplicaManager {
         stats.put("repairTriggeredCount", pendingCommitRepairTriggeredCount.get());
         stats.put("repairSuccessCount", pendingCommitRepairSuccessCount.get());
         stats.put("repairFailureCount", pendingCommitRepairFailureCount.get());
+        stats.put("suspectedReplicaCount", suspectedReplicas.size());
+        stats.put("suspectedReplicaMarkCount", suspectedReplicaMarkCount.get());
+        stats.put("suspectedReplicaSyncFailureMarkCount", suspectedReplicaSyncFailureMarkCount.get());
+        stats.put("suspectedReplicaCommitTransportMarkCount", suspectedReplicaCommitTransportMarkCount.get());
+        stats.put("suspectedReplicaRecoveredCount", suspectedReplicaRecoveredCount.get());
+        stats.put("suspectedReplicaLastMarkedAtMs", suspectedReplicaLastMarkedAtMs.get());
+        stats.put("suspectedReplicaLastRecoveredAtMs", suspectedReplicaLastRecoveredAtMs.get());
         stats.put("lastSuccessAtMs", pendingCommitLastSuccessAtMs.get());
         stats.put("lastFailureAtMs", pendingCommitLastFailureAtMs.get());
         stats.put("lastError", pendingCommitLastError);
@@ -400,6 +434,24 @@ public class ReplicaManager {
         stats.put("decisionReadyOldestAgeMs", decisionReadyOldestAgeMs);
         stats.put("manualInterventionRequired", activeDecisionReadyCount > 0L || !decisionTerminalQueue.isEmpty());
         stats.put("maxConsecutiveTransportFailures", maxConsecutiveTransportFailures);
+        List<Map<String, Object>> suspectedReplicaPreview = suspectedReplicas.values().stream()
+            .sorted((left, right) -> Long.compare(right.lastSuspectedAtMs, left.lastSuspectedAtMs))
+            .limit(SUSPECTED_PREVIEW_LIMIT)
+            .map(suspected -> {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("address", suspected.address);
+                item.put("reason", suspected.reason);
+                item.put("lastTable", suspected.lastTable);
+                item.put("lastLsn", suspected.lastLsn);
+                item.put("syncFailureCount", suspected.syncFailureCount.get());
+                item.put("commitTransportFailureCount", suspected.commitTransportFailureCount.get());
+                item.put("maxConsecutiveTransportFailures", suspected.maxConsecutiveTransportFailures);
+                item.put("firstSuspectedAtMs", suspected.firstSuspectedAtMs);
+                item.put("lastSuspectedAtMs", suspected.lastSuspectedAtMs);
+                return item;
+            })
+            .toList();
+        stats.put("suspectedReplicaPreview", suspectedReplicaPreview);
         List<Map<String, Object>> decisionCandidatesPreview = pendingCommits.values().stream()
             .filter(pendingCommit -> pendingCommit.decisionCandidateMarked)
             .sorted((left, right) -> Long.compare(right.attempts.get(), left.attempts.get()))
@@ -721,6 +773,7 @@ public class ReplicaManager {
                     pendingCommitRecoveredFromEscalationCount.incrementAndGet();
                     pendingCommitLastRecoveredFromEscalationAtMs.set(System.currentTimeMillis());
                 }
+                clearSuspectedReplica(task.address, "commit transport recovered");
                 if (pendingCommits.remove(key, task)) {
                     pendingCommitRecoveredCount.incrementAndGet();
                     pendingCommitLastSuccessAtMs.set(System.currentTimeMillis());
@@ -750,6 +803,14 @@ public class ReplicaManager {
 
             if (task.markAttemptFailure(commitAttempt.error(), now)) {
                 pendingCommitEscalatedCount.incrementAndGet();
+            }
+            if (isTransportError(commitAttempt.error())) {
+                markReplicaSuspected(task.address,
+                        "commit_transport_error",
+                        task.tableName,
+                        task.lsn,
+                        0L,
+                        task.consecutiveTransportFailures.get());
             }
             if (task.markDecisionCandidateIfNeeded(now)) {
                 pendingCommitDecisionCandidateCount.incrementAndGet();
@@ -886,6 +947,62 @@ public class ReplicaManager {
             return false;
         }
         return error.toLowerCase().contains(COMMIT_ERR_TRANSPORT);
+    }
+
+    private void markReplicaSuspected(String address,
+                                      String reason,
+                                      String tableName,
+                                      long lsn,
+                                      long syncFailureDelta,
+                                      long consecutiveTransportFailures) {
+        if (address == null || address.isBlank()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        SuspectedReplica suspected = suspectedReplicas.computeIfAbsent(address, SuspectedReplica::new);
+        if (suspected.firstSuspectedAtMs == 0L) {
+            suspected.firstSuspectedAtMs = now;
+        }
+        suspected.lastSuspectedAtMs = now;
+        suspected.reason = reason == null ? "" : reason;
+        suspected.lastTable = tableName == null ? "" : tableName;
+        suspected.lastLsn = lsn;
+        if (syncFailureDelta > 0L) {
+            suspected.syncFailureCount.addAndGet(syncFailureDelta);
+            suspectedReplicaSyncFailureMarkCount.addAndGet(syncFailureDelta);
+        }
+        if (consecutiveTransportFailures > 0L) {
+            suspected.commitTransportFailureCount.incrementAndGet();
+            suspected.maxConsecutiveTransportFailures = Math.max(
+                    suspected.maxConsecutiveTransportFailures,
+                    consecutiveTransportFailures);
+            suspectedReplicaCommitTransportMarkCount.incrementAndGet();
+        }
+        suspectedReplicaMarkCount.incrementAndGet();
+        suspectedReplicaLastMarkedAtMs.set(now);
+        log.warn("replica marked suspected address={} reason={} table={} lsn={} syncFailures={} consecutiveTransportFailures={}",
+                address,
+                suspected.reason,
+                suspected.lastTable,
+                suspected.lastLsn,
+                suspected.syncFailureCount.get(),
+                suspected.maxConsecutiveTransportFailures);
+    }
+
+    private void clearSuspectedReplica(String address, String recoveryReason) {
+        if (address == null || address.isBlank()) {
+            return;
+        }
+        SuspectedReplica removed = suspectedReplicas.remove(address);
+        if (removed != null) {
+            suspectedReplicaRecoveredCount.incrementAndGet();
+            suspectedReplicaLastRecoveredAtMs.set(System.currentTimeMillis());
+            log.info("replica suspicion cleared address={} reason={} lastTable={} lastLsn={}",
+                    address,
+                    recoveryReason,
+                    removed.lastTable,
+                    removed.lastLsn);
+        }
     }
 
     private boolean repairMissingReplicaEntry(PendingCommit task) {

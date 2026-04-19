@@ -135,6 +135,8 @@
 - 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再静默丢弃；会保留在待处理队列并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，用于后续决议链路接管。
 - 对持续停留在 `decision-ready` 且超过终态阈值（`decisionTerminalAgeMs`）的待提交项，系统会自动从 active pending 分流到终态人工队列（`terminalQueueCount`），并记录 `decisionTerminalCount/lastDecisionTerminalAtMs/decisionTerminalPreview`，避免长期占用活跃重试队列。
 - `replicaCommitRetry` 统计已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态队列纳入人工处置信号。
+- ReplicaManager 已补充 suspected 副本观测：当同步阶段 ACK 不足或 commit 重试阶段出现连续 `transport_error` 时，会记录 `suspectedReplicaCount/suspectedReplicaMarkCount/suspectedReplicaPreview` 等字段，用于推进 S6-05 前半部分的“可疑副本检测、触发条件与状态暴露”。
+- suspected 副本在后续提交通知恢复成功时会自动从 suspected 集合移除，并上报 `suspectedReplicaRecoveredCount/suspectedReplicaLastRecoveredAtMs`，便于区分短暂抖动与持续异常。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。
@@ -257,6 +259,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：`copyTableData` 在“重复 offset 但内容冲突”场景下会返回错误且保持传输进度，后续正确 chunk 可继续完成迁移。
 - 2026-04-19 已补充覆盖：`triggerRebalance` 在“集群已平衡”返回前会先执行卡死迁移预恢复，验证调度路径不再依赖读路径才能回收超时状态。
 - 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（总量 + `rebalance/recovery` 分项 + 分项最近错误）与 Master `/status` 中 `migration` 字段契约。
+- 已补充基础版网络分区混沌脚本：`scripts/chaos_test.sh network_partition` 会对 `rs-1` / `rs-2` 注入双向网络阻断，归档分区期间 SQL 返回与 `/status` 观测结果，用于推进 S7-05 的脚本、注入方式与结果归档闭环。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 
