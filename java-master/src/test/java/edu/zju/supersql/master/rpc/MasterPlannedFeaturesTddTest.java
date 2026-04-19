@@ -132,11 +132,11 @@ class MasterPlannedFeaturesTddTest {
         TableLocation unavailable = service.getTableLocation("route_repair_e2e");
         Assertions.assertEquals("UNAVAILABLE", unavailable.getTableStatus());
 
-        int repairedWhenOffline = service.repairTableRoutesBestEffort();
+        int repairedWhenOffline = service.repairTableRoutesWithConfirmation();
         Assertions.assertEquals(0, repairedWhenOffline);
 
         registerRegionServer("rs-2", 1);
-        int repairedAfterRecover = service.repairTableRoutesBestEffort();
+        int repairedAfterRecover = service.repairTableRoutesWithConfirmation();
         Assertions.assertTrue(repairedAfterRecover >= 1);
 
         TableLocation recovered = service.getTableLocation("route_repair_e2e");

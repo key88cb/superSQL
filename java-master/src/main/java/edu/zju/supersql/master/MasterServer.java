@@ -344,12 +344,12 @@ public class MasterServer {
                     config.rebalanceIntervalMs(),
                     config.rebalanceMinGapMs(),
                     composeScheduledTrigger(
-                        scheduledService::repairTableRoutesBestEffort,
+                        scheduledService::repairTableRoutesWithConfirmation,
                         scheduledService::triggerRebalance));
             rebalanceScheduler.start();
                 regionServerWatcher = new RegionServerWatcher(zkClient,
                     buildMembershipRebalanceListener(rebalanceScheduler,
-                            scheduledService::repairTableRoutesForRegionServerBestEffort));
+                            scheduledService::repairTableRoutesForRegionServerWithConfirmation));
                 regionServerWatcher.start();
             LeaderElector finalLeaderElector = leaderElector;
             RegionServerWatcher finalRegionServerWatcher = regionServerWatcher;

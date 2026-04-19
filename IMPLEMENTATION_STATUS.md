@@ -17,7 +17,7 @@
 - `triggerRebalance()` 在 `transferTable` 失败路径也会立即回滚到原始元数据（含 `ACTIVE` 状态），避免卡在 `MOVING`。
 - `triggerRebalance()` 在 `pauseTableWrite` 失败路径也会回滚元数据，避免停留在 `PREPARING` 中间态。
 - `triggerRebalance()` 在 `deleteLocalTable` 前会进入 `FINALIZING`，使“数据迁移已完成、待源端清理”阶段可观测。
-- `getTableLocation/listTables/repairTableRoutesBestEffort`（保留历史方法名）已接入 `recoverStuckMigrationWithConfirmation`：当迁移状态超时且存在 `migrationAttemptId` 时，会按补偿确认协议执行恢复，而非直接回写 `ACTIVE`。
+- `getTableLocation/listTables/repairTableRoutesWithConfirmation` 已接入 `recoverStuckMigrationWithConfirmation`：当迁移状态超时且存在 `migrationAttemptId` 时，会按补偿确认协议执行恢复，而非直接回写 `ACTIVE`（`repairTableRoutesBestEffort` 仅作兼容别名）。
 - `triggerRebalance()` 调度入口已接入卡死迁移预恢复：即使本轮负载均衡最终被跳过，也会先回收超时迁移状态，降低“长期无人读写表”卡死风险。
 - `triggerRebalance()` 在被跳过（如 cluster balanced）时会在响应消息中附带本轮预恢复数量，便于上层调度/日志快速感知是否发生了状态回收。
 - `triggerRebalance()` 状态推进会刷新 `/meta/tables/{table}` 的 `statusUpdatedAt` 时间戳，便于观测迁移阶段更新时间。
@@ -40,7 +40,7 @@
 - RegionServer 上下线事件已接入调度器外部触发（`rs_up` / `rs_down`），在节流保护下可即时请求一次 rebalance。
 - RebalanceScheduler 定时 tick 已接入 route repair 预扫描：即使没有读流量和 membership 事件，也会周期性后台修复离线路由再进入 rebalance。
 - RebalanceScheduler 已覆盖外部触发节流测试：连续 membership 事件会受 `minGapMs` 保护，避免抖动时触发风暴。
-- RegionServer membership 事件现会触发后台 `repairTableRoutesBestEffort` 扫描，主动修复离线主副本路由并减少对读路径触发修复的依赖。
+- RegionServer membership 事件现会触发后台 `repairTableRoutesWithConfirmation` 扫描，主动修复离线主副本路由并减少对读路径触发修复的依赖。
 - RegionServer membership 事件触发的 route repair 已支持携带 `rsId` 定向扫描受影响表，降低大表量场景下的全表修复开销。
 - membership 事件链路在 route repair 触发异常时会吞并异常并保留 rebalance 外部触发，避免修复异常阻断调度。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。

@@ -315,18 +315,26 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
+    public int repairTableRoutesWithConfirmation() {
+        return repairTableRoutesWithConfirmationInternal(null);
+    }
+
+    public int repairTableRoutesForRegionServerWithConfirmation(String regionServerId) {
+        if (regionServerId == null || regionServerId.isBlank()) {
+            return repairTableRoutesWithConfirmationInternal(null);
+        }
+        return repairTableRoutesWithConfirmationInternal(regionServerId.trim());
+    }
+
     public int repairTableRoutesBestEffort() {
-        return repairTableRoutesBestEffortInternal(null);
+        return repairTableRoutesWithConfirmation();
     }
 
     public int repairTableRoutesForRegionServerBestEffort(String regionServerId) {
-        if (regionServerId == null || regionServerId.isBlank()) {
-            return repairTableRoutesBestEffortInternal(null);
-        }
-        return repairTableRoutesBestEffortInternal(regionServerId.trim());
+        return repairTableRoutesForRegionServerWithConfirmation(regionServerId);
     }
 
-    private int repairTableRoutesBestEffortInternal(String regionServerId) {
+    private int repairTableRoutesWithConfirmationInternal(String regionServerId) {
         if (!isLeader() || isZkUnavailable(zk())) {
             return 0;
         }
@@ -370,7 +378,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             routeRepairLastError = null;
             recordRouteRepairRun(true, repaired);
             if (repaired > 0) {
-                log.info("repairTableRoutesBestEffort repaired={} candidate={} total={} filterRsId={}",
+                log.info("repairTableRoutesWithConfirmation repaired={} candidate={} total={} filterRsId={}",
                         repaired,
                         candidateTables,
                         totalTables,
@@ -385,7 +393,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             routeRepairLastRepairedTable = null;
             routeRepairLastError = e.getMessage();
             recordRouteRepairRun(false, 0L);
-            log.warn("repairTableRoutesBestEffort failed: {}", e.getMessage());
+            log.warn("repairTableRoutesWithConfirmation failed: {}", e.getMessage());
             return 0;
         }
     }

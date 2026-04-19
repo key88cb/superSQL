@@ -51,7 +51,7 @@
 - `triggerRebalance()` 在源副本清理前会进入 `FINALIZING`，可区分“数据迁移完成但源端未清理”的窗口。
 - `triggerRebalance()` 现会刷新 `statusUpdatedAt` 元数据字段，便于外部观察迁移状态推进时序。
 - `triggerRebalance()` 迁移阶段已写入 `migrationAttemptId` 并在结束（成功/回滚）后清理，为后续幂等恢复提供观测锚点。
-- `getTableLocation/listTables/repairTableRoutesBestEffort`（历史命名保留）已接入 `recoverStuckMigrationWithConfirmation`：当迁移状态超时且 `migrationAttemptId` 仍存在时，恢复会先走补偿确认，再决定是否切回 `ACTIVE`。
+- `getTableLocation/listTables/repairTableRoutesWithConfirmation` 已接入 `recoverStuckMigrationWithConfirmation`：当迁移状态超时且 `migrationAttemptId` 仍存在时，恢复会先走补偿确认，再决定是否切回 `ACTIVE`（`repairTableRoutesBestEffort` 仅保留为兼容入口）。
 - 卡死迁移恢复已补充上下文补偿：基于 `migrationSourceReplicaId/migrationTargetReplicaId` 执行阶段化清理（`FINALIZING` 清理 source；`PREPARING/MOVING/ROLLBACK` 清理 target）后再恢复 `ACTIVE`，降低仅元数据回写导致的数据面残留风险。
 - 卡死迁移恢复已升级为“补偿确认协议”：必要补偿清理会进行多次确认重试（`OK/TABLE_NOT_FOUND` 才算成功），未确认前不会切回 `ACTIVE`。
 - 当补偿失败或补偿对象不可解析时，迁移状态会进入 `COMPENSATING` 并保留补偿上下文（`migrationCompensationRole/migrationCompensationBlocked/migrationCompensationLastError/migrationCompensationUpdatedAtMs`），由后续读路径/修复路径继续推进直至完成。
@@ -72,7 +72,7 @@
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。
 - `RebalanceScheduler` 已补充外部触发节流验证，membership 抖动场景下可抑制触发风暴。
 - `RebalanceScheduler` 定时 tick 也已接入 route repair 预扫描，可在无读流量/无 membership 事件时周期性执行后台路由自愈。
-- RegionServer 上下线事件已接入后台路由修复扫描（`repairTableRoutesBestEffort`），可主动修复离线主副本而非仅依赖读请求触发。
+- RegionServer 上下线事件已接入后台路由修复扫描（`repairTableRoutesWithConfirmation`），可主动修复离线主副本而非仅依赖读请求触发。
 - membership 事件触发的 route repair 现支持携带 `rsId` 定向扫描受影响表，减少集群规模增大时的无效全表修复扫描。
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
 - Master `/status` 已可查看 route repair 运行指标（最近修复时间/修复表/修复次数/最近错误），并包含近 N 次运行窗口统计（成功率、平均修复数）。

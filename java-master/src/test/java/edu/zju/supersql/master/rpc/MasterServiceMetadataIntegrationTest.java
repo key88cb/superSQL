@@ -435,7 +435,7 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
-    void repairTableRoutesBestEffortShouldHealOfflinePrimaryWithoutReadPath() throws Exception {
+    void repairTableRoutesWithConfirmationShouldHealOfflinePrimaryWithoutReadPath() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
         registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
@@ -444,7 +444,7 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertEquals(StatusCode.OK, create.getCode());
 
         zkClient.delete().forPath("/region_servers/rs-1");
-        int repaired = service.repairTableRoutesBestEffort();
+        int repaired = service.repairTableRoutesWithConfirmation();
 
         Assertions.assertTrue(repaired >= 1);
 
