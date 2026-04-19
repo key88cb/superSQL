@@ -58,6 +58,8 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final String rsId;
     private final Path dataRootPath;
     private final Map<String, Long> nextExpectedOffsets = new ConcurrentHashMap<>();
+    private final Map<String, Set<String>> transferTouchedFilesByTable = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> transferFileExistedAtStart = new ConcurrentHashMap<>();
     private final AtomicLong manifestVerificationTotal = new AtomicLong();
     private final AtomicLong manifestVerificationSuccess = new AtomicLong();
     private final AtomicLong manifestVerificationFailure = new AtomicLong();
@@ -273,11 +275,19 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                         new org.apache.thrift.protocol.TMultiplexedProtocol(protocol, "RegionAdminService");
                 RegionAdminService.Client client = new RegionAdminService.Client(mux);
 
+                List<TransferFileManifest> fileManifests = new ArrayList<>();
                 for (File file : tableFiles) {
-                    streamFile(client, tableName, file);
+                    if (!file.isFile()) {
+                        return transferTableFailed(
+                                tableName,
+                                StatusCode.ERROR,
+                                "source_io_error",
+                                "transferTable failed: source is not a regular file " + file.getName());
+                    }
+                    fileManifests.add(streamFile(client, tableName, file));
                 }
 
-                sendTransferManifest(client, tableName, tableFiles);
+                sendTransferManifest(client, tableName, fileManifests);
             } finally {
                 transport.close();
             }
@@ -358,6 +368,8 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                         + ", actual=" + chunk.getOffset());
                 return r;
             }
+
+            rememberTouchedTransferFile(chunk.getTableName(), chunk.getFileName(), Files.exists(targetPath));
 
             if (chunk.getOffset() == 0L && expectedOffset > 0L) {
                 // Restarting from offset 0 resets unfinished transfer state.
@@ -503,11 +515,13 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     // ─────────────────────── helpers ──────────────────────────────────────────
 
-    private void streamFile(RegionAdminService.Client client, String tableName, File file) throws Exception {
+    private TransferFileManifest streamFile(RegionAdminService.Client client, String tableName, File file) throws Exception {
         long fileSize = file.length();
+        List<Map<String, Object>> chunkSignatures = new ArrayList<>();
         if (fileSize == 0) {
             sendChunkWithRetry(client, tableName, file.getName(), 0L, new byte[0], true);
-            return;
+            chunkSignatures.add(chunkSignature(0L, 0, 0L));
+            return new TransferFileManifest(file.getName(), 0L, 0L, chunkSignatures);
         }
 
         long offset = 0;
@@ -521,24 +535,32 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 byte[] data = bytesRead == buffer.length ? buffer : copyOf(buffer, bytesRead);
                 long nextOffset = offset + bytesRead;
                 boolean isLast = (nextOffset >= fileSize);
+                chunkSignatures.add(chunkSignature(offset, bytesRead, computeCrc32(data)));
 
                 sendChunkWithRetry(client, tableName, file.getName(), offset, data, isLast);
 
                 offset = nextOffset;
             }
         }
+
+        return new TransferFileManifest(
+                file.getName(),
+                fileSize,
+                computeCrc32(resolveDataPath(file.getName())),
+                chunkSignatures);
     }
 
     private void sendTransferManifest(RegionAdminService.Client client,
                                       String tableName,
-                                      File[] tableFiles) throws Exception {
+                                      List<TransferFileManifest> tableFiles) throws Exception {
         List<Map<String, Object>> files = new ArrayList<>();
         if (tableFiles != null) {
-            for (File file : tableFiles) {
+            for (TransferFileManifest file : tableFiles) {
                 Map<String, Object> item = new ConcurrentHashMap<>();
-                item.put("fileName", file.getName());
-                item.put("size", file.length());
-                item.put("crc32", computeCrc32(resolveDataPath(file.getName())));
+                item.put("fileName", file.fileName());
+                item.put("size", file.size());
+                item.put("crc32", file.crc32());
+                item.put("chunks", file.chunkSignatures());
                 files.add(item);
             }
         }
@@ -646,9 +668,18 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                     return manifestVerificationFailed(failureTable, "checksum_mismatch", "transfer manifest verification failed: checksum mismatch for "
                             + fileName + " expected=" + expectedCrc32 + " actual=" + actualCrc32);
                 }
+
+                Object rawChunks = fileItem.get("chunks");
+                if (rawChunks != null) {
+                    String chunkFailure = validateChunkSignatures(filePath, expectedSize, rawChunks, fileName);
+                    if (chunkFailure != null) {
+                        return manifestVerificationFailed(failureTable, "checksum_mismatch", chunkFailure);
+                    }
+                }
             }
 
             manifestVerifiedDigestByTable.put(expectedTablePrefix, manifestDigest);
+            clearTransferBookkeepingForTable(expectedTablePrefix);
             return manifestVerificationSucceeded(files.size());
         } catch (Exception e) {
             log.error("transfer manifest verification failed for table={}", chunk.getTableName(), e);
@@ -754,9 +785,68 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             default -> manifestFailureOther.incrementAndGet();
         }
 
+        rollbackTransferFilesForTable(tableName);
+
         Response r = new Response(StatusCode.ERROR);
         r.setMessage(message);
         return r;
+    }
+
+    private String validateChunkSignatures(Path filePath,
+                                           long expectedSize,
+                                           Object rawChunks,
+                                           String fileName) {
+        if (!(rawChunks instanceof List<?> chunks)) {
+            return "transfer manifest has invalid chunks for " + fileName;
+        }
+        if (chunks.isEmpty()) {
+            if (expectedSize == 0L) {
+                return null;
+            }
+            return "transfer manifest has empty chunks for non-empty file " + fileName;
+        }
+
+        long expectedOffset = 0L;
+        for (Object rawChunk : chunks) {
+            if (!(rawChunk instanceof Map<?, ?> chunkItem)) {
+                return "transfer manifest has invalid chunk item for " + fileName;
+            }
+            long offset = toLong(chunkItem.get("offset"), -1L);
+            long lengthLong = toLong(chunkItem.get("length"), -1L);
+            long expectedChunkCrc32 = toLong(chunkItem.get("crc32"), -1L);
+            if (offset < 0L || lengthLong < 0L || expectedChunkCrc32 < 0L) {
+                return "transfer manifest has invalid chunk metadata for " + fileName;
+            }
+            if (offset != expectedOffset) {
+                return "transfer manifest chunk sequence mismatch for " + fileName
+                        + " expectedOffset=" + expectedOffset + " actualOffset=" + offset;
+            }
+            if (lengthLong > Integer.MAX_VALUE) {
+                return "transfer manifest chunk length overflow for " + fileName;
+            }
+            int length = (int) lengthLong;
+            if (expectedOffset + length > expectedSize) {
+                return "transfer manifest chunk range overflow for " + fileName;
+            }
+
+            long actualChunkCrc32;
+            try {
+                actualChunkCrc32 = computeCrc32(filePath, offset, length);
+            } catch (IOException e) {
+                return "transfer manifest chunk verification failed for " + fileName + ": " + e.getMessage();
+            }
+            if (actualChunkCrc32 != expectedChunkCrc32) {
+                return "transfer manifest chunk checksum mismatch for " + fileName
+                        + " offset=" + offset + " expected=" + expectedChunkCrc32 + " actual=" + actualChunkCrc32;
+            }
+            expectedOffset += length;
+        }
+
+        if (expectedOffset != expectedSize) {
+            return "transfer manifest chunk coverage mismatch for " + fileName
+                    + " expectedSize=" + expectedSize + " covered=" + expectedOffset;
+        }
+        return null;
     }
 
     private List<Map<String, Object>> snapshotManifestRecentFailures() {
@@ -957,6 +1047,30 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         return crc32.getValue();
     }
 
+    private static long computeCrc32(Path filePath, long offset, int length) throws IOException {
+        if (length <= 0) {
+            return 0L;
+        }
+        CRC32 crc32 = new CRC32();
+        byte[] buffer = new byte[Math.min(8192, length)];
+        try (RandomAccessFile raf = new RandomAccessFile(filePath.toFile(), "r")) {
+            raf.seek(offset);
+            int remaining = length;
+            while (remaining > 0) {
+                int read = raf.read(buffer, 0, Math.min(buffer.length, remaining));
+                if (read <= 0) {
+                    break;
+                }
+                crc32.update(buffer, 0, read);
+                remaining -= read;
+            }
+            if (remaining != 0) {
+                throw new IOException("insufficient bytes while reading chunk");
+            }
+        }
+        return crc32.getValue();
+    }
+
     private static Map<String, Object> copyToStringObjectMap(Map<?, ?> source) {
         Map<String, Object> copy = new ConcurrentHashMap<>();
         for (Map.Entry<?, ?> entry : source.entrySet()) {
@@ -1020,6 +1134,71 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         } catch (Exception e) {
             log.warn("copyTableData resetTransferState failed file={} cause={}", fileName, e.getMessage());
         }
+    }
+
+    private void rememberTouchedTransferFile(String tableName, String fileName, boolean existedBeforeWrite) {
+        if (tableName == null || tableName.isBlank() || fileName == null || fileName.isBlank()) {
+            return;
+        }
+        transferTouchedFilesByTable
+                .computeIfAbsent(tableName, ignored -> ConcurrentHashMap.newKeySet())
+                .add(fileName);
+        transferFileExistedAtStart.putIfAbsent(transferKey(tableName, fileName), existedBeforeWrite);
+    }
+
+    private void rollbackTransferFilesForTable(String tableName) {
+        if (tableName == null || tableName.isBlank()) {
+            return;
+        }
+        Set<String> touchedFiles = transferTouchedFilesByTable.remove(tableName);
+        if (touchedFiles == null || touchedFiles.isEmpty()) {
+            return;
+        }
+        for (String fileName : touchedFiles) {
+            String key = transferKey(tableName, fileName);
+            boolean existedBeforeWrite = Boolean.TRUE.equals(transferFileExistedAtStart.remove(key));
+            nextExpectedOffsets.remove(key);
+            try {
+                Files.deleteIfExists(resolveDataPath(fileName + STAGING_SUFFIX));
+                if (!existedBeforeWrite) {
+                    Files.deleteIfExists(resolveDataPath(fileName));
+                }
+            } catch (Exception e) {
+                log.warn("rollbackTransferFilesForTable failed table={} file={} cause={}",
+                        tableName,
+                        fileName,
+                        e.getMessage());
+            }
+        }
+    }
+
+    private void clearTransferBookkeepingForTable(String tableName) {
+        if (tableName == null || tableName.isBlank()) {
+            return;
+        }
+        Set<String> touchedFiles = transferTouchedFilesByTable.remove(tableName);
+        if (touchedFiles == null) {
+            return;
+        }
+        for (String fileName : touchedFiles) {
+            String key = transferKey(tableName, fileName);
+            transferFileExistedAtStart.remove(key);
+            nextExpectedOffsets.remove(key);
+        }
+    }
+
+    private static Map<String, Object> chunkSignature(long offset, int length, long crc32) {
+        Map<String, Object> chunk = new LinkedHashMap<>();
+        chunk.put("offset", offset);
+        chunk.put("length", length);
+        chunk.put("crc32", crc32);
+        return chunk;
+    }
+
+    private record TransferFileManifest(String fileName,
+                                        long size,
+                                        long crc32,
+                                        List<Map<String, Object>> chunkSignatures) {
     }
 
     private static long recoverExpectedOffsetFromStaging(Path stagingPath, long incomingOffset) {

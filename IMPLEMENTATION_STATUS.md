@@ -152,7 +152,7 @@
 当前限制：
 - WAL、ReplicaManager 与 ReplicaSyncService 已落地显式最终决议 RPC 与自动终局主链路；后续仍需继续加强极端网络分区下的跨节点一致性混沌验证与运维处置自动化。
 - Region 迁移、主副本晋升、恢复 3 副本等自治能力还未打通完整闭环。
-- transfer/copyTableData 已有基础实现，但尚未形成完整迁移协议。
+- transfer/copyTableData 已完成迁移协议主链路完整化：manifest 已包含块级签名（offset/length/crc32）并在目标端逐块校验；manifest 校验失败会触发表级回滚清理（本次迁移文件与 staging 状态）。
 
 ## 3. Client 侧已实现内容
 

@@ -427,6 +427,14 @@ class RegionAdminServiceImplTest {
             Assertions.assertEquals("orders_data", String.valueOf(item.get("fileName")));
             Assertions.assertEquals(crc32("payload".getBytes(StandardCharsets.UTF_8)),
                     ((Number) item.get("crc32")).longValue());
+            List<?> chunks = (List<?>) item.get("chunks");
+            Assertions.assertNotNull(chunks);
+            Assertions.assertFalse(chunks.isEmpty());
+            java.util.Map<?, ?> firstChunk = (java.util.Map<?, ?>) chunks.get(0);
+            Assertions.assertEquals(0L, ((Number) firstChunk.get("offset")).longValue());
+            Assertions.assertEquals(7L, ((Number) firstChunk.get("length")).longValue());
+            Assertions.assertEquals(crc32("payload".getBytes(StandardCharsets.UTF_8)),
+                    ((Number) firstChunk.get("crc32")).longValue());
         } finally {
             server.stop();
             pool.shutdownNow();
@@ -559,6 +567,67 @@ class RegionAdminServiceImplTest {
 
         Assertions.assertEquals(StatusCode.OK, manifestResp.getCode());
         Assertions.assertTrue(manifestResp.getMessage().contains("verified"));
+    }
+
+    @Test
+    void copyTableDataShouldRejectTransferManifestWhenChunkSignatureMismatch() throws Exception {
+    byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+    long crc32 = crc32(data);
+    Response dataResp = service.copyTableData(new DataChunk(
+        "orders",
+        "orders_data",
+        0L,
+        ByteBuffer.wrap(data),
+        true));
+    Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+
+    byte[] manifest = ("{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data\",\"size\":7,\"crc32\":"
+        + crc32
+        + ",\"chunks\":[{\"offset\":0,\"length\":7,\"crc32\":1}]}]}")
+        .getBytes(StandardCharsets.UTF_8);
+    Response manifestResp = service.copyTableData(new DataChunk(
+        "orders",
+        "__supersql_transfer_manifest__.orders.json",
+        0L,
+        ByteBuffer.wrap(manifest),
+        true));
+
+    Assertions.assertEquals(StatusCode.ERROR, manifestResp.getCode());
+    Assertions.assertTrue(manifestResp.getMessage().contains("chunk checksum mismatch"));
+    }
+
+    @Test
+    void copyTableDataShouldRollbackTransferredFilesAfterManifestFailure() throws Exception {
+    byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+    Response dataResp = service.copyTableData(new DataChunk(
+        "orders",
+        "orders_data",
+        0L,
+        ByteBuffer.wrap(data),
+        true));
+    Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+    Assertions.assertTrue(Files.exists(dataDir.resolve("orders_data")));
+
+    byte[] invalidManifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing\",\"size\":1,\"crc32\":0}]}"
+        .getBytes(StandardCharsets.UTF_8);
+    Response manifestResp = service.copyTableData(new DataChunk(
+        "orders",
+        "__supersql_transfer_manifest__.orders.json",
+        0L,
+        ByteBuffer.wrap(invalidManifest),
+        true));
+    Assertions.assertEquals(StatusCode.ERROR, manifestResp.getCode());
+    Assertions.assertFalse(Files.exists(dataDir.resolve("orders_data")));
+    Assertions.assertFalse(Files.exists(dataDir.resolve("orders_data.part")));
+
+    Response retryDataResp = service.copyTableData(new DataChunk(
+        "orders",
+        "orders_data",
+        0L,
+        ByteBuffer.wrap(data),
+        true));
+    Assertions.assertEquals(StatusCode.OK, retryDataResp.getCode());
+    Assertions.assertArrayEquals(data, Files.readAllBytes(dataDir.resolve("orders_data")));
     }
 
         @Test
