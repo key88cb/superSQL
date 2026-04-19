@@ -374,6 +374,35 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldMoveDecisionReadyToTerminalQueueAfterTerminalAge() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 9595L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        for (int i = 0; i < 24; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+
+        manager.setDecisionTerminalAgeMsForTests(1L);
+        Thread.sleep(5L);
+        manager.retryPendingCommitsNowIgnoringBackoff();
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertEquals(0L, ((Number) stats.get("pendingCount")).longValue());
+        Assertions.assertTrue(((Number) stats.get("decisionTerminalCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("terminalQueueCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("lastDecisionTerminalAtMs")).longValue() > 0L);
+        Assertions.assertEquals(Boolean.TRUE, stats.get("manualInterventionRequired"));
+        List<?> terminalPreview = (List<?>) stats.get("decisionTerminalPreview");
+        Assertions.assertFalse(terminalPreview.isEmpty());
+        Map<?, ?> first = (Map<?, ?>) terminalPreview.get(0);
+        Assertions.assertEquals("orders", first.get("table"));
+        Assertions.assertEquals(9595L, ((Number) first.get("lsn")).longValue());
+    }
+
+    @Test
     void retryPendingCommitsShouldApplyLongCooldownAfterDecisionReady() throws Exception {
         ReplicaManager manager = new ReplicaManager(false);
         manager.commitOnReplicas("orders", 9494L, List.of("127.0.0.1:1"));

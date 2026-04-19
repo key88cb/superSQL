@@ -132,8 +132,9 @@
 - 决议候选项引入二级冷却窗口（`decisionCandidateCooldownMs`，默认 300s），触发时记录 `decisionCandidateCooldownAppliedCount`，并在预览项中输出 `nextRetryAtMs`，用于降低长故障期重试噪音。
 - 在决议候选基础上新增“decision-ready”阶段：持续失败达到阈值后记录 `decisionReadyTransitionCount/lastDecisionReadyAtMs`，并输出 `activeDecisionReadyCount/decisionReadyAttemptsThreshold`，用于后续多数派最终决议动作触发。
 - 进入 `decision-ready` 后，待提交重试会切换到更长冷却窗口（15 分钟）并上报 `decisionReadyCooldownAppliedCount/decisionReadyCooldownMs`，降低长故障期间的无效重试噪音。
-- 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再静默丢弃；会保留在待处理队列并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，用于后续人工或自动决议链路接管。
-- `replicaCommitRetry` 统计已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，用于快速识别“存在决议就绪但仍未收敛”的人工处置窗口。
+- 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再静默丢弃；会保留在待处理队列并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，用于后续决议链路接管。
+- 对持续停留在 `decision-ready` 且超过终态阈值（`decisionTerminalAgeMs`）的待提交项，系统会自动从 active pending 分流到终态人工队列（`terminalQueueCount`），并记录 `decisionTerminalCount/lastDecisionTerminalAtMs/decisionTerminalPreview`，避免长期占用活跃重试队列。
+- `replicaCommitRetry` 统计已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态队列纳入人工处置信号。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。

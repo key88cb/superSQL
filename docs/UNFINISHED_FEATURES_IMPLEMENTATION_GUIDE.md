@@ -128,7 +128,8 @@
 - 在候选项持续失败达到阈值后，系统会标记为 `decisionReady` 并上报 `decisionReadyTransitionCount/activeDecisionReadyCount`（阈值由 `decisionReadyAttemptsThreshold` 表示），为下一步自动决议动作提供触发条件。
 - 对进入 `decisionReady` 的待提交项，系统会切换到更长重试冷却窗口（15 分钟）并上报 `decisionReadyCooldownAppliedCount/decisionReadyCooldownMs`，减少长故障期重试噪音。
 - 对达到 `decisionReady` 且超过 `maxAge` 的待提交项，系统会继续保留并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，避免静默丢弃。
-- `replicaCommitRetry` 现已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，便于值班侧快速判定是否进入人工决议窗口。
+- 对长期停留在 `decisionReady` 的待提交项，系统已增加终态分流：超过 `decisionTerminalAgeMs` 后会自动移出 active pending 并进入终态人工队列，输出 `decisionTerminalCount/terminalQueueCount/lastDecisionTerminalAtMs/decisionTerminalPreview`。
+- `replicaCommitRetry` 现已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态人工队列纳入人工决议信号。
 - 主副本已接入基于 `getMaxLsn/pullLog` 的异步追赶编排：写成功后可自动尝试修复落后副本缺口（donor 拉取 + 重放 + commit，best-effort）。
 - 追赶编排已支持 donor 回退：当首选 donor 拉取不到 backlog 时，会自动尝试下一候选 donor 继续修复。
 - 追赶编排已支持连续 LSN 回放约束：当 donor 返回的 backlog 存在缺口时会跳过该 donor 并继续回退，避免跨缺口重放。

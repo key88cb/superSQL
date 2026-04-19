@@ -198,8 +198,13 @@ public class RegionServerMain {
             defaults.put("decisionReadyCooldownMs", 0L);
             defaults.put("decisionReadyRetainedCount", 0L);
             defaults.put("lastDecisionReadyRetainedAtMs", 0L);
+            defaults.put("decisionTerminalCount", 0L);
+            defaults.put("decisionTerminalDroppedCount", 0L);
+            defaults.put("terminalQueueCount", 0L);
+            defaults.put("lastDecisionTerminalAtMs", 0L);
             defaults.put("decisionReadyAttemptsThreshold", 0L);
             defaults.put("maxAgeMs", 0L);
+            defaults.put("decisionTerminalAgeMs", 0L);
             defaults.put("recoveredFromEscalationCount", 0L);
             defaults.put("lastRecoveredFromEscalationAtMs", 0L);
             defaults.put("repairTriggeredCount", 0L);
@@ -214,6 +219,7 @@ public class RegionServerMain {
             defaults.put("manualInterventionRequired", false);
             defaults.put("maxConsecutiveTransportFailures", 0L);
             defaults.put("decisionCandidatesPreview", java.util.Collections.emptyList());
+            defaults.put("decisionTerminalPreview", java.util.Collections.emptyList());
             defaults.put("lastSuccessAtMs", 0L);
             defaults.put("lastFailureAtMs", 0L);
             defaults.put("lastError", "");
