@@ -776,6 +776,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(0L, ((Number) initial.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("failure")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("lastSuccessTs")).longValue());
+        Assertions.assertEquals("", String.valueOf(initial.get("lastFailureTable")));
 
         Response notFound = service.transferTable("orders", "127.0.0.1", 9999);
         Assertions.assertEquals(StatusCode.TABLE_NOT_FOUND, notFound.getCode());
@@ -822,6 +823,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(0L, ((Number) reasons.get("source_io_error")).longValue());
         Assertions.assertEquals(0L, ((Number) reasons.get("other")).longValue());
         Assertions.assertEquals("target_reject", String.valueOf(snapshot.get("lastFailureReason")));
+        Assertions.assertEquals("orders", String.valueOf(snapshot.get("lastFailureTable")));
     }
 
     @Test
@@ -846,6 +848,7 @@ class RegionAdminServiceImplTest {
         Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
         Assertions.assertEquals(1L, ((Number) reasons.get("source_io_error")).longValue());
         Assertions.assertEquals("source_io_error", String.valueOf(snapshot.get("lastFailureReason")));
+        Assertions.assertEquals("orders", String.valueOf(snapshot.get("lastFailureTable")));
     }
 
     @Test
@@ -889,10 +892,12 @@ class RegionAdminServiceImplTest {
         Map<?, ?> last = (Map<?, ?>) recent.get(recent.size() - 1);
 
         Assertions.assertEquals("table_not_found", String.valueOf(first.get("reason")));
+        Assertions.assertTrue(String.valueOf(first.get("table")).contains("orders_missing_2"));
         Assertions.assertEquals("TABLE_NOT_FOUND", String.valueOf(first.get("code")));
         Assertions.assertTrue(String.valueOf(first.get("message")).contains("orders_missing_2"));
 
         Assertions.assertEquals("table_not_found", String.valueOf(last.get("reason")));
+        Assertions.assertTrue(String.valueOf(last.get("table")).contains("orders_missing_9"));
         Assertions.assertEquals("TABLE_NOT_FOUND", String.valueOf(last.get("code")));
         Assertions.assertTrue(String.valueOf(last.get("message")).contains("orders_missing_9"));
         Assertions.assertTrue(((Number) last.get("ts")).longValue() > 0L);

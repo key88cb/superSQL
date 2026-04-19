@@ -58,6 +58,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) transferTable.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("failure")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("lastSuccessTs")).longValue());
+        Assertions.assertEquals("", transferTable.get("lastFailureTable"));
         Assertions.assertTrue(((java.util.List<?>) transferTable.get("recentFailures")).isEmpty());
         Assertions.assertEquals(0L, ((Number) transferTable.get("recentFailuresDropped")).longValue());
         Assertions.assertTrue(json.containsKey("timestamp"));
@@ -109,10 +110,12 @@ class RegionServerMainStatusPayloadTest {
         transferTableStats.put("failureReasons", reasons);
         transferTableStats.put("lastFailureTs", 456L);
         transferTableStats.put("lastFailureReason", "target_reject");
+        transferTableStats.put("lastFailureTable", "orders");
         transferTableStats.put("lastFailureMessage", "copyTableData rejected");
         java.util.List<Map<String, Object>> recentFailures = new java.util.ArrayList<>();
         Map<String, Object> event = new LinkedHashMap<>();
         event.put("ts", 456L);
+        event.put("table", "orders");
         event.put("reason", "target_reject");
         event.put("code", "ERROR");
         event.put("message", "copyTableData rejected");
@@ -163,6 +166,7 @@ class RegionServerMainStatusPayloadTest {
             Assertions.assertEquals(0L, ((Number) failureReasons.get("transport_error")).longValue());
             Assertions.assertEquals(0L, ((Number) failureReasons.get("source_io_error")).longValue());
             Assertions.assertEquals("target_reject", transferTable.get("lastFailureReason"));
+            Assertions.assertEquals("orders", transferTable.get("lastFailureTable"));
             Assertions.assertEquals(1, ((java.util.List<?>) transferTable.get("recentFailures")).size());
             Assertions.assertEquals(4L, ((Number) transferTable.get("recentFailuresDropped")).longValue());
     }

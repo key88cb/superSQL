@@ -90,6 +90,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong transferTableLastFailureTs = new AtomicLong();
     private final AtomicLong transferTableRecentFailuresDropped = new AtomicLong();
     private volatile String transferTableLastFailureReason = "";
+    private volatile String transferTableLastFailureTable = "";
     private volatile String transferTableLastFailureMessage = "";
     private final Object transferFailureHistoryLock = new Object();
     private final Deque<Map<String, Object>> transferTableRecentFailures = new ArrayDeque<>();
@@ -242,6 +243,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             File dir = new File(dataDir);
             if (!dir.exists() || !dir.isDirectory()) {
                 return transferTableFailed(
+                    tableName,
                         StatusCode.ERROR,
                         "other",
                         "dataDir not found: " + dataDir);
@@ -251,6 +253,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                     && !f.getName().endsWith(STAGING_SUFFIX));
             if (tableFiles == null || tableFiles.length == 0) {
                 return transferTableFailed(
+                    tableName,
                     StatusCode.TABLE_NOT_FOUND,
                     "table_not_found",
                     "No files found for table: " + tableName);
@@ -286,6 +289,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         } catch (Exception e) {
             log.error("transferTable failed for table={}", tableName, e);
             return transferTableFailed(
+                    tableName,
                     StatusCode.ERROR,
                     classifyTransferFailureReason(e),
                     "transferTable failed: " + e.getMessage());
@@ -688,6 +692,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("failureReasons", reasons);
         payload.put("lastFailureTs", transferTableLastFailureTs.get());
         payload.put("lastFailureReason", transferTableLastFailureReason);
+        payload.put("lastFailureTable", transferTableLastFailureTable);
         payload.put("lastFailureMessage", transferTableLastFailureMessage);
         payload.put("recentFailures", snapshotRecentTransferFailures());
         payload.put("recentFailuresDropped", transferTableRecentFailuresDropped.get());
@@ -775,14 +780,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         return snapshot;
     }
 
-    private Response transferTableFailed(StatusCode code, String reason, String message) {
+    private Response transferTableFailed(String tableName, StatusCode code, String reason, String message) {
         transferTableFailure.incrementAndGet();
         long now = System.currentTimeMillis();
         transferTableLastFailureTs.set(now);
         transferTableLastFailureReason = reason;
+        transferTableLastFailureTable = tableName == null ? "" : tableName;
         String sanitizedMessage = sanitizeStatusMessage(message);
         transferTableLastFailureMessage = sanitizedMessage;
-        recordTransferFailure(now, code, reason, sanitizedMessage);
+        recordTransferFailure(now, tableName, code, reason, sanitizedMessage);
 
         switch (reason) {
             case "table_not_found" -> transferTableFailureTableNotFound.incrementAndGet();
@@ -803,9 +809,10 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         }
     }
 
-    private void recordTransferFailure(long ts, StatusCode code, String reason, String message) {
+    private void recordTransferFailure(long ts, String tableName, StatusCode code, String reason, String message) {
         Map<String, Object> event = new LinkedHashMap<>();
         event.put("ts", ts);
+        event.put("table", tableName == null ? "" : tableName);
         event.put("reason", reason == null ? "" : reason);
         event.put("code", code == null ? "" : code.name());
         event.put("message", message == null ? "" : message);

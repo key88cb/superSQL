@@ -124,6 +124,7 @@ public class RegionServerMain {
             defaults.put("failureReasons", reasons);
             defaults.put("lastFailureTs", 0L);
             defaults.put("lastFailureReason", "");
+            defaults.put("lastFailureTable", "");
             defaults.put("lastFailureMessage", "");
             defaults.put("recentFailures", java.util.Collections.emptyList());
             defaults.put("recentFailuresDropped", 0L);
