@@ -56,6 +56,7 @@ public class ReplicaManager {
     private static final long PENDING_COMMIT_MAX_BACKOFF_MS = 30_000L;
     private static final long PENDING_COMMIT_STALLED_ATTEMPTS = 20L;
     private static final long PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD = 8L;
+    private static final long PENDING_COMMIT_DECISION_CANDIDATE_ATTEMPTS = 16L;
     private static final long PENDING_COMMIT_TRANSPORT_ESCALATION_COOLDOWN_MS = 120_000L;
     private static final String COMMIT_ERR_TABLE_NOT_FOUND = "table_not_found";
     private static final String COMMIT_ERR_INVALID_ADDRESS = "invalid replica address";
@@ -74,6 +75,7 @@ public class ReplicaManager {
         private final long firstQueuedAtMs;
         private final AtomicLong attempts = new AtomicLong(0L);
         private final AtomicLong consecutiveTransportFailures = new AtomicLong(0L);
+        private volatile boolean decisionCandidateMarked;
         private volatile long lastAttemptAtMs;
         private volatile long nextRetryAtMs;
         private volatile String lastError;
@@ -92,6 +94,7 @@ public class ReplicaManager {
             this.lastAttemptAtMs = nowMs;
             this.nextRetryAtMs = nowMs;
             this.lastError = initialError;
+            this.decisionCandidateMarked = false;
         }
 
         private boolean markAttemptFailure(String error, long nowMs) {
@@ -121,6 +124,20 @@ public class ReplicaManager {
         private long ageMs(long nowMs) {
             return Math.max(0L, nowMs - firstQueuedAtMs);
         }
+
+        private boolean markDecisionCandidateIfNeeded() {
+            if (decisionCandidateMarked) {
+                return false;
+            }
+            if (consecutiveTransportFailures.get() < PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD) {
+                return false;
+            }
+            if (attempts.get() < PENDING_COMMIT_DECISION_CANDIDATE_ATTEMPTS) {
+                return false;
+            }
+            decisionCandidateMarked = true;
+            return true;
+        }
     }
 
     private final ExecutorService executor =
@@ -144,6 +161,8 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitLastSuccessAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastFailureAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitEscalatedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitDecisionCandidateCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitLastDecisionCandidateAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitRecoveredFromEscalationCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastRecoveredFromEscalationAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairTriggeredCount = new AtomicLong(0L);
@@ -270,6 +289,8 @@ public class ReplicaManager {
         stats.put("droppedCount", pendingCommitDroppedCount.get());
         stats.put("throttledSkipCount", pendingCommitThrottledSkipCount.get());
         stats.put("escalatedCount", pendingCommitEscalatedCount.get());
+        stats.put("decisionCandidateCount", pendingCommitDecisionCandidateCount.get());
+        stats.put("lastDecisionCandidateAtMs", pendingCommitLastDecisionCandidateAtMs.get());
         stats.put("recoveredFromEscalationCount", pendingCommitRecoveredFromEscalationCount.get());
         stats.put("lastRecoveredFromEscalationAtMs", pendingCommitLastRecoveredFromEscalationAtMs.get());
         stats.put("repairTriggeredCount", pendingCommitRepairTriggeredCount.get());
@@ -282,6 +303,7 @@ public class ReplicaManager {
         long stalledCount = 0L;
         long oldestPendingAgeMs = 0L;
         long activeEscalatedCount = 0L;
+        long activeDecisionCandidateCount = 0L;
         long maxConsecutiveTransportFailures = 0L;
         for (PendingCommit pendingCommit : pendingCommits.values()) {
             if (pendingCommit.attempts.get() >= PENDING_COMMIT_STALLED_ATTEMPTS) {
@@ -292,11 +314,15 @@ public class ReplicaManager {
             if (transportFailures >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD) {
                 activeEscalatedCount++;
             }
+            if (pendingCommit.decisionCandidateMarked) {
+                activeDecisionCandidateCount++;
+            }
             maxConsecutiveTransportFailures = Math.max(maxConsecutiveTransportFailures, transportFailures);
         }
         stats.put("stalledCount", stalledCount);
         stats.put("oldestPendingAgeMs", oldestPendingAgeMs);
         stats.put("activeEscalatedCount", activeEscalatedCount);
+        stats.put("activeDecisionCandidateCount", activeDecisionCandidateCount);
         stats.put("maxConsecutiveTransportFailures", maxConsecutiveTransportFailures);
         Map<String, Long> errorBreakdown = new LinkedHashMap<>();
         for (Map.Entry<String, AtomicLong> entry : pendingCommitErrorBreakdown.entrySet()) {
@@ -606,6 +632,10 @@ public class ReplicaManager {
 
             if (task.markAttemptFailure(commitAttempt.error(), now)) {
                 pendingCommitEscalatedCount.incrementAndGet();
+            }
+            if (task.markDecisionCandidateIfNeeded()) {
+                pendingCommitDecisionCandidateCount.incrementAndGet();
+                pendingCommitLastDecisionCandidateAtMs.set(System.currentTimeMillis());
             }
             pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
             pendingCommitLastError = commitAttempt.error();

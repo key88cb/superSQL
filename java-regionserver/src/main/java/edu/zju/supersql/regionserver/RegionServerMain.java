@@ -188,6 +188,8 @@ public class RegionServerMain {
             defaults.put("droppedCount", 0L);
             defaults.put("throttledSkipCount", 0L);
             defaults.put("escalatedCount", 0L);
+            defaults.put("decisionCandidateCount", 0L);
+            defaults.put("lastDecisionCandidateAtMs", 0L);
             defaults.put("recoveredFromEscalationCount", 0L);
             defaults.put("lastRecoveredFromEscalationAtMs", 0L);
             defaults.put("repairTriggeredCount", 0L);
@@ -196,6 +198,7 @@ public class RegionServerMain {
             defaults.put("stalledCount", 0L);
             defaults.put("oldestPendingAgeMs", 0L);
             defaults.put("activeEscalatedCount", 0L);
+            defaults.put("activeDecisionCandidateCount", 0L);
             defaults.put("maxConsecutiveTransportFailures", 0L);
             defaults.put("lastSuccessAtMs", 0L);
             defaults.put("lastFailureAtMs", 0L);

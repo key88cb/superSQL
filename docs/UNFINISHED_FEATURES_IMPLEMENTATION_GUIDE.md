@@ -119,6 +119,7 @@
 - 待提交重试已增加退避节流窗口，避免对不可达副本高频重试；并通过 `throttledSkipCount/stalledCount/oldestPendingAgeMs` 暴露重试饱和与停滞风险。
 - 对连续 `transport_error` 的待提交项已增加阈值触发的升级冷却窗口，避免网络长故障期间的重试风暴，并通过 `escalatedCount/activeEscalatedCount/maxConsecutiveTransportFailures` 观测升级状态。
 - 对进入升级冷却窗口后成功收敛的待提交项，已增加恢复信号指标 `recoveredFromEscalationCount/lastRecoveredFromEscalationAtMs`，便于运维侧判断升级策略是否有效。
+- 对连续 transport 故障且重试次数持续增长的待提交项，已增加“决议候选”观测指标 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，用于后续多数派最终决议策略落地。
 - 主副本已接入基于 `getMaxLsn/pullLog` 的异步追赶编排：写成功后可自动尝试修复落后副本缺口（donor 拉取 + 重放 + commit，best-effort）。
 - 追赶编排已支持 donor 回退：当首选 donor 拉取不到 backlog 时，会自动尝试下一候选 donor 继续修复。
 - 追赶编排已支持连续 LSN 回放约束：当 donor 返回的 backlog 存在缺口时会跳过该 donor 并继续回退，避免跨缺口重放。

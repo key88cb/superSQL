@@ -256,6 +256,24 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldMarkDecisionCandidateAfterLongEscalation() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 9191L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        for (int i = 0; i < 16; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertTrue(((Number) stats.get("decisionCandidateCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("activeDecisionCandidateCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("lastDecisionCandidateAtMs")).longValue() > 0L);
+    }
+
+    @Test
     void retryPendingCommitsShouldRecordRecoveryFromEscalation() throws Exception {
         ReplicaManager manager = new ReplicaManager(false);
         int recoveryPort = freePort();
