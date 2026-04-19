@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Primary-side SQL execution service.
@@ -36,6 +37,7 @@ public class RegionServiceImpl implements RegionService.Iface {
 
     private static final Logger log = LoggerFactory.getLogger(RegionServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final AtomicLong EXECUTED_SQL_COUNT = new AtomicLong(0L);
 
     private final MiniSqlProcess miniSql;
     private final WalManager walManager;
@@ -76,6 +78,7 @@ public class RegionServiceImpl implements RegionService.Iface {
     @Override
     public QueryResult execute(String tableName, String sql) throws TException {
         log.info("execute: table={} sql={}", tableName, sql);
+        EXECUTED_SQL_COUNT.incrementAndGet();
         boolean isWrite = isWriteOperation(sql);
 
         // Check migration guard
@@ -305,5 +308,9 @@ public class RegionServiceImpl implements RegionService.Iface {
         if (s.startsWith("create index")) return WalOpType.CREATE_INDEX;
         if (s.startsWith("drop index"))   return WalOpType.DROP_INDEX;
         return WalOpType.INSERT; // fallback
+    }
+
+    public static long getExecutedSqlCountForMetrics() {
+        return EXECUTED_SQL_COUNT.get();
     }
 }

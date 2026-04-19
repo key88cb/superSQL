@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.OutputStream;
+import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -28,6 +29,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * RegionServer entry point.
@@ -41,6 +43,50 @@ public class RegionServerMain {
 
     private static final Logger log = LoggerFactory.getLogger(RegionServerMain.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    static double computeRecentQps(long currentCount, long previousCount, long elapsedMs) {
+        if (elapsedMs <= 0L || currentCount < previousCount) {
+            return 0.0;
+        }
+        return (currentCount - previousCount) * 1000.0 / elapsedMs;
+    }
+
+    static double sampleProcessCpuUsagePercent() {
+        try {
+            com.sun.management.OperatingSystemMXBean osBean =
+                    ManagementFactory.getPlatformMXBean(com.sun.management.OperatingSystemMXBean.class);
+            if (osBean == null) {
+                return 0.0;
+            }
+            double load = osBean.getProcessCpuLoad();
+            if (load < 0.0) {
+                return 0.0;
+            }
+            return clampPercent(load * 100.0);
+        } catch (Throwable t) {
+            return 0.0;
+        }
+    }
+
+    static double sampleHeapMemoryUsagePercent() {
+        Runtime runtime = Runtime.getRuntime();
+        long max = runtime.maxMemory();
+        if (max <= 0L) {
+            return 0.0;
+        }
+        long used = runtime.totalMemory() - runtime.freeMemory();
+        return clampPercent(used * 100.0 / max);
+    }
+
+    private static double clampPercent(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value) || value < 0.0) {
+            return 0.0;
+        }
+        if (value > 100.0) {
+            return 100.0;
+        }
+        return value;
+    }
 
     static int countAssignedTablesForRegionServer(CuratorFramework zkClient, String rsId) {
         if (zkClient == null || rsId == null || rsId.isBlank()) {
@@ -324,6 +370,9 @@ public class RegionServerMain {
             RegionServerRegistrar finalRegistrar = registrar;
             CuratorFramework finalZkClient = zkClient;
             String finalRsId = rsId;
+            AtomicLong lastSampleTsMs = new AtomicLong(System.currentTimeMillis());
+            AtomicLong lastExecutedCount = new AtomicLong(
+                    edu.zju.supersql.regionserver.rpc.RegionServiceImpl.getExecutedSqlCountForMetrics());
             heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "RS-Heartbeat");
                 t.setDaemon(true);
@@ -331,14 +380,21 @@ public class RegionServerMain {
             });
             heartbeatExecutor.scheduleAtFixedRate(() -> {
                 int tableCount = countAssignedTablesForRegionServer(finalZkClient, finalRsId);
+                long nowMs = System.currentTimeMillis();
+                long currentExecuted = edu.zju.supersql.regionserver.rpc.RegionServiceImpl.getExecutedSqlCountForMetrics();
+                long prevExecuted = lastExecutedCount.getAndSet(currentExecuted);
+                long prevTsMs = lastSampleTsMs.getAndSet(nowMs);
+                double qps1min = computeRecentQps(currentExecuted, prevExecuted, nowMs - prevTsMs);
+                double cpuUsage = sampleProcessCpuUsagePercent();
+                double memUsage = sampleHeapMemoryUsagePercent();
                 finalRegistrar.heartbeat(
                         rsHost,
                         thriftPort,
                         httpPort,
                         tableCount,
-                        0.0,
-                        0.0,
-                        0.0);
+                        qps1min,
+                        cpuUsage,
+                        memUsage);
             },
                     config.heartbeatIntervalMs(),
                     config.heartbeatIntervalMs(),

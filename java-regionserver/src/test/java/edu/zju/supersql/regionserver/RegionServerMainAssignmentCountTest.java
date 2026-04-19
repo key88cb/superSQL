@@ -76,6 +76,24 @@ class RegionServerMainAssignmentCountTest {
         Assertions.assertEquals(0, count);
     }
 
+    @Test
+    void computeRecentQpsShouldUseDeltaAndElapsedMillis() {
+        double qps = RegionServerMain.computeRecentQps(210L, 160L, 10_000L);
+        Assertions.assertEquals(5.0, qps, 0.0001);
+
+        Assertions.assertEquals(0.0, RegionServerMain.computeRecentQps(100L, 120L, 1000L), 0.0001);
+        Assertions.assertEquals(0.0, RegionServerMain.computeRecentQps(100L, 100L, 0L), 0.0001);
+    }
+
+    @Test
+    void resourceUsageSamplingShouldStayWithinPercentRange() {
+        double cpu = RegionServerMain.sampleProcessCpuUsagePercent();
+        double mem = RegionServerMain.sampleHeapMemoryUsagePercent();
+
+        Assertions.assertTrue(cpu >= 0.0 && cpu <= 100.0);
+        Assertions.assertTrue(mem >= 0.0 && mem <= 100.0);
+    }
+
     private void createAssignment(String tableName, List<Map<String, Object>> replicas) throws Exception {
         byte[] payload = MAPPER.writeValueAsString(Map.of(
                 "tableName", tableName,
