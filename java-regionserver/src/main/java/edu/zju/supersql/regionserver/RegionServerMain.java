@@ -43,6 +43,42 @@ public class RegionServerMain {
 
     private static final Logger log = LoggerFactory.getLogger(RegionServerMain.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final long ZK_STARTUP_RETRY_DELAY_MS = 2_000L;
+
+    @FunctionalInterface
+    interface CheckedSupplier<T> {
+        T get() throws Exception;
+    }
+
+    static <T> T retryUntilSuccess(String actionName,
+                                   CheckedSupplier<T> supplier,
+                                   long retryDelayMs,
+                                   int maxAttempts) throws Exception {
+        int attempt = 0;
+        while (maxAttempts <= 0 || attempt < maxAttempts) {
+            attempt++;
+            try {
+                return supplier.get();
+            } catch (Exception e) {
+                if (maxAttempts > 0 && attempt >= maxAttempts) {
+                    throw e;
+                }
+                log.warn("{} failed at attempt {}/{}, retry in {} ms: {}",
+                        actionName,
+                        attempt,
+                        maxAttempts <= 0 ? "∞" : String.valueOf(maxAttempts),
+                        retryDelayMs,
+                        e.getMessage());
+                try {
+                    Thread.sleep(Math.max(0L, retryDelayMs));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while retrying " + actionName, interrupted);
+                }
+            }
+        }
+        throw new IllegalStateException("Unreachable retry state for action=" + actionName);
+    }
 
     static double computeRecentQps(long currentCount, long previousCount, long elapsedMs) {
         if (elapsedMs <= 0L || currentCount < previousCount) {
@@ -353,16 +389,31 @@ public class RegionServerMain {
         RegionServerRegistrar registrar = null;
         ScheduledExecutorService heartbeatExecutor = null;
         try {
-            RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
-            zkClient = CuratorFrameworkFactory.builder()
-                    .connectString(zkConnect)
-                    .sessionTimeoutMs(30_000)
-                    .connectionTimeoutMs(10_000)
-                    .retryPolicy(retry)
-                    .namespace("supersql")
-                    .build();
-            zkClient.start();
-            log.info("ZooKeeper client started (connecting to {})", zkConnect);
+            zkClient = retryUntilSuccess(
+                    "RegionServer ZooKeeper startup",
+                    () -> {
+                        RetryPolicy retry = new ExponentialBackoffRetry(1000, 5);
+                        CuratorFramework client = CuratorFrameworkFactory.builder()
+                                .connectString(zkConnect)
+                                .sessionTimeoutMs(30_000)
+                                .connectionTimeoutMs(10_000)
+                                .retryPolicy(retry)
+                                .namespace("supersql")
+                                .build();
+                        try {
+                            client.start();
+                            if (!client.blockUntilConnected(10, TimeUnit.SECONDS)) {
+                                throw new IllegalStateException("connect timeout");
+                            }
+                            return client;
+                        } catch (Exception e) {
+                            client.close();
+                            throw e;
+                        }
+                    },
+                    ZK_STARTUP_RETRY_DELAY_MS,
+                    0);
+            log.info("ZooKeeper client started (connected to {})", zkConnect);
 
             registrar = new RegionServerRegistrar(zkClient, rsId);
             registrar.register(rsHost, thriftPort, httpPort);
@@ -401,7 +452,8 @@ public class RegionServerMain {
                     TimeUnit.MILLISECONDS);
             log.info("RegionServer heartbeat scheduler started (interval={}ms)", config.heartbeatIntervalMs());
         } catch (Exception e) {
-            log.warn("ZooKeeper connection failed at startup — proceeding without ZK: {}", e.getMessage());
+            log.error("ZooKeeper startup failed after retries, aborting RegionServer startup: {}", e.getMessage());
+            throw e;
         }
 
         // ── Engine Startup & Recovery ──────────────────────────────────────────

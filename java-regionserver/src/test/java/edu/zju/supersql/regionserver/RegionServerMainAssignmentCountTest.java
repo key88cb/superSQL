@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class RegionServerMainAssignmentCountTest {
 
@@ -92,6 +93,40 @@ class RegionServerMainAssignmentCountTest {
 
         Assertions.assertTrue(cpu >= 0.0 && cpu <= 100.0);
         Assertions.assertTrue(mem >= 0.0 && mem <= 100.0);
+    }
+
+    @Test
+    void retryUntilSuccessShouldRecoverAfterTransientFailures() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+
+        String value = RegionServerMain.retryUntilSuccess(
+                "test-action",
+                () -> {
+                    if (attempts.incrementAndGet() < 3) {
+                        throw new IllegalStateException("transient");
+                    }
+                    return "ok";
+                },
+                0L,
+                5);
+
+        Assertions.assertEquals("ok", value);
+        Assertions.assertEquals(3, attempts.get());
+    }
+
+    @Test
+    void retryUntilSuccessShouldThrowWhenMaxAttemptsReached() {
+        AtomicInteger attempts = new AtomicInteger();
+
+        Assertions.assertThrows(IllegalStateException.class, () -> RegionServerMain.retryUntilSuccess(
+                "test-action",
+                () -> {
+                    attempts.incrementAndGet();
+                    throw new IllegalStateException("always fails");
+                },
+                0L,
+                2));
+        Assertions.assertEquals(2, attempts.get());
     }
 
     private void createAssignment(String tableName, List<Map<String, Object>> replicas) throws Exception {
