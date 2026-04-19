@@ -601,9 +601,18 @@ public class MasterServiceImpl implements MasterService.Iface {
             location.setTableStatus("ACTIVE");
             location.setVersion(System.currentTimeMillis());
 
-            metaManager.saveTableLocation(location);
-            assignmentManager.saveAssignment(tableName, replicas);
-            touchStatusUpdatedAtBestEffort(tableName);
+            try {
+                metaManager.saveTableLocation(location);
+                assignmentManager.saveAssignment(tableName, replicas);
+                touchStatusUpdatedAtBestEffort(tableName);
+            } catch (Exception persistException) {
+                rollbackCreateTableMetadata(tableName);
+                rollbackCreatedReplicas(tableName, createdReplicas);
+                Response error = new Response(StatusCode.ERROR);
+                error.setMessage("Failed to persist table metadata for " + tableName
+                        + ": " + persistException.getMessage());
+                return error;
+            }
 
             Response r = new Response(StatusCode.OK);
             r.setMessage("Table metadata created: " + tableName);
@@ -829,6 +838,19 @@ public class MasterServiceImpl implements MasterService.Iface {
                 log.warn("Rollback dropTable failed on replica {}: {}",
                         replica.getId(), e.getMessage());
             }
+        }
+    }
+
+    private void rollbackCreateTableMetadata(String tableName) {
+        try {
+            assignmentManager.deleteAssignment(tableName);
+        } catch (Exception e) {
+            log.warn("Rollback assignment delete failed for table {}: {}", tableName, e.getMessage());
+        }
+        try {
+            metaManager.deleteTableLocation(tableName);
+        } catch (Exception e) {
+            log.warn("Rollback metadata delete failed for table {}: {}", tableName, e.getMessage());
         }
     }
 

@@ -34,6 +34,7 @@
 - `triggerRebalance()` 候选选择已限制为 `ACTIVE` 表，避免对 `PREPARING/MOVING` 表重复触发迁移。
 - `triggerRebalance()` 候选选择已引入轮转游标（round-robin），连续调度时会轮换候选起点，降低同一表在失败重试场景下被重复优先命中的风险。
 - `createTable` 成功落盘元数据后也会初始化 `statusUpdatedAt`，保证新表从创建时起具备状态时间戳。
+- `createTable` 元数据落盘已增加补偿回滚：若 `/meta/tables` 与 `/assignments` 任一持久化失败，会清理两处元数据并回滚已创建副本，避免出现“半创建”脏状态。
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
 - Master `/status` 已输出 RebalanceScheduler 运行快照（tick/trigger/throttle/success/failure、最近执行时间、最近触发原因）。
 - Master `/status` 已输出 route repair 运行指标（修复运行次数、累计修复表数、最近修复时间、最近修复表、最近错误），并新增近 N 次运行窗口统计（成功率、平均修复数）。

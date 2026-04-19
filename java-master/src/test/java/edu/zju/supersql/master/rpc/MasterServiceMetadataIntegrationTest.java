@@ -196,6 +196,38 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void createTableShouldRollbackMetadataWhenAssignmentPersistFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+
+        AssignmentManager failingAssignmentManager = new AssignmentManager(zkClient) {
+            @Override
+            public void saveAssignment(String tableName, List<RegionServerInfo> replicas) {
+                if ("t_assignment_fail".equals(tableName)) {
+                    throw new RuntimeException("simulated assignment persistence failure");
+                }
+            }
+        };
+
+        service = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                failingAssignmentManager,
+                new LoadBalancer(),
+                ddlExecutor,
+                adminExecutor);
+
+        Response response = service.createTable("create table t_assignment_fail(id int, primary key(id));");
+
+        Assertions.assertEquals(StatusCode.ERROR, response.getCode());
+        Assertions.assertTrue(response.getMessage().contains("t_assignment_fail"));
+        Assertions.assertEquals("TABLE_NOT_FOUND", service.getTableLocation("t_assignment_fail").getTableStatus());
+        Assertions.assertNull(zkClient.checkExists().forPath("/meta/tables/t_assignment_fail"));
+        Assertions.assertNull(zkClient.checkExists().forPath("/assignments/t_assignment_fail"));
+        Assertions.assertTrue(ddlExecutor.commands.stream().anyMatch(cmd ->
+                cmd.sql().startsWith("drop table t_assignment_fail")));
+    }
+
+    @Test
     void dropTableShouldKeepMetadataWhenRemoteDropFails() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
 
