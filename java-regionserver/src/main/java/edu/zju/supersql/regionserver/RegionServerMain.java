@@ -192,6 +192,9 @@ public class RegionServerMain {
             defaults.put("lastDecisionCandidateAtMs", 0L);
             defaults.put("decisionCandidateCooldownAppliedCount", 0L);
             defaults.put("decisionCandidateCooldownMs", 0L);
+            defaults.put("decisionReadyTransitionCount", 0L);
+            defaults.put("lastDecisionReadyAtMs", 0L);
+            defaults.put("decisionReadyAttemptsThreshold", 0L);
             defaults.put("recoveredFromEscalationCount", 0L);
             defaults.put("lastRecoveredFromEscalationAtMs", 0L);
             defaults.put("repairTriggeredCount", 0L);
@@ -201,6 +204,7 @@ public class RegionServerMain {
             defaults.put("oldestPendingAgeMs", 0L);
             defaults.put("activeEscalatedCount", 0L);
             defaults.put("activeDecisionCandidateCount", 0L);
+            defaults.put("activeDecisionReadyCount", 0L);
             defaults.put("maxConsecutiveTransportFailures", 0L);
             defaults.put("decisionCandidatesPreview", java.util.Collections.emptyList());
             defaults.put("lastSuccessAtMs", 0L);

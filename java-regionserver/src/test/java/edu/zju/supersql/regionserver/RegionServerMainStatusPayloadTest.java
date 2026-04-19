@@ -84,6 +84,9 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastDecisionCandidateAtMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionCandidateCooldownAppliedCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionCandidateCooldownMs")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionReadyTransitionCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastDecisionReadyAtMs")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("decisionReadyAttemptsThreshold")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("recoveredFromEscalationCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastRecoveredFromEscalationAtMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("repairTriggeredCount")).longValue());
@@ -93,6 +96,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("oldestPendingAgeMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("activeEscalatedCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("activeDecisionCandidateCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("activeDecisionReadyCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("maxConsecutiveTransportFailures")).longValue());
         Assertions.assertTrue(((java.util.List<?>) replicaCommitRetry.get("decisionCandidatesPreview")).isEmpty());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastSuccessAtMs")).longValue());
@@ -186,6 +190,9 @@ class RegionServerMainStatusPayloadTest {
         replicaCommitRetry.put("lastDecisionCandidateAtMs", 776L);
         replicaCommitRetry.put("decisionCandidateCooldownAppliedCount", 1L);
         replicaCommitRetry.put("decisionCandidateCooldownMs", 300000L);
+        replicaCommitRetry.put("decisionReadyTransitionCount", 1L);
+        replicaCommitRetry.put("lastDecisionReadyAtMs", 778L);
+        replicaCommitRetry.put("decisionReadyAttemptsThreshold", 24L);
         replicaCommitRetry.put("recoveredFromEscalationCount", 1L);
         replicaCommitRetry.put("lastRecoveredFromEscalationAtMs", 777L);
         replicaCommitRetry.put("repairTriggeredCount", 4L);
@@ -195,6 +202,7 @@ class RegionServerMainStatusPayloadTest {
         replicaCommitRetry.put("oldestPendingAgeMs", 120000L);
         replicaCommitRetry.put("activeEscalatedCount", 1L);
         replicaCommitRetry.put("activeDecisionCandidateCount", 1L);
+        replicaCommitRetry.put("activeDecisionReadyCount", 1L);
         replicaCommitRetry.put("maxConsecutiveTransportFailures", 12L);
         java.util.List<Map<String, Object>> decisionCandidatesPreview = new java.util.ArrayList<>();
         Map<String, Object> candidate = new LinkedHashMap<>();
@@ -205,6 +213,7 @@ class RegionServerMainStatusPayloadTest {
         candidate.put("consecutiveTransportFailures", 16L);
         candidate.put("ageMs", 120001L);
         candidate.put("nextRetryAtMs", 500000L);
+        candidate.put("decisionReady", true);
         decisionCandidatesPreview.add(candidate);
         replicaCommitRetry.put("decisionCandidatesPreview", decisionCandidatesPreview);
         replicaCommitRetry.put("lastSuccessAtMs", 321L);
@@ -286,6 +295,9 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(776L, ((Number) commitRetryStats.get("lastDecisionCandidateAtMs")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("decisionCandidateCooldownAppliedCount")).longValue());
         Assertions.assertEquals(300000L, ((Number) commitRetryStats.get("decisionCandidateCooldownMs")).longValue());
+        Assertions.assertEquals(1L, ((Number) commitRetryStats.get("decisionReadyTransitionCount")).longValue());
+        Assertions.assertEquals(778L, ((Number) commitRetryStats.get("lastDecisionReadyAtMs")).longValue());
+        Assertions.assertEquals(24L, ((Number) commitRetryStats.get("decisionReadyAttemptsThreshold")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("recoveredFromEscalationCount")).longValue());
         Assertions.assertEquals(777L, ((Number) commitRetryStats.get("lastRecoveredFromEscalationAtMs")).longValue());
         Assertions.assertEquals(4L, ((Number) commitRetryStats.get("repairTriggeredCount")).longValue());
@@ -295,6 +307,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(120000L, ((Number) commitRetryStats.get("oldestPendingAgeMs")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("activeEscalatedCount")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("activeDecisionCandidateCount")).longValue());
+        Assertions.assertEquals(1L, ((Number) commitRetryStats.get("activeDecisionReadyCount")).longValue());
         Assertions.assertEquals(12L, ((Number) commitRetryStats.get("maxConsecutiveTransportFailures")).longValue());
         java.util.List<?> preview = (java.util.List<?>) commitRetryStats.get("decisionCandidatesPreview");
         Assertions.assertEquals(1, preview.size());
@@ -302,6 +315,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals("orders", firstCandidate.get("table"));
         Assertions.assertEquals(9191L, ((Number) firstCandidate.get("lsn")).longValue());
         Assertions.assertEquals(500000L, ((Number) firstCandidate.get("nextRetryAtMs")).longValue());
+        Assertions.assertEquals(Boolean.TRUE, firstCandidate.get("decisionReady"));
         Assertions.assertEquals(321L, ((Number) commitRetryStats.get("lastSuccessAtMs")).longValue());
         Assertions.assertEquals(654L, ((Number) commitRetryStats.get("lastFailureAtMs")).longValue());
         Assertions.assertEquals("commit returned TABLE_NOT_FOUND", commitRetryStats.get("lastError"));

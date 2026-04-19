@@ -325,6 +325,29 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldMarkDecisionReadyAfterSustainedFailures() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 9292L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        for (int i = 0; i < 24; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertTrue(((Number) stats.get("decisionReadyTransitionCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("lastDecisionReadyAtMs")).longValue() > 0L);
+        Assertions.assertEquals(24L, ((Number) stats.get("decisionReadyAttemptsThreshold")).longValue());
+        List<?> preview = (List<?>) stats.get("decisionCandidatesPreview");
+        Assertions.assertFalse(preview.isEmpty());
+        Map<?, ?> first = (Map<?, ?>) preview.get(0);
+        Assertions.assertEquals(Boolean.TRUE, first.get("decisionReady"));
+    }
+
+    @Test
     void commitOneWithRetryShouldReturnFalseForUnreachableReplica() {
         ReplicaManager manager = new ReplicaManager();
         boolean committed = manager.commitOneWithRetry("orders", 999L, "127.0.0.1:1");
