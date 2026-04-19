@@ -102,4 +102,36 @@ class ClientMetricsHttpServerTest {
             server.close();
         }
     }
+
+    @Test
+    void shouldServeJsonMetricsOnGet() throws Exception {
+        ClientMetricsHttpServer server = ClientMetricsHttpServer.startFromEnv(
+                Map.of(
+                        "CLIENT_METRICS_HTTP_ENABLED", "true",
+                        "CLIENT_METRICS_HTTP_HOST", "127.0.0.1",
+                        "CLIENT_METRICS_HTTP_PORT", "0"
+                ),
+                () -> "supersql_client_routing_table_count 1\n",
+                () -> "{\"tableCount\":1,\"tables\":[]}"
+        );
+        Assertions.assertNotNull(server);
+
+        try {
+            URI uri = new URI("http://127.0.0.1:" + server.getPort() + "/metrics/json");
+            HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
+            conn.setRequestMethod("GET");
+
+            int code = conn.getResponseCode();
+            String body;
+            try (InputStream is = conn.getInputStream()) {
+                body = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            }
+
+            Assertions.assertEquals(200, code);
+            Assertions.assertTrue(conn.getContentType().startsWith("application/json"));
+            Assertions.assertTrue(body.contains("\"tableCount\":1"));
+        } finally {
+            server.close();
+        }
+    }
 }

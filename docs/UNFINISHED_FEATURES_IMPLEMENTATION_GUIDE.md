@@ -135,6 +135,7 @@
 - Prometheus 输出已支持客户端进程级 gauge（启动时间、运行时长），便于监控侧做重启识别与窗口聚合。
 - 已支持 `SHOW ROUTING METRICS EXPORT <path>` 将路由指标快照导出到 JSON 文件。
 - 已支持可选 HTTP `/metrics` 端点（`CLIENT_METRICS_HTTP_ENABLED=true`），便于 Prometheus 持续抓取而非依赖手动命令触发。
+- 已支持 HTTP `/metrics/json` 端点输出结构化指标快照，便于监控/日志系统直接接入。
 - 已支持 `/healthz` 探活端点，可用于容器探针/进程健康检查。
 - `MOVING` 已支持透明持续重试模式（`CLIENT_MOVING_RETRY_MAX_ATTEMPTS<=0`）。
 - REPL 已补齐 `execfile <path>` 用户入口：支持脚本解析与顺序执行，并对同表连续 DML 走 `executeBatch` + 路由重试闭环。

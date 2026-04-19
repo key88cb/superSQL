@@ -31,6 +31,12 @@ final class ClientMetricsHttpServer implements AutoCloseable {
 
     static ClientMetricsHttpServer startFromEnv(Map<String, String> env,
                                                 Supplier<String> metricsSupplier) throws IOException {
+        return startFromEnv(env, metricsSupplier, () -> "{}");
+    }
+
+    static ClientMetricsHttpServer startFromEnv(Map<String, String> env,
+                                                Supplier<String> metricsSupplier,
+                                                Supplier<String> jsonMetricsSupplier) throws IOException {
         if (!readEnabled(env)) {
             return null;
         }
@@ -39,6 +45,7 @@ final class ClientMetricsHttpServer implements AutoCloseable {
         int port = readPort(env);
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
         server.createContext("/metrics", new MetricsHandler(metricsSupplier));
+        server.createContext("/metrics/json", new JsonMetricsHandler(jsonMetricsSupplier));
         server.createContext("/healthz", new HealthHandler());
         server.setExecutor(null);
         server.start();
@@ -124,6 +131,33 @@ final class ClientMetricsHttpServer implements AutoCloseable {
                 }
                 byte[] body = "ok\n".getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            } finally {
+                exchange.close();
+            }
+        }
+    }
+
+    private static final class JsonMetricsHandler implements HttpHandler {
+        private final Supplier<String> jsonSupplier;
+
+        private JsonMetricsHandler(Supplier<String> jsonSupplier) {
+            this.jsonSupplier = jsonSupplier;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            try {
+                if (!ensureGet(exchange)) {
+                    return;
+                }
+                String payload = jsonSupplier.get();
+                if (payload == null || payload.isBlank()) {
+                    payload = "{}";
+                }
+                byte[] body = payload.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
                 exchange.sendResponseHeaders(200, body.length);
                 exchange.getResponseBody().write(body);
             } finally {

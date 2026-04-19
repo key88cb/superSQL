@@ -136,6 +136,7 @@
 - Prometheus 输出已补充客户端进程级指标（启动时间、运行时长），便于外部监控识别重启与计算趋势窗口。
 - REPL 已支持 `SHOW ROUTING METRICS EXPORT <path>`，可将当前路由指标快照导出到 JSON 文件。
 - Client 已支持可选 HTTP `/metrics` 暴露（`CLIENT_METRICS_HTTP_ENABLED=true`），可持续输出 Prometheus 文本指标供外部抓取。
+- Client metrics HTTP 服务已支持 `/metrics/json` 结构化快照端点，便于日志平台与采集器直接消费 JSON 指标。
 - Client metrics HTTP 服务已支持 `/healthz` 探活端点，便于容器探针与进程存活检测。
 - REPL 已支持 `execfile <path>`：会解析 SQL 脚本并按顺序执行；同表连续 DML 会走 Region `executeBatch` + MOVING/REDIRECT 重试闭环。
 - 路由缓存支持 TTL 与版本失效。

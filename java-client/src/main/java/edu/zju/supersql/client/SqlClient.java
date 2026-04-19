@@ -96,7 +96,8 @@ public class SqlClient {
         try {
             metricsHttpServer = ClientMetricsHttpServer.startFromEnv(
                 System.getenv(),
-                () -> formatRoutingMetricsPrometheus(snapshotRoutingMetrics()));
+                () -> formatRoutingMetricsPrometheus(snapshotRoutingMetrics()),
+                () -> formatRoutingMetricsJson(snapshotRoutingMetrics()));
             if (metricsHttpServer != null) {
             log.info("Client routing metrics endpoint started at /metrics on port {}",
                 metricsHttpServer.getPort());
