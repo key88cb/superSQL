@@ -56,6 +56,24 @@ class SqlClientRoutingTest {
     }
 
     @Test
+    void classifyDdlActionShouldRejectUnsafeFallbackCases() {
+        Assertions.assertEquals(SqlClient.DdlAction.CREATE_TABLE,
+                SqlClient.classifyDdlAction("create table t1(id int);"));
+        Assertions.assertEquals(SqlClient.DdlAction.DROP_TABLE,
+                SqlClient.classifyDdlAction("drop table t1;"));
+        Assertions.assertEquals(SqlClient.DdlAction.CREATE_INDEX,
+                SqlClient.classifyDdlAction("create index idx_id on t1(id);"));
+        Assertions.assertEquals(SqlClient.DdlAction.DROP_INDEX,
+                SqlClient.classifyDdlAction("drop index idx_id;"));
+        Assertions.assertEquals(SqlClient.DdlAction.FORWARD_TO_REGION,
+                SqlClient.classifyDdlAction("truncate table t1;"));
+        Assertions.assertEquals(SqlClient.DdlAction.UNSUPPORTED,
+                SqlClient.classifyDdlAction("truncate logs;"));
+        Assertions.assertEquals(SqlClient.DdlAction.UNSUPPORTED,
+                SqlClient.classifyDdlAction("alter system set x=1;"));
+    }
+
+    @Test
     void extractTableNameShouldWorkForInsertAndSelect() {
         Assertions.assertEquals("t_order", SqlClient.extractTableName("insert into t_order values (1);"));
         Assertions.assertEquals("t_order", SqlClient.extractTableName("select * from t_order where id = 1;"));

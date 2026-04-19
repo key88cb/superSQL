@@ -45,6 +45,8 @@ public class SqlClient {
 
     enum SqlKind { DDL, DML, SHOW_TABLES, SHOW_ROUTING_METRICS, EXECFILE, UNKNOWN }
 
+    enum DdlAction { CREATE_TABLE, DROP_TABLE, CREATE_INDEX, DROP_INDEX, FORWARD_TO_REGION, UNSUPPORTED }
+
     static SqlKind classifySql(String sql) {
         if (sql == null || sql.isBlank()) return SqlKind.UNKNOWN;
         String s = sql.trim().toLowerCase();
@@ -56,6 +58,29 @@ public class SqlClient {
         if (s.startsWith("select") || s.startsWith("insert")
                 || s.startsWith("update") || s.startsWith("delete")) return SqlKind.DML;
         return SqlKind.UNKNOWN;
+    }
+
+    static DdlAction classifyDdlAction(String sql) {
+        if (sql == null || sql.isBlank()) {
+            return DdlAction.UNSUPPORTED;
+        }
+        String normalized = sql.trim().toLowerCase();
+        if (normalized.startsWith("create table")) {
+            return DdlAction.CREATE_TABLE;
+        }
+        if (normalized.startsWith("drop table")) {
+            return DdlAction.DROP_TABLE;
+        }
+        if (normalized.startsWith("create index")) {
+            return DdlAction.CREATE_INDEX;
+        }
+        if (normalized.startsWith("drop index")) {
+            return DdlAction.DROP_INDEX;
+        }
+        if (normalized.startsWith("alter") || normalized.startsWith("truncate")) {
+            return extractTableName(sql) != null ? DdlAction.FORWARD_TO_REGION : DdlAction.UNSUPPORTED;
+        }
+        return DdlAction.UNSUPPORTED;
     }
 
     static String extractTableName(String sql) {
@@ -351,30 +376,42 @@ public class SqlClient {
 
     private static void handleDdl(String sql, String activeMaster, RouteCache routeCache, ClientConfig config) throws Exception {
         String normalized = sql.trim().toLowerCase();
+        DdlAction action = classifyDdlAction(sql);
         Response r;
-        if (normalized.startsWith("create table")) {
+        if (action == DdlAction.CREATE_TABLE) {
             r = invokeMasterResponseWithRedirect(activeMaster, config, master -> master.createTable(sql));
-        } else if (normalized.startsWith("drop table")) {
+        } else if (action == DdlAction.DROP_TABLE) {
             String tableName = extractTableName(sql);
             if (tableName != null) routeCache.invalidate(tableName);
             String target = tableName != null ? tableName : sql;
             r = invokeMasterResponseWithRedirect(activeMaster, config, master -> master.dropTable(target));
-        } else {
-            // Other DDL (CREATE INDEX, DROP INDEX) — forward to region if table name known
+        } else if (action == DdlAction.CREATE_INDEX || action == DdlAction.DROP_INDEX || action == DdlAction.FORWARD_TO_REGION) {
             String tableName = extractTableName(sql);
-            if (tableName != null) {
+            if (tableName == null) {
+                r = new Response(StatusCode.ERROR);
+                r.setMessage("Cannot determine table name for DDL: " + sql);
+            } else {
                 TableLocation loc = resolveLocation(tableName, activeMaster, routeCache, config);
                 try (RegionRpcClient region = RegionRpcClient.fromInfo(loc.getPrimaryRS(), config.regionRpcTimeoutMs())) {
-                    if (normalized.startsWith("drop index")) {
+                    if (action == DdlAction.DROP_INDEX) {
                         String indexName = extractIndexName(sql);
                         r = region.dropIndex(tableName, indexName != null ? indexName : sql);
-                    } else {
+                    } else if (action == DdlAction.CREATE_INDEX) {
                         r = region.createIndex(tableName, sql);
+                    } else {
+                        QueryResult qr = region.execute(tableName, sql);
+                        if (qr == null || !qr.isSetStatus()) {
+                            r = new Response(StatusCode.ERROR);
+                            r.setMessage("Region returned empty status for DDL: " + sql);
+                        } else {
+                            r = qr.getStatus();
+                        }
                     }
                 }
-            } else {
-                r = invokeMasterResponseWithRedirect(activeMaster, config, master -> master.createTable(sql));
             }
+        } else {
+            r = new Response(StatusCode.ERROR);
+            r.setMessage("Unsupported DDL statement: " + sql);
         }
         printResponse(r);
     }
