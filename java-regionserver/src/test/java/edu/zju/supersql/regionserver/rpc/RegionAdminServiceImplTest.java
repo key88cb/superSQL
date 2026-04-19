@@ -731,6 +731,31 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void transferTableLastFailureMessageShouldBeSanitizedAndBounded() throws Exception {
+        Files.writeString(dataDir.resolve("orders_data"), "payload");
+
+        String longMessage = "reject by test server\n" + "x".repeat(600);
+        int rejectPort = freePort();
+        TServer rejectServer = buildServer(rejectPort, new RejectingCopyService(longMessage));
+        ExecutorService rejectPool = Executors.newSingleThreadExecutor();
+        rejectPool.submit(rejectServer::serve);
+        Thread.sleep(200);
+        try {
+            Response rejected = service.transferTable("orders", "127.0.0.1", rejectPort);
+            Assertions.assertEquals(StatusCode.ERROR, rejected.getCode());
+        } finally {
+            rejectServer.stop();
+            rejectPool.shutdownNow();
+        }
+
+        Map<String, Object> snapshot = service.getTransferTableStats();
+        String lastFailureMessage = String.valueOf(snapshot.get("lastFailureMessage"));
+        Assertions.assertFalse(lastFailureMessage.contains("\n"));
+        Assertions.assertTrue(lastFailureMessage.contains("copyTableData rejected"));
+        Assertions.assertTrue(lastFailureMessage.length() <= 256);
+    }
+
+    @Test
     void transferTableShouldReturnTableNotFoundWhenOnlyStagingFilesExist() throws Exception {
         Files.writeString(dataDir.resolve("orders_orphan.part"), "staging");
 
@@ -766,6 +791,16 @@ class RegionAdminServiceImplTest {
     }
 
     private static final class RejectingCopyService implements RegionAdminService.Iface {
+        private final String message;
+
+        private RejectingCopyService() {
+            this("reject by test server");
+        }
+
+        private RejectingCopyService(String message) {
+            this.message = message;
+        }
+
         @Override
         public Response pauseTableWrite(String tableName) {
             return ok();
@@ -784,7 +819,7 @@ class RegionAdminServiceImplTest {
         @Override
         public Response copyTableData(DataChunk chunk) {
             Response r = new Response(StatusCode.ERROR);
-            r.setMessage("reject by test server");
+            r.setMessage(message);
             return r;
         }
 

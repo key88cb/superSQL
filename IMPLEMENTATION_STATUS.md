@@ -65,6 +65,7 @@
 - RegionServer HTTP 端点已支持 `/status` JSON 运行态输出（含 rsId/端口/zk/dataDir/walDir/miniSqlAlive/timestamp）。
 - RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/duplicateAcks/lastSuccessTs/lastFailureTs/lastFailureMessage），便于定位迁移校验异常。
 - RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure/lastSuccessTs、失败原因分类与最近失败信息），便于快速定位迁移失败类型。
+- RegionServer `/status` 的 `transferTable.lastFailureMessage` 已做单行归一化与长度上限控制（256），避免异常长错误撑大状态接口。
 - 持久化 WAL 基础能力：按表写入 `.wal` 文件，启动时扫描 WAL 恢复全局 LSN。
 - WriteGuard：per-table 写入暂停/恢复（用于迁移中的 MOVING 保护）。
 - ReplicaManager：主侧通过 Thrift 并发 sync 到副本，支持半同步等待与异步 commit。

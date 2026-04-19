@@ -43,6 +43,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int CHUNK_SIZE = 4096;
     private static final int COPY_CHUNK_MAX_RETRIES = 3;
+    private static final int STATUS_FAILURE_MESSAGE_MAX_LEN = 256;
     private static final String STAGING_SUFFIX = ".part";
     private static final String TRANSFER_MANIFEST_PREFIX = "__supersql_transfer_manifest__.";
 
@@ -676,7 +677,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private Response manifestVerificationFailed(String message) {
         manifestVerificationFailure.incrementAndGet();
         manifestVerificationLastFailureTs.set(System.currentTimeMillis());
-        manifestVerificationLastFailureMessage = message;
+        manifestVerificationLastFailureMessage = sanitizeStatusMessage(message);
         Response r = new Response(StatusCode.ERROR);
         r.setMessage(message);
         return r;
@@ -686,7 +687,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         transferTableFailure.incrementAndGet();
         transferTableLastFailureTs.set(System.currentTimeMillis());
         transferTableLastFailureReason = reason;
-        transferTableLastFailureMessage = message;
+        transferTableLastFailureMessage = sanitizeStatusMessage(message);
 
         switch (reason) {
             case "table_not_found" -> transferTableFailureTableNotFound.incrementAndGet();
@@ -698,6 +699,21 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         Response r = new Response(code);
         r.setMessage(message);
         return r;
+    }
+
+    private static String sanitizeStatusMessage(String message) {
+        if (message == null) {
+            return "";
+        }
+        String normalized = message
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (normalized.length() <= STATUS_FAILURE_MESSAGE_MAX_LEN) {
+            return normalized;
+        }
+        return normalized.substring(0, STATUS_FAILURE_MESSAGE_MAX_LEN);
     }
 
     private static String classifyTransferFailureReason(Exception e) {
