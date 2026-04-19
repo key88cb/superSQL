@@ -126,6 +126,7 @@
 - 当升级态 pending commit 最终成功收敛时，ReplicaManager 会记录升级恢复信号（`recoveredFromEscalationCount/lastRecoveredFromEscalationAtMs`），用于确认降频后是否真实恢复。
 - 对于长时间处于升级态且重试次数持续累积的 pending commit，ReplicaManager 会标记为决议候选并输出 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，为后续“多数派最终决议”提供前置信号。
 - 决议候选项已提供预览视图 `decisionCandidatesPreview`（table/lsn/address/attempts/consecutiveTransportFailures/ageMs，最多5条），便于快速定位需要人工或自动决议的对象。
+- 决议候选项引入二级冷却窗口（`decisionCandidateCooldownMs`，默认 300s），触发时记录 `decisionCandidateCooldownAppliedCount`，并在预览项中输出 `nextRetryAtMs`，用于降低长故障期重试噪音。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。

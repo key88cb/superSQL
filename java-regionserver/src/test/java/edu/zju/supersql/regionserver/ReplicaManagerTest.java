@@ -271,11 +271,14 @@ class ReplicaManagerTest {
         Assertions.assertTrue(((Number) stats.get("decisionCandidateCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("activeDecisionCandidateCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("lastDecisionCandidateAtMs")).longValue() > 0L);
+        Assertions.assertTrue(((Number) stats.get("decisionCandidateCooldownAppliedCount")).longValue() >= 1L);
+        Assertions.assertEquals(300_000L, ((Number) stats.get("decisionCandidateCooldownMs")).longValue());
         List<?> preview = (List<?>) stats.get("decisionCandidatesPreview");
         Assertions.assertFalse(preview.isEmpty());
         Map<?, ?> first = (Map<?, ?>) preview.get(0);
         Assertions.assertEquals("orders", first.get("table"));
         Assertions.assertEquals(9191L, ((Number) first.get("lsn")).longValue());
+        Assertions.assertTrue(((Number) first.get("nextRetryAtMs")).longValue() > System.currentTimeMillis());
     }
 
     @Test

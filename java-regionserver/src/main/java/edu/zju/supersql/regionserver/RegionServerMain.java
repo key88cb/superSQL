@@ -190,6 +190,8 @@ public class RegionServerMain {
             defaults.put("escalatedCount", 0L);
             defaults.put("decisionCandidateCount", 0L);
             defaults.put("lastDecisionCandidateAtMs", 0L);
+            defaults.put("decisionCandidateCooldownAppliedCount", 0L);
+            defaults.put("decisionCandidateCooldownMs", 0L);
             defaults.put("recoveredFromEscalationCount", 0L);
             defaults.put("lastRecoveredFromEscalationAtMs", 0L);
             defaults.put("repairTriggeredCount", 0L);
