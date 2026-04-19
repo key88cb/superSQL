@@ -1363,14 +1363,20 @@ public class MasterServiceImpl implements MasterService.Iface {
                 && sourceReplicaId != null
                 && !sourceReplicaId.isBlank()) {
             RegionServerInfo sourceReplica = resolveRegionServerForRecovery(location, sourceReplicaId);
-            if (sourceReplica != null) {
-            boolean sourceCleaned = cleanupReplicaBestEffort(sourceReplica,
+            if (sourceReplica == null) {
+                recoveryBlockedByCompensationFailure = true;
+                log.warn("recoverStuckMigration missing source replica for compensation table={} sourceReplicaId={} status={}",
+                        location.getTableName(),
+                        sourceReplicaId,
+                        currentStatus);
+            } else {
+                boolean sourceCleaned = cleanupReplicaBestEffort(sourceReplica,
                         location.getTableName(),
                         "recover_stuck_finalizing",
                         "source");
-            if (!sourceCleaned) {
-                recoveryBlockedByCompensationFailure = true;
-            }
+                if (!sourceCleaned) {
+                    recoveryBlockedByCompensationFailure = true;
+                }
             }
         }
 
@@ -1380,7 +1386,13 @@ public class MasterServiceImpl implements MasterService.Iface {
                 && targetReplicaId != null
                 && !targetReplicaId.isBlank()) {
             RegionServerInfo targetReplica = resolveRegionServerForRecovery(location, targetReplicaId);
-            if (targetReplica != null) {
+            if (targetReplica == null) {
+                recoveryBlockedByCompensationFailure = true;
+                log.warn("recoverStuckMigration missing target replica for compensation table={} targetReplicaId={} status={}",
+                        location.getTableName(),
+                        targetReplicaId,
+                        currentStatus);
+            } else {
                 boolean targetCleaned = cleanupReplicaBestEffort(targetReplica,
                         location.getTableName(),
                         "recover_stuck_" + currentStatus.toLowerCase(),

@@ -783,6 +783,88 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void getTableLocationShouldNotRecoverStuckFinalizingWhenSourceReplicaMissing() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_stuck_finalizing_missing_source(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_finalizing_missing_source").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "FINALIZING");
+        meta.put("migrationAttemptId", "attempt-finalizing-missing-source");
+        meta.put("migrationSourceReplicaId", "rs-missing");
+        meta.put("migrationTargetReplicaId", "rs-4");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_finalizing_missing_source",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        MasterServiceImpl blockedService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                adminExecutor,
+                clock::get,
+                1_000L,
+                10,
+                5_000L);
+
+        TableLocation recovered = blockedService.getTableLocation("t_stuck_finalizing_missing_source");
+        Assertions.assertEquals("FINALIZING", recovered.getTableStatus());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_finalizing_missing_source");
+        Assertions.assertEquals("FINALIZING", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertEquals("attempt-finalizing-missing-source", String.valueOf(finalMeta.get("migrationAttemptId")));
+    }
+
+    @Test
+    void getTableLocationShouldNotRecoverStuckMovingWhenTargetReplicaMissing() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_stuck_moving_missing_target(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_moving_missing_target").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "MOVING");
+        meta.put("migrationAttemptId", "attempt-moving-missing-target");
+        meta.put("migrationSourceReplicaId", "rs-2");
+        meta.put("migrationTargetReplicaId", "rs-missing");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_moving_missing_target",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        MasterServiceImpl blockedService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                adminExecutor,
+                clock::get,
+                1_000L,
+                10,
+                5_000L);
+
+        TableLocation recovered = blockedService.getTableLocation("t_stuck_moving_missing_target");
+        Assertions.assertEquals("MOVING", recovered.getTableStatus());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_moving_missing_target");
+        Assertions.assertEquals("MOVING", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertEquals("attempt-moving-missing-target", String.valueOf(finalMeta.get("migrationAttemptId")));
+    }
+
+    @Test
     void getTableLocationShouldRecoverStuckMovingStatusToActive() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);

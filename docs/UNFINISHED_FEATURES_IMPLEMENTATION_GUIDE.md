@@ -54,6 +54,7 @@
 - `getTableLocation/listTables/repairTableRoutesBestEffort` 已支持卡死迁移超时回收：当迁移状态超时且 `migrationAttemptId` 仍存在时，自动恢复为 `ACTIVE` 并清理尝试标记。
 - 卡死迁移恢复已补充上下文补偿：基于 `migrationSourceReplicaId/migrationTargetReplicaId` 执行阶段化清理（`FINALIZING` 清理 source；`PREPARING/MOVING/ROLLBACK` 清理 target）后再恢复 `ACTIVE`，降低仅元数据回写导致的数据面残留风险。
 - 卡死迁移恢复已补充失败闸门：若可达副本上的必要补偿清理失败，则保持迁移中状态并保留上下文，避免进入“控制面已恢复、数据面未收敛”的不一致窗口。
+- 卡死迁移恢复已补充“补偿对象可解析”闸门：当上下文中的 source/target 无法解析到可操作副本时，恢复同样被阻断并保留上下文，避免在补偿对象不确定时提前切回 `ACTIVE`。
 - `triggerRebalance()` 调度入口也会执行卡死迁移预恢复：即使本次调度因“集群已平衡”被跳过，也能先回收超时状态。
 - `triggerRebalance()` 在“跳过调度”响应中会附带本轮卡死迁移回收数量，便于外部调度器做轻量观测而不依赖日志解析。
 - `triggerRebalance()` 已限制仅对 `ACTIVE` 表挑选候选，避免迁移中的表被重复调度。
