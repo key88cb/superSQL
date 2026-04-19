@@ -38,6 +38,9 @@ public class MasterServiceImpl implements MasterService.Iface {
                                       long totalRepairedTables,
                                       long lastRunAtMs,
                                       long lastRunRepairedCount,
+                                      long lastRunTotalTables,
+                                      long lastRunCandidateTables,
+                                      String lastRunFilterRegionServerId,
                                       String lastRepairedTable,
                                       String lastError,
                                       long recentWindowSize,
@@ -81,9 +84,12 @@ public class MasterServiceImpl implements MasterService.Iface {
     private final AtomicLong routeRepairTotalRepairedTables = new AtomicLong(0L);
     private final AtomicLong routeRepairLastRunAtMs = new AtomicLong(-1L);
     private final AtomicLong routeRepairLastRunRepairedCount = new AtomicLong(0L);
+    private final AtomicLong routeRepairLastRunTotalTables = new AtomicLong(0L);
+    private final AtomicLong routeRepairLastRunCandidateTables = new AtomicLong(0L);
     private final int routeRepairWindowSize;
     private final Object routeRepairWindowLock = new Object();
     private final ArrayDeque<RouteRepairRun> routeRepairRecentRuns = new ArrayDeque<>();
+    private volatile String routeRepairLastRunFilterRegionServerId;
     private volatile String routeRepairLastRepairedTable;
     private volatile String routeRepairLastError;
 
@@ -319,6 +325,8 @@ public class MasterServiceImpl implements MasterService.Iface {
             int repaired = 0;
             String lastRepairedTable = null;
             List<TableLocation> tables = metaManager.listTables();
+            int totalTables = tables.size();
+            int candidateTables = 0;
             for (TableLocation table : tables) {
                 if (table == null) {
                     continue;
@@ -327,6 +335,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                         && !isTableRelatedToRegionServer(table, regionServerId)) {
                     continue;
                 }
+                candidateTables++;
                 String before = healSignature(table);
                 TableLocation recovered = recoverStuckMigrationBestEffort(table);
                 TableLocation healed = healTableLocationBestEffort(recovered);
@@ -338,18 +347,25 @@ public class MasterServiceImpl implements MasterService.Iface {
             }
             routeRepairTotalRepairedTables.addAndGet(repaired);
             routeRepairLastRunRepairedCount.set(repaired);
+            routeRepairLastRunTotalTables.set(totalTables);
+            routeRepairLastRunCandidateTables.set(candidateTables);
+            routeRepairLastRunFilterRegionServerId = regionServerId;
             routeRepairLastRepairedTable = lastRepairedTable;
             routeRepairLastError = null;
             recordRouteRepairRun(true, repaired);
             if (repaired > 0) {
-                log.info("repairTableRoutesBestEffort repaired={} total={} filterRsId={}",
+                log.info("repairTableRoutesBestEffort repaired={} candidate={} total={} filterRsId={}",
                         repaired,
-                        tables.size(),
+                        candidateTables,
+                        totalTables,
                         regionServerId == null ? "*" : regionServerId);
             }
             return repaired;
         } catch (Exception e) {
             routeRepairLastRunRepairedCount.set(0L);
+            routeRepairLastRunTotalTables.set(0L);
+            routeRepairLastRunCandidateTables.set(0L);
+            routeRepairLastRunFilterRegionServerId = regionServerId;
             routeRepairLastRepairedTable = null;
             routeRepairLastError = e.getMessage();
             recordRouteRepairRun(false, 0L);
@@ -388,6 +404,9 @@ public class MasterServiceImpl implements MasterService.Iface {
                 routeRepairTotalRepairedTables.get(),
                 routeRepairLastRunAtMs.get(),
                 routeRepairLastRunRepairedCount.get(),
+            routeRepairLastRunTotalTables.get(),
+            routeRepairLastRunCandidateTables.get(),
+            routeRepairLastRunFilterRegionServerId,
                 routeRepairLastRepairedTable,
                 routeRepairLastError,
                 routeRepairWindowSize,

@@ -66,6 +66,9 @@ class MasterServerHttpPayloadTest {
                         7L,
                         1_234L,
                         2L,
+                12L,
+                5L,
+                "rs-2",
                 "orders",
                 "none",
                 10L,
@@ -81,6 +84,9 @@ class MasterServerHttpPayloadTest {
         Assertions.assertEquals(3, ((Number) routeRepair.get("runCount")).intValue());
         Assertions.assertEquals(7, ((Number) routeRepair.get("totalRepairedTables")).intValue());
         Assertions.assertEquals(2, ((Number) routeRepair.get("lastRunRepairedCount")).intValue());
+        Assertions.assertEquals(12, ((Number) routeRepair.get("lastRunTotalTables")).intValue());
+        Assertions.assertEquals(5, ((Number) routeRepair.get("lastRunCandidateTables")).intValue());
+        Assertions.assertEquals("rs-2", routeRepair.get("lastRunFilterRegionServerId"));
         Assertions.assertEquals("orders", routeRepair.get("lastRepairedTable"));
         Assertions.assertEquals("none", routeRepair.get("lastError"));
         Assertions.assertEquals(10, ((Number) routeRepair.get("recentWindowSize")).intValue());

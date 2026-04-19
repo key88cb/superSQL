@@ -457,6 +457,9 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertTrue(snapshot.totalRepairedTables() >= 1);
         Assertions.assertTrue(snapshot.lastRunAtMs() > 0L);
         Assertions.assertTrue(snapshot.lastRunRepairedCount() >= 1);
+        Assertions.assertTrue(snapshot.lastRunTotalTables() >= 1);
+        Assertions.assertTrue(snapshot.lastRunCandidateTables() >= 1);
+        Assertions.assertNull(snapshot.lastRunFilterRegionServerId());
         Assertions.assertEquals("t_background_repair", snapshot.lastRepairedTable());
     }
 

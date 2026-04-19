@@ -142,6 +142,9 @@ public class MasterServer {
         status.put("totalRepairedTables", snapshot.totalRepairedTables());
         status.put("lastRunAtMs", snapshot.lastRunAtMs());
         status.put("lastRunRepairedCount", snapshot.lastRunRepairedCount());
+        status.put("lastRunTotalTables", snapshot.lastRunTotalTables());
+        status.put("lastRunCandidateTables", snapshot.lastRunCandidateTables());
+        status.put("lastRunFilterRegionServerId", snapshot.lastRunFilterRegionServerId());
         status.put("lastRepairedTable", snapshot.lastRepairedTable());
         status.put("lastError", snapshot.lastError());
         status.put("recentWindowSize", snapshot.recentWindowSize());
