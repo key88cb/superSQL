@@ -124,8 +124,7 @@ public class RegionServiceImpl implements RegionService.Iface {
     public Response createIndex(String tableName, String ddl) throws TException {
         log.info("createIndex: table={} ddl={}", tableName, ddl);
         try {
-            String raw = miniSql.execute(ddl);
-            QueryResult qr = OutputParser.parse(raw);
+            QueryResult qr = execute(tableName, ddl);
             return qr.getStatus();
         } catch (Exception e) {
             log.error("createIndex failed", e);
@@ -139,8 +138,7 @@ public class RegionServiceImpl implements RegionService.Iface {
     public Response dropIndex(String tableName, String indexName) throws TException {
         log.info("dropIndex: table={} index={}", tableName, indexName);
         try {
-            String raw = miniSql.execute("drop index " + indexName + ";");
-            QueryResult qr = OutputParser.parse(raw);
+            QueryResult qr = execute(tableName, "drop index " + indexName + ";");
             return qr.getStatus();
         } catch (Exception e) {
             log.error("dropIndex failed", e);
@@ -194,12 +192,20 @@ public class RegionServiceImpl implements RegionService.Iface {
                 return new QueryResult(r);
             }
 
-            // 3.5. Commit WAL entry locally (S4-05)
-            walManager.commit(tableName, lsn);
-
-            // 4. Execute on local engine
+            // 3.5. Execute on local engine first
             String raw = miniSql.execute(sql);
             QueryResult result = OutputParser.parse(raw);
+
+            if (!result.isSetStatus() || result.getStatus().getCode() != StatusCode.OK) {
+                walManager.abort(tableName, lsn);
+                if (!replicas.isEmpty()) {
+                    replicaManager.abortOnReplicas(tableName, lsn, replicas);
+                }
+                return result;
+            }
+
+            // 4. Commit WAL entry locally after local execution succeeds
+            walManager.commit(tableName, lsn);
 
             // 5. Async commit on replicas
             if (!replicas.isEmpty()) {

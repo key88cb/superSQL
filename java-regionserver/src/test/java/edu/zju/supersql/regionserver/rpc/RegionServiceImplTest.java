@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.nio.charset.StandardCharsets;
@@ -148,6 +149,42 @@ class RegionServiceImplTest {
             .reconcileReplicasAsync(Mockito.eq("orders"), Mockito.anyLong(), Mockito.anyList());
     }
 
+        @Test
+        void writeCommitsWalAfterLocalExecution() throws Exception {
+        CuratorFramework zkClient = mockAssignmentZk("orders", "127.0.0.1", 9091);
+        RegionServiceImpl strictService = new RegionServiceImpl(
+            mockMiniSql, walManager, mockReplicaManager, writeGuard, zkClient, "rs-1:9090", 1);
+        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(1))).thenReturn(1);
+
+        QueryResult result = strictService.execute("orders", "insert into orders values(7,'ok');");
+
+        Assertions.assertEquals(StatusCode.OK, result.getStatus().getCode());
+        InOrder inOrder = Mockito.inOrder(mockMiniSql, mockReplicaManager);
+        inOrder.verify(mockMiniSql).execute("insert into orders values(7,'ok');");
+        inOrder.verify(mockReplicaManager).commitOnReplicas(Mockito.eq("orders"), Mockito.anyLong(), Mockito.anyList());
+        }
+
+        @Test
+        void localEngineErrorShouldAbortWalAndAbortReplicas() throws Exception {
+        CuratorFramework zkClient = mockAssignmentZk("orders", "127.0.0.1", 9091);
+        RegionServiceImpl strictService = new RegionServiceImpl(
+            mockMiniSql, walManager, mockReplicaManager, writeGuard, zkClient, "rs-1:9090", 1);
+        Mockito.when(mockReplicaManager.syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(1))).thenReturn(1);
+        Mockito.when(mockMiniSql.execute("insert into orders values(8,'bad');"))
+            .thenReturn(">>> Error: duplicate key\n");
+
+        QueryResult result = strictService.execute("orders", "insert into orders values(8,'bad');");
+
+        Assertions.assertEquals(StatusCode.ERROR, result.getStatus().getCode());
+        Mockito.verify(mockReplicaManager).abortOnReplicas(Mockito.eq("orders"), Mockito.anyLong(), Mockito.anyList());
+        Mockito.verify(mockReplicaManager, Mockito.never())
+            .commitOnReplicas(Mockito.eq("orders"), Mockito.anyLong(), Mockito.anyList());
+        Mockito.verify(mockReplicaManager, Mockito.never())
+            .reconcileReplicasAsync(Mockito.eq("orders"), Mockito.anyLong(), Mockito.anyList());
+        Assertions.assertTrue(walManager.readEntriesAfter("orders", 0L).isEmpty());
+        Assertions.assertTrue(walManager.readUncommittedEntries("orders").isEmpty());
+        }
+
     @Test
     void writeShouldFailWhenReplicaTargetsBelowConfiguredMinimum() throws Exception {
         RegionServiceImpl strictService = new RegionServiceImpl(
@@ -199,12 +236,24 @@ class RegionServiceImplTest {
     void createIndexForwardsToEngine() throws Exception {
         service.createIndex("orders", "create index idx_id on orders(id);");
         Mockito.verify(mockMiniSql).execute("create index idx_id on orders(id);");
+        Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(0));
     }
 
     @Test
     void dropIndexForwardsToEngine() throws Exception {
         service.dropIndex("orders", "idx_id");
         Mockito.verify(mockMiniSql).execute("drop index idx_id;");
+        Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.anyList(), Mockito.eq(0));
+    }
+
+    @Test
+    void createIndexShouldRespectPausedWriteGuard() throws Exception {
+        writeGuard.pause("orders");
+
+        Response response = service.createIndex("orders", "create index idx_id on orders(id);");
+
+        Assertions.assertEquals(StatusCode.MOVING, response.getCode());
+        Mockito.verify(mockMiniSql, Mockito.never()).execute("create index idx_id on orders(id);");
     }
 
     // ── ping ─────────────────────────────────────────────────────────────────

@@ -338,6 +338,18 @@ public class ReplicaManager {
         }
     }
 
+    /**
+     * Sends an explicit ABORT final decision to all replicas asynchronously (best-effort).
+     */
+    public void abortOnReplicas(String tableName, long lsn, List<String> addresses) {
+        if (addresses == null || addresses.isEmpty()) {
+            return;
+        }
+        for (String addr : addresses) {
+            executor.submit(() -> abortOne(tableName, lsn, addr));
+        }
+    }
+
     public Map<String, Object> getCommitRetryStats() {
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("pendingCount", pendingCommits.size());
@@ -677,6 +689,47 @@ public class ReplicaManager {
             log.warn("finalizeLogDecision(commit) to {} failed for table={} lsn={}: {}",
                     address, tableName, lsn, e.getMessage());
                 return new CommitAttempt(false, COMMIT_ERR_TRANSPORT + ": " + e.getMessage());
+        }
+    }
+
+    private boolean abortOne(String tableName, long lsn, String address) {
+        String[] parts = address.split(":");
+        if (parts.length != 2) {
+            return false;
+        }
+        String host = parts[0];
+        int port;
+        try {
+            port = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+
+        try (TTransport transport = new TFramedTransport(
+                new TSocket(host, port, CONNECT_TIMEOUT_MS))) {
+            transport.open();
+            TMultiplexedProtocol protocol = new TMultiplexedProtocol(
+                    new TBinaryProtocol(transport), "ReplicaSyncService");
+            ReplicaSyncService.Client client = new ReplicaSyncService.Client(protocol);
+            String decisionId = buildDecisionId(tableName, lsn, false);
+            Response resp = client.finalizeLogDecision(
+                    tableName,
+                    lsn,
+                    false,
+                    decisionId,
+                    System.currentTimeMillis());
+            if (resp.getCode() == StatusCode.OK) {
+                log.debug("finalizeLogDecision(abort) to {} for table={} lsn={}: code={}",
+                        address, tableName, lsn, resp.getCode());
+                return true;
+            }
+            log.warn("finalizeLogDecision(abort) to {} for table={} lsn={} returned code={} msg={}",
+                    address, tableName, lsn, resp.getCode(), resp.getMessage());
+            return false;
+        } catch (Exception e) {
+            log.warn("finalizeLogDecision(abort) to {} failed for table={} lsn={}: {}",
+                    address, tableName, lsn, e.getMessage());
+            return false;
         }
     }
 
