@@ -124,6 +124,7 @@
 - `copyTableData` 已支持重复 chunk 幂等确认：当目标端已写入同偏移同内容时，会返回成功而非触发 offset reset，提升链路抖动下重试成功率。
 - `copyTableData` 对“同偏移但内容不一致”的重复包会显式拒绝且不重置当前传输进度，避免因异常重试包覆盖/清空已完成分块。
 - `transferTable` 已过滤源端 `.part` 临时文件，只迁移已完成文件，避免把未完成分块产物继续扩散。
+- RegionAdmin 文件作用域已收敛为“表名精确匹配或 `tableName_` 前缀”，避免 `deleteLocalTable/transferTable` 误操作相似前缀表（如 `orders` 误匹配 `orders2_*`）。
 - ReplicaSyncServiceImpl 已支持内存/本地结合的基础同步路径、pullLog 与 commitLog 回放。
 - ReplicaSyncServiceImpl 的 `commitLog` 已具备幂等语义：重复 COMMIT 不再重复回放 SQL。
 - ReplicaSyncServiceImpl 的 `pullLog/getMaxLsn` 已收敛为仅暴露 COMMITTED 日志（并在启动时恢复 committed 索引），避免将未提交 PREPARE 暴露给追赶链路。
@@ -269,6 +270,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：`copyTableData` 在“重复 offset 但内容冲突”场景下会返回错误且保持传输进度，后续正确 chunk 可继续完成迁移。
 - 2026-04-19 已补充覆盖：`triggerRebalance` 在“集群已平衡”返回前会先执行卡死迁移预恢复，验证调度路径不再依赖读路径才能回收超时状态。
 - 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（总量 + `rebalance/recovery` 分项 + 分项最近错误）与 Master `/status` 中 `migration` 字段契约。
+- 2026-04-20 已补充覆盖：`deleteLocalTable/transferTable` 的同前缀跨表隔离回归（`orders` 不再误作用 `orders2_*`）。
 - 已补充基础版网络分区混沌脚本：`scripts/chaos_test.sh network_partition` 会对 `rs-1` / `rs-2` 注入双向网络阻断，归档分区期间 SQL 返回与 `/status` 观测结果，用于推进 S7-05 的脚本、注入方式与结果归档闭环。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。

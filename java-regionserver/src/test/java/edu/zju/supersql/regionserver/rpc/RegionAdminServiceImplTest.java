@@ -78,6 +78,8 @@ class RegionAdminServiceImplTest {
         // Create some files that should be deleted
         Files.writeString(dataDir.resolve("orders"), "data");
         Files.writeString(dataDir.resolve("orders_index"), "idx");
+        // This file belongs to a different table and must be preserved.
+        Files.writeString(dataDir.resolve("orders2_data"), "other-table");
         // This file should NOT be deleted
         Files.writeString(dataDir.resolve("other_table"), "other");
 
@@ -86,6 +88,7 @@ class RegionAdminServiceImplTest {
 
         Assertions.assertFalse(dataDir.resolve("orders").toFile().exists());
         Assertions.assertFalse(dataDir.resolve("orders_index").toFile().exists());
+        Assertions.assertTrue(dataDir.resolve("orders2_data").toFile().exists());
         Assertions.assertTrue(dataDir.resolve("other_table").toFile().exists());
     }
 
@@ -375,6 +378,7 @@ class RegionAdminServiceImplTest {
     @Test
     void transferTableShouldIgnoreStagingFiles() throws Exception {
         Files.writeString(dataDir.resolve("orders_data"), "payload");
+        Files.writeString(dataDir.resolve("orders2_data"), "payload-other-table");
         Files.writeString(dataDir.resolve("orders_data.part"), "staging");
 
         int port = freePort();
@@ -390,6 +394,7 @@ class RegionAdminServiceImplTest {
             Assertions.assertFalse(recording.chunks.isEmpty());
             Assertions.assertTrue(recording.chunks.stream().noneMatch(c -> c.getFileName().endsWith(".part")));
             Assertions.assertTrue(recording.chunks.stream().anyMatch(c -> c.getFileName().equals("orders_data")));
+            Assertions.assertTrue(recording.chunks.stream().noneMatch(c -> c.getFileName().equals("orders2_data")));
             Assertions.assertTrue(recording.chunks.stream().anyMatch(c -> c.getFileName().startsWith("__supersql_transfer_manifest__.")));
         } finally {
             server.stop();

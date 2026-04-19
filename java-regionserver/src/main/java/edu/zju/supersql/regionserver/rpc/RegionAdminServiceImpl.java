@@ -134,7 +134,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             // Delete local data files matching tableName*
             File dir = new File(dataDir);
             if (dir.exists() && dir.isDirectory()) {
-                File[] files = dir.listFiles(f -> f.getName().startsWith(tableName));
+                File[] files = dir.listFiles(f -> isTableOwnedDataFile(tableName, f.getName()));
                 if (files != null) {
                     for (File f : files) {
                         if (f.delete()) {
@@ -252,7 +252,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                         "dataDir not found: " + dataDir);
             }
 
-            File[] tableFiles = dir.listFiles(f -> f.getName().startsWith(tableName)
+                File[] tableFiles = dir.listFiles(f -> isTableOwnedDataFile(tableName, f.getName())
                     && !f.getName().endsWith(STAGING_SUFFIX));
             if (tableFiles == null || tableFiles.length == 0) {
                 return transferTableFailed(
@@ -1210,5 +1210,12 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         } catch (IOException e) {
             return 0L;
         }
+    }
+
+    private static boolean isTableOwnedDataFile(String tableName, String fileName) {
+        if (tableName == null || tableName.isBlank() || fileName == null || fileName.isBlank()) {
+            return false;
+        }
+        return fileName.equals(tableName) || fileName.startsWith(tableName + "_");
     }
 }
