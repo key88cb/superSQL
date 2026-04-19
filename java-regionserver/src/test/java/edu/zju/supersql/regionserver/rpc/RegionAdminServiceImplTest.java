@@ -781,6 +781,30 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void transferTableRecentFailuresShouldKeepBoundedWindow() throws Exception {
+        for (int i = 0; i < 10; i++) {
+            Response r = service.transferTable("orders_missing_" + i, "127.0.0.1", 9999);
+            Assertions.assertEquals(StatusCode.TABLE_NOT_FOUND, r.getCode());
+        }
+
+        Map<String, Object> snapshot = service.getTransferTableStats();
+        List<?> recent = (List<?>) snapshot.get("recentFailures");
+        Assertions.assertEquals(8, recent.size());
+
+        Map<?, ?> first = (Map<?, ?>) recent.get(0);
+        Map<?, ?> last = (Map<?, ?>) recent.get(recent.size() - 1);
+
+        Assertions.assertEquals("table_not_found", String.valueOf(first.get("reason")));
+        Assertions.assertEquals("TABLE_NOT_FOUND", String.valueOf(first.get("code")));
+        Assertions.assertTrue(String.valueOf(first.get("message")).contains("orders_missing_2"));
+
+        Assertions.assertEquals("table_not_found", String.valueOf(last.get("reason")));
+        Assertions.assertEquals("TABLE_NOT_FOUND", String.valueOf(last.get("code")));
+        Assertions.assertTrue(String.valueOf(last.get("message")).contains("orders_missing_9"));
+        Assertions.assertTrue(((Number) last.get("ts")).longValue() > 0L);
+    }
+
+    @Test
     void transferTableShouldReturnTableNotFoundWhenOnlyStagingFilesExist() throws Exception {
         Files.writeString(dataDir.resolve("orders_orphan.part"), "staging");
 

@@ -21,7 +21,9 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,6 +46,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private static final int CHUNK_SIZE = 4096;
     private static final int COPY_CHUNK_MAX_RETRIES = 3;
     private static final int STATUS_FAILURE_MESSAGE_MAX_LEN = 256;
+    private static final int TRANSFER_FAILURE_HISTORY_MAX_SIZE = 8;
     private static final String STAGING_SUFFIX = ".part";
     private static final String TRANSFER_MANIFEST_PREFIX = "__supersql_transfer_manifest__.";
 
@@ -73,6 +76,8 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong transferTableLastFailureTs = new AtomicLong();
     private volatile String transferTableLastFailureReason = "";
     private volatile String transferTableLastFailureMessage = "";
+    private final Object transferFailureHistoryLock = new Object();
+    private final Deque<Map<String, Object>> transferTableRecentFailures = new ArrayDeque<>();
 
     public RegionAdminServiceImpl(WriteGuard writeGuard,
                                   CuratorFramework zkClient,
@@ -656,6 +661,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("lastFailureTs", transferTableLastFailureTs.get());
         payload.put("lastFailureReason", transferTableLastFailureReason);
         payload.put("lastFailureMessage", transferTableLastFailureMessage);
+        payload.put("recentFailures", snapshotRecentTransferFailures());
         return payload;
     }
 
@@ -687,9 +693,12 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     private Response transferTableFailed(StatusCode code, String reason, String message) {
         transferTableFailure.incrementAndGet();
-        transferTableLastFailureTs.set(System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        transferTableLastFailureTs.set(now);
         transferTableLastFailureReason = reason;
-        transferTableLastFailureMessage = sanitizeStatusMessage(message);
+        String sanitizedMessage = sanitizeStatusMessage(message);
+        transferTableLastFailureMessage = sanitizedMessage;
+        recordTransferFailure(now, code, reason, sanitizedMessage);
 
         switch (reason) {
             case "table_not_found" -> transferTableFailureTableNotFound.incrementAndGet();
@@ -702,6 +711,27 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         Response r = new Response(code);
         r.setMessage(message);
         return r;
+    }
+
+    private List<Map<String, Object>> snapshotRecentTransferFailures() {
+        synchronized (transferFailureHistoryLock) {
+            return new ArrayList<>(transferTableRecentFailures);
+        }
+    }
+
+    private void recordTransferFailure(long ts, StatusCode code, String reason, String message) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("ts", ts);
+        event.put("reason", reason == null ? "" : reason);
+        event.put("code", code == null ? "" : code.name());
+        event.put("message", message == null ? "" : message);
+
+        synchronized (transferFailureHistoryLock) {
+            transferTableRecentFailures.addLast(event);
+            while (transferTableRecentFailures.size() > TRANSFER_FAILURE_HISTORY_MAX_SIZE) {
+                transferTableRecentFailures.removeFirst();
+            }
+        }
     }
 
     private static String sanitizeStatusMessage(String message) {

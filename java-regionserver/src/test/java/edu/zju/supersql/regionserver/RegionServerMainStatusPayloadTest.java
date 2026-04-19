@@ -46,6 +46,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) transferTable.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("failure")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("lastSuccessTs")).longValue());
+        Assertions.assertTrue(((java.util.List<?>) transferTable.get("recentFailures")).isEmpty());
         Assertions.assertTrue(json.containsKey("timestamp"));
     }
 
@@ -75,6 +76,14 @@ class RegionServerMainStatusPayloadTest {
         transferTableStats.put("lastFailureTs", 456L);
         transferTableStats.put("lastFailureReason", "target_reject");
         transferTableStats.put("lastFailureMessage", "copyTableData rejected");
+        java.util.List<Map<String, Object>> recentFailures = new java.util.ArrayList<>();
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("ts", 456L);
+        event.put("reason", "target_reject");
+        event.put("code", "ERROR");
+        event.put("message", "copyTableData rejected");
+        recentFailures.add(event);
+        transferTableStats.put("recentFailures", recentFailures);
 
         byte[] payload = RegionServerMain.buildStatusPayload(
                 "rs-9",
@@ -110,5 +119,6 @@ class RegionServerMainStatusPayloadTest {
             Assertions.assertEquals(0L, ((Number) failureReasons.get("transport_error")).longValue());
             Assertions.assertEquals(0L, ((Number) failureReasons.get("source_io_error")).longValue());
             Assertions.assertEquals("target_reject", transferTable.get("lastFailureReason"));
+            Assertions.assertEquals(1, ((java.util.List<?>) transferTable.get("recentFailures")).size());
     }
 }
