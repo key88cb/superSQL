@@ -298,6 +298,17 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     public int repairTableRoutesBestEffort() {
+        return repairTableRoutesBestEffortInternal(null);
+    }
+
+    public int repairTableRoutesForRegionServerBestEffort(String regionServerId) {
+        if (regionServerId == null || regionServerId.isBlank()) {
+            return repairTableRoutesBestEffortInternal(null);
+        }
+        return repairTableRoutesBestEffortInternal(regionServerId.trim());
+    }
+
+    private int repairTableRoutesBestEffortInternal(String regionServerId) {
         if (!isLeader() || isZkUnavailable(zk())) {
             return 0;
         }
@@ -310,6 +321,10 @@ public class MasterServiceImpl implements MasterService.Iface {
             List<TableLocation> tables = metaManager.listTables();
             for (TableLocation table : tables) {
                 if (table == null) {
+                    continue;
+                }
+                if (regionServerId != null
+                        && !isTableRelatedToRegionServer(table, regionServerId)) {
                     continue;
                 }
                 String before = healSignature(table);
@@ -327,7 +342,10 @@ public class MasterServiceImpl implements MasterService.Iface {
             routeRepairLastError = null;
             recordRouteRepairRun(true, repaired);
             if (repaired > 0) {
-                log.info("repairTableRoutesBestEffort repaired={} total={}", repaired, tables.size());
+                log.info("repairTableRoutesBestEffort repaired={} total={} filterRsId={}",
+                        repaired,
+                        tables.size(),
+                        regionServerId == null ? "*" : regionServerId);
             }
             return repaired;
         } catch (Exception e) {
@@ -338,6 +356,29 @@ public class MasterServiceImpl implements MasterService.Iface {
             log.warn("repairTableRoutesBestEffort failed: {}", e.getMessage());
             return 0;
         }
+    }
+
+    private static boolean isTableRelatedToRegionServer(TableLocation table, String regionServerId) {
+        if (table == null || regionServerId == null || regionServerId.isBlank()) {
+            return false;
+        }
+        if (table.isSetPrimaryRS()
+                && table.getPrimaryRS() != null
+                && table.getPrimaryRS().isSetId()
+                && regionServerId.equals(table.getPrimaryRS().getId())) {
+            return true;
+        }
+        if (!table.isSetReplicas() || table.getReplicas() == null) {
+            return false;
+        }
+        for (RegionServerInfo replica : table.getReplicas()) {
+            if (replica != null
+                    && replica.isSetId()
+                    && regionServerId.equals(replica.getId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public RouteRepairSnapshot routeRepairSnapshot() {

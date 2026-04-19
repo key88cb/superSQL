@@ -65,6 +65,7 @@
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。
 - `RebalanceScheduler` 已补充外部触发节流验证，membership 抖动场景下可抑制触发风暴。
 - RegionServer 上下线事件已接入后台路由修复扫描（`repairTableRoutesBestEffort`），可主动修复离线主副本而非仅依赖读请求触发。
+- membership 事件触发的 route repair 现支持携带 `rsId` 定向扫描受影响表，减少集群规模增大时的无效全表修复扫描。
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
 - Master `/status` 已可查看 route repair 运行指标（最近修复时间/修复表/修复次数/最近错误），并包含近 N 次运行窗口统计（成功率、平均修复数）。
 - membership 事件触发链路在 route repair 抛错时会记录告警但不中断 rebalance 外部触发。

@@ -6,6 +6,8 @@ import edu.zju.supersql.rpc.StatusCode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class MasterServerMembershipRebalanceListenerTest {
@@ -38,6 +40,7 @@ class MasterServerMembershipRebalanceListenerTest {
     void membershipListenerShouldTriggerRouteRepairOnUpAndDown() {
         AtomicInteger schedulerCalls = new AtomicInteger(0);
         AtomicInteger repairCalls = new AtomicInteger(0);
+        List<String> repairedRsIds = new ArrayList<>();
 
         RebalanceScheduler scheduler = new RebalanceScheduler(
                 true,
@@ -53,8 +56,9 @@ class MasterServerMembershipRebalanceListenerTest {
 
         RegionServerWatcher.Listener listener = MasterServer.buildMembershipRebalanceListener(
                 scheduler,
-                () -> {
+                rsId -> {
                     repairCalls.incrementAndGet();
+                    repairedRsIds.add(rsId);
                     return 1;
                 });
 
@@ -63,6 +67,7 @@ class MasterServerMembershipRebalanceListenerTest {
 
         Assertions.assertEquals(2, schedulerCalls.get());
         Assertions.assertEquals(2, repairCalls.get());
+        Assertions.assertEquals(List.of("rs-1", "rs-1"), repairedRsIds);
     }
 
     @Test
@@ -84,7 +89,7 @@ class MasterServerMembershipRebalanceListenerTest {
 
         RegionServerWatcher.Listener listener = MasterServer.buildMembershipRebalanceListener(
                 scheduler,
-                () -> {
+                rsId -> {
                     repairCalls.incrementAndGet();
                     throw new RuntimeException("repair failed");
                 });
