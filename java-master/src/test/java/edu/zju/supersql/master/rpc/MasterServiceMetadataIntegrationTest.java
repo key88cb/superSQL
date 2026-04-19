@@ -537,16 +537,27 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertTrue(successSnapshot.attemptCount() >= 1L);
         Assertions.assertTrue(successSnapshot.successCount() >= 1L);
         Assertions.assertEquals(0L, successSnapshot.failureCount());
+        Assertions.assertTrue(successSnapshot.rebalanceAttemptCount() >= 1L);
+        Assertions.assertTrue(successSnapshot.rebalanceSuccessCount() >= 1L);
+        Assertions.assertEquals(0L, successSnapshot.rebalanceFailureCount());
+        Assertions.assertEquals(0L, successSnapshot.recoveryFailureCount());
         Assertions.assertTrue(successSnapshot.lastAttemptAtMs() > 0L);
         Assertions.assertTrue(successSnapshot.lastSuccessAtMs() > 0L);
+        Assertions.assertNull(successSnapshot.lastRebalanceError());
+        Assertions.assertNull(successSnapshot.lastRecoveryError());
 
         edu.zju.supersql.master.migration.RegionMigrator.MigrationSnapshot failureSnapshot = failingService.migrationSnapshot();
         Assertions.assertTrue(failureSnapshot.attemptCount() >= 1L);
         Assertions.assertEquals(0L, failureSnapshot.successCount());
         Assertions.assertTrue(failureSnapshot.failureCount() >= 1L);
+        Assertions.assertTrue(failureSnapshot.rebalanceAttemptCount() >= 1L);
+        Assertions.assertEquals(0L, failureSnapshot.rebalanceSuccessCount());
+        Assertions.assertTrue(failureSnapshot.rebalanceFailureCount() >= 1L);
         Assertions.assertTrue(failureSnapshot.lastFailureAtMs() > 0L);
         Assertions.assertNotNull(failureSnapshot.lastError());
         Assertions.assertFalse(failureSnapshot.lastError().isBlank());
+        Assertions.assertNotNull(failureSnapshot.lastRebalanceError());
+        Assertions.assertFalse(failureSnapshot.lastRebalanceError().isBlank());
     }
 
     @Test

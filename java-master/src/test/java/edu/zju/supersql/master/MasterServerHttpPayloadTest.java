@@ -105,10 +105,18 @@ class MasterServerHttpPayloadTest {
                         5L,
                         3L,
                         2L,
+                4L,
+                2L,
+                2L,
+                1L,
+                1L,
+                0L,
                         2_001L,
                         2_002L,
                         2_003L,
-                        "transfer failed");
+                "transfer failed",
+                "rebalance transfer failed",
+                null);
 
         byte[] payload = MasterServer.buildStatusPayload(8080, 8880, "zk1:2181", null, null, snapshot);
         Map<?, ?> json = MAPPER.readValue(new String(payload, StandardCharsets.UTF_8), Map.class);
@@ -118,9 +126,17 @@ class MasterServerHttpPayloadTest {
         Assertions.assertEquals(5, ((Number) migration.get("attemptCount")).intValue());
         Assertions.assertEquals(3, ((Number) migration.get("successCount")).intValue());
         Assertions.assertEquals(2, ((Number) migration.get("failureCount")).intValue());
+        Assertions.assertEquals(4, ((Number) migration.get("rebalanceAttemptCount")).intValue());
+        Assertions.assertEquals(2, ((Number) migration.get("rebalanceSuccessCount")).intValue());
+        Assertions.assertEquals(2, ((Number) migration.get("rebalanceFailureCount")).intValue());
+        Assertions.assertEquals(1, ((Number) migration.get("recoveryAttemptCount")).intValue());
+        Assertions.assertEquals(1, ((Number) migration.get("recoverySuccessCount")).intValue());
+        Assertions.assertEquals(0, ((Number) migration.get("recoveryFailureCount")).intValue());
         Assertions.assertEquals(2001L, ((Number) migration.get("lastAttemptAtMs")).longValue());
         Assertions.assertEquals(2002L, ((Number) migration.get("lastSuccessAtMs")).longValue());
         Assertions.assertEquals(2003L, ((Number) migration.get("lastFailureAtMs")).longValue());
         Assertions.assertEquals("transfer failed", migration.get("lastError"));
+        Assertions.assertEquals("rebalance transfer failed", migration.get("lastRebalanceError"));
+        Assertions.assertNull(migration.get("lastRecoveryError"));
     }
 }

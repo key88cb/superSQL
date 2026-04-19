@@ -33,7 +33,7 @@
 - Master `/status` 已输出 RebalanceScheduler 运行快照（tick/trigger/throttle/success/failure、最近执行时间、最近触发原因）。
 - Master `/status` 已输出 route repair 运行指标（修复运行次数、累计修复表数、最近修复时间、最近修复表、最近错误），并新增近 N 次运行窗口统计（成功率、平均修复数）。
 - Master `/status` 的 route repair 指标已补充最近一次扫描范围观测（`lastRunTotalTables`/`lastRunCandidateTables`/`lastRunFilterRegionServerId`），便于区分全量修复与按 RS 定向修复的覆盖面。
-- Master `/status` 已新增迁移编排指标快照（`attemptCount/successCount/failureCount/lastError/lastAttemptAtMs/lastSuccessAtMs/lastFailureAtMs`），用于观测 `RegionMigrator` 的迁移与卡死恢复执行结果。
+- Master `/status` 已新增并细化迁移编排指标快照：在总量指标（`attemptCount/successCount/failureCount`）之外，提供 `rebalance*` 与 `recovery*` 分项计数，以及 `lastRebalanceError/lastRecoveryError`，便于区分迁移主流程失败与卡死恢复失败。
 - RegionServer 上下线事件已接入调度器外部触发（`rs_up` / `rs_down`），在节流保护下可即时请求一次 rebalance。
 - RebalanceScheduler 定时 tick 已接入 route repair 预扫描：即使没有读流量和 membership 事件，也会周期性后台修复离线路由再进入 rebalance。
 - RebalanceScheduler 已覆盖外部触发节流测试：连续 membership 事件会受 `minGapMs` 保护，避免抖动时触发风暴。
@@ -239,7 +239,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：`copyTableData` 在“进行中重复 chunk”与“完成后重复末块”场景下的幂等确认语义，避免误触发 offset reset。
 - 2026-04-19 已补充覆盖：`copyTableData` 在“重复 offset 但内容冲突”场景下会返回错误且保持传输进度，后续正确 chunk 可继续完成迁移。
 - 2026-04-19 已补充覆盖：`triggerRebalance` 在“集群已平衡”返回前会先执行卡死迁移预恢复，验证调度路径不再依赖读路径才能回收超时状态。
-- 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（attempt/success/failure/lastError）与 Master `/status` 中 `migration` 字段契约。
+- 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（总量 + `rebalance/recovery` 分项 + 分项最近错误）与 Master `/status` 中 `migration` 字段契约。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 

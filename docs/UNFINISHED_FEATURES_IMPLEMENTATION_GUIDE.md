@@ -74,7 +74,7 @@
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
 - Master `/status` 已可查看 route repair 运行指标（最近修复时间/修复表/修复次数/最近错误），并包含近 N 次运行窗口统计（成功率、平均修复数）。
 - Master `/status` 的 route repair 指标已支持最近一次扫描范围观测（全表总数/候选表数/过滤 rsId）。
-- Master `/status` 已新增 `migration` 指标快照（attempt/success/failure/lastError 与最近时间戳），用于观测 `RegionMigrator` 迁移与卡死恢复执行状态。
+- Master `/status` 已新增 `migration` 指标快照，并细分 `rebalance*` / `recovery*` 分项计数与 `lastRebalanceError` / `lastRecoveryError`，可直接区分迁移主流程与卡死恢复链路的失败来源。
 - membership 事件触发链路在 route repair 抛错时会记录告警但不中断 rebalance 外部触发。
 - RegionServer 成员变更（up/down）已可触发调度器外部请求（受节流保护）。
 - rebalance 的元数据回滚、target 残留清理补偿、cache invalidation/resume best-effort。

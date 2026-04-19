@@ -176,10 +176,18 @@ public class MasterServer {
         status.put("attemptCount", snapshot.attemptCount());
         status.put("successCount", snapshot.successCount());
         status.put("failureCount", snapshot.failureCount());
+        status.put("rebalanceAttemptCount", snapshot.rebalanceAttemptCount());
+        status.put("rebalanceSuccessCount", snapshot.rebalanceSuccessCount());
+        status.put("rebalanceFailureCount", snapshot.rebalanceFailureCount());
+        status.put("recoveryAttemptCount", snapshot.recoveryAttemptCount());
+        status.put("recoverySuccessCount", snapshot.recoverySuccessCount());
+        status.put("recoveryFailureCount", snapshot.recoveryFailureCount());
         status.put("lastAttemptAtMs", snapshot.lastAttemptAtMs());
         status.put("lastSuccessAtMs", snapshot.lastSuccessAtMs());
         status.put("lastFailureAtMs", snapshot.lastFailureAtMs());
         status.put("lastError", snapshot.lastError());
+        status.put("lastRebalanceError", snapshot.lastRebalanceError());
+        status.put("lastRecoveryError", snapshot.lastRecoveryError());
         return status;
     }
 

@@ -29,10 +29,18 @@ public final class RegionMigrator {
     public record MigrationSnapshot(long attemptCount,
                                     long successCount,
                                     long failureCount,
+                                    long rebalanceAttemptCount,
+                                    long rebalanceSuccessCount,
+                                    long rebalanceFailureCount,
+                                    long recoveryAttemptCount,
+                                    long recoverySuccessCount,
+                                    long recoveryFailureCount,
                                     long lastAttemptAtMs,
                                     long lastSuccessAtMs,
                                     long lastFailureAtMs,
-                                    String lastError) {
+                                    String lastError,
+                                    String lastRebalanceError,
+                                    String lastRecoveryError) {
     }
 
     @FunctionalInterface
@@ -67,10 +75,18 @@ public final class RegionMigrator {
     private final AtomicLong attemptCount = new AtomicLong(0L);
     private final AtomicLong successCount = new AtomicLong(0L);
     private final AtomicLong failureCount = new AtomicLong(0L);
+    private final AtomicLong rebalanceAttemptCount = new AtomicLong(0L);
+    private final AtomicLong rebalanceSuccessCount = new AtomicLong(0L);
+    private final AtomicLong rebalanceFailureCount = new AtomicLong(0L);
+    private final AtomicLong recoveryAttemptCount = new AtomicLong(0L);
+    private final AtomicLong recoverySuccessCount = new AtomicLong(0L);
+    private final AtomicLong recoveryFailureCount = new AtomicLong(0L);
     private final AtomicLong lastAttemptAtMs = new AtomicLong(-1L);
     private final AtomicLong lastSuccessAtMs = new AtomicLong(-1L);
     private final AtomicLong lastFailureAtMs = new AtomicLong(-1L);
     private volatile String lastError;
+    private volatile String lastRebalanceError;
+    private volatile String lastRecoveryError;
 
     public RegionMigrator(MetaManager metaManager,
                           AssignmentManager assignmentManager,
@@ -93,16 +109,24 @@ public final class RegionMigrator {
                 attemptCount.get(),
                 successCount.get(),
                 failureCount.get(),
+            rebalanceAttemptCount.get(),
+            rebalanceSuccessCount.get(),
+            rebalanceFailureCount.get(),
+            recoveryAttemptCount.get(),
+            recoverySuccessCount.get(),
+            recoveryFailureCount.get(),
                 lastAttemptAtMs.get(),
                 lastSuccessAtMs.get(),
                 lastFailureAtMs.get(),
-                lastError);
+            lastError,
+            lastRebalanceError,
+            lastRecoveryError);
     }
 
     public Response rebalanceReplica(TableLocation location,
                                      RegionServerInfo source,
                                      RegionServerInfo target) throws Exception {
-        recordAttempt();
+        recordRebalanceAttempt();
         RegionServerInfo primary = location.getPrimaryRS();
         String tableName = location.getTableName();
         String migrationAttemptId = buildMigrationAttemptId(tableName, source, target);
@@ -121,7 +145,8 @@ public final class RegionMigrator {
                 target.getId())) {
             Response error = new Response(StatusCode.ERROR);
             error.setMessage("Failed to mark table as PREPARING before pause: " + tableName);
-            return error;
+            return recordRebalanceFailureResponse(error,
+                    "rebalance preparing mark failed table=" + tableName);
         }
 
         Response pause = regionAdminExecutor.pauseTableWrite(primary, tableName);
@@ -134,7 +159,7 @@ public final class RegionMigrator {
                     migrationAttemptId,
                     source.getId(),
                     target.getId());
-            return recordFailureResponse(pause,
+                return recordRebalanceFailureResponse(pause,
                 "rebalance pause failed table=" + tableName + " code=" + pause.getCode());
         }
 
@@ -154,7 +179,7 @@ public final class RegionMigrator {
                         target.getId());
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as MOVING before transfer: " + tableName);
-                return recordFailureResponse(error,
+                return recordRebalanceFailureResponse(error,
                     "rebalance moving mark failed table=" + tableName);
             }
 
@@ -167,7 +192,7 @@ public final class RegionMigrator {
                         source.getId(),
                         target.getId());
                 cleanupTargetReplicaBestEffort(target, tableName, "transfer_failed");
-                return recordFailureResponse(transfer,
+                return recordRebalanceFailureResponse(transfer,
                     "rebalance transfer failed table=" + tableName + " code=" + transfer.getCode());
             }
 
@@ -192,7 +217,7 @@ public final class RegionMigrator {
                 cleanupTargetReplicaBestEffort(target, tableName, "finalizing_mark_failed");
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as FINALIZING before metadata finalize: " + tableName);
-                return recordFailureResponse(error,
+                return recordRebalanceFailureResponse(error,
                     "rebalance finalizing mark failed table=" + tableName);
             }
 
@@ -227,7 +252,7 @@ public final class RegionMigrator {
                         source.getId(),
                         target.getId());
                 cleanupTargetReplicaBestEffort(target, tableName, "source_delete_failed");
-                return recordFailureResponse(delete,
+                return recordRebalanceFailureResponse(delete,
                     "rebalance source cleanup failed table=" + tableName + " code=" + delete.getCode());
             }
 
@@ -252,9 +277,9 @@ public final class RegionMigrator {
             Response ok = new Response(StatusCode.OK);
             ok.setMessage("Rebalanced table " + tableName + " from " + source.getId() + " to " + target.getId());
             log.info("triggerRebalance success table={} source={} target={}", tableName, source.getId(), target.getId());
-            return recordSuccessResponse(ok);
+            return recordRebalanceSuccessResponse(ok);
         } catch (Exception e) {
-            recordFailure("rebalance exception table=" + tableName + " cause=" + e.getMessage());
+            recordRebalanceFailure("rebalance exception table=" + tableName + " cause=" + e.getMessage());
             throw e;
         } finally {
             resumeWriteBestEffort(primary, tableName);
@@ -424,7 +449,7 @@ public final class RegionMigrator {
                 || migrationContext.attemptId().isBlank()) {
             return location;
         }
-        recordAttempt();
+        recordRecoveryAttempt();
 
         String attemptId = migrationContext.attemptId();
         String sourceReplicaId = migrationContext.sourceReplicaId();
@@ -482,7 +507,7 @@ public final class RegionMigrator {
                     attemptId,
                     sourceReplicaId,
                     targetReplicaId);
-            return recordFailureLocation(location,
+            return recordRecoveryFailureLocation(location,
                 "stuck recovery compensation blocked table=" + location.getTableName() + " status=" + currentStatus);
         }
 
@@ -501,13 +526,13 @@ public final class RegionMigrator {
                     attemptId,
                     sourceReplicaId,
                     targetReplicaId);
-                return recordSuccessLocation(recovered);
+                return recordRecoverySuccessLocation(recovered);
         } catch (Exception e) {
             log.error("recoverStuckMigration failed table={} status={} cause={}",
                     location.getTableName(),
                     currentStatus,
                     e.getMessage());
-                return recordFailureLocation(location,
+                return recordRecoveryFailureLocation(location,
                     "stuck recovery persist failed table=" + location.getTableName() + " status=" + currentStatus + " cause=" + e.getMessage());
         }
     }
@@ -539,23 +564,55 @@ public final class RegionMigrator {
         lastError = error;
     }
 
-    private Response recordSuccessResponse(Response response) {
-        recordSuccess();
-        return response;
+    private void recordRebalanceAttempt() {
+        recordAttempt();
+        rebalanceAttemptCount.incrementAndGet();
     }
 
-    private Response recordFailureResponse(Response response, String error) {
+    private void recordRecoveryAttempt() {
+        recordAttempt();
+        recoveryAttemptCount.incrementAndGet();
+    }
+
+    private void recordRebalanceSuccess() {
+        recordSuccess();
+        rebalanceSuccessCount.incrementAndGet();
+    }
+
+    private void recordRecoverySuccess() {
+        recordSuccess();
+        recoverySuccessCount.incrementAndGet();
+    }
+
+    private void recordRebalanceFailure(String error) {
         recordFailure(error);
+        rebalanceFailureCount.incrementAndGet();
+        lastRebalanceError = error;
+    }
+
+    private void recordRecoveryFailure(String error) {
+        recordFailure(error);
+        recoveryFailureCount.incrementAndGet();
+        lastRecoveryError = error;
+    }
+
+    private Response recordRebalanceSuccessResponse(Response response) {
+        recordRebalanceSuccess();
         return response;
     }
 
-    private TableLocation recordSuccessLocation(TableLocation location) {
-        recordSuccess();
+    private Response recordRebalanceFailureResponse(Response response, String error) {
+        recordRebalanceFailure(error);
+        return response;
+    }
+
+    private TableLocation recordRecoverySuccessLocation(TableLocation location) {
+        recordRecoverySuccess();
         return location;
     }
 
-    private TableLocation recordFailureLocation(TableLocation location, String error) {
-        recordFailure(error);
+    private TableLocation recordRecoveryFailureLocation(TableLocation location, String error) {
+        recordRecoveryFailure(error);
         return location;
     }
 }
