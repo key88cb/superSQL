@@ -678,6 +678,111 @@ class MasterServiceMetadataIntegrationTest {
         }
 
     @Test
+    void getTableLocationShouldNotRecoverStuckFinalizingWhenSourceCleanupFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_stuck_finalizing_blocked(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_finalizing_blocked").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "FINALIZING");
+        meta.put("migrationAttemptId", "attempt-finalizing-blocked");
+        meta.put("migrationSourceReplicaId", "rs-2");
+        meta.put("migrationTargetReplicaId", "rs-4");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_finalizing_blocked",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        RecordingRegionAdminExecutor blockedAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response deleteLocalTable(RegionServerInfo regionServer, String tableName) {
+                Response fail = new Response(StatusCode.ERROR);
+                fail.setMessage("simulated source cleanup failure");
+                return fail;
+            }
+        };
+
+        MasterServiceImpl blockedService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                blockedAdmin,
+                clock::get,
+                1_000L,
+                10,
+                5_000L);
+
+        TableLocation recovered = blockedService.getTableLocation("t_stuck_finalizing_blocked");
+        Assertions.assertEquals("FINALIZING", recovered.getTableStatus());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_finalizing_blocked");
+        Assertions.assertEquals("FINALIZING", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertEquals("attempt-finalizing-blocked", String.valueOf(finalMeta.get("migrationAttemptId")));
+    }
+
+    @Test
+    void getTableLocationShouldNotRecoverStuckMovingWhenTargetCleanupFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_stuck_moving_blocked(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_moving_blocked").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "MOVING");
+        meta.put("migrationAttemptId", "attempt-moving-blocked");
+        meta.put("migrationSourceReplicaId", "rs-2");
+        meta.put("migrationTargetReplicaId", "rs-4");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_moving_blocked",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        RecordingRegionAdminExecutor blockedAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response deleteLocalTable(RegionServerInfo regionServer, String tableName) {
+                if ("rs-4".equals(regionServer.getId())) {
+                    Response fail = new Response(StatusCode.ERROR);
+                    fail.setMessage("simulated target cleanup failure");
+                    return fail;
+                }
+                return super.deleteLocalTable(regionServer, tableName);
+            }
+        };
+
+        MasterServiceImpl blockedService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                blockedAdmin,
+                clock::get,
+                1_000L,
+                10,
+                5_000L);
+
+        TableLocation recovered = blockedService.getTableLocation("t_stuck_moving_blocked");
+        Assertions.assertEquals("MOVING", recovered.getTableStatus());
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_moving_blocked");
+        Assertions.assertEquals("MOVING", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertEquals("attempt-moving-blocked", String.valueOf(finalMeta.get("migrationAttemptId")));
+    }
+
+    @Test
     void getTableLocationShouldRecoverStuckMovingStatusToActive() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);

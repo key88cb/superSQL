@@ -1019,29 +1019,32 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
-    private void cleanupTargetReplicaBestEffort(RegionServerInfo target, String tableName, String reason) {
-        cleanupReplicaBestEffort(target, tableName, reason, "target");
+    private boolean cleanupTargetReplicaBestEffort(RegionServerInfo target, String tableName, String reason) {
+        return cleanupReplicaBestEffort(target, tableName, reason, "target");
     }
 
-    private void cleanupReplicaBestEffort(RegionServerInfo replica,
-                                          String tableName,
-                                          String reason,
-                                          String role) {
+    private boolean cleanupReplicaBestEffort(RegionServerInfo replica,
+                                             String tableName,
+                                             String reason,
+                                             String role) {
         if (replica == null || !replica.isSetId()) {
-            return;
+            return true;
         }
         try {
             Response response = regionAdminExecutor.deleteLocalTable(replica, tableName);
             if (response.getCode() == StatusCode.OK || response.getCode() == StatusCode.TABLE_NOT_FOUND) {
                 log.info("triggerRebalance cleanup {} replica table={} replica={} reason={} code={}",
                         role, tableName, replica.getId(), reason, response.getCode());
+                return true;
             } else {
                 log.warn("triggerRebalance cleanup {} replica failed table={} replica={} reason={} code={} msg={}",
                         role, tableName, replica.getId(), reason, response.getCode(), response.getMessage());
+                return false;
             }
         } catch (Exception e) {
             log.warn("triggerRebalance cleanup {} replica exception table={} replica={} reason={} cause={}",
                     role, tableName, replica.getId(), reason, e.getMessage());
+            return false;
         }
     }
 
@@ -1344,16 +1347,20 @@ public class MasterServiceImpl implements MasterService.Iface {
         String attemptId = migrationContext.attemptId();
         String sourceReplicaId = migrationContext.sourceReplicaId();
         String targetReplicaId = migrationContext.targetReplicaId();
+        boolean recoveryBlockedByCompensationFailure = false;
 
         if (STATUS_FINALIZING.equalsIgnoreCase(currentStatus)
                 && sourceReplicaId != null
                 && !sourceReplicaId.isBlank()) {
             RegionServerInfo sourceReplica = resolveRegionServerForRecovery(location, sourceReplicaId);
             if (sourceReplica != null) {
-                cleanupReplicaBestEffort(sourceReplica,
+            boolean sourceCleaned = cleanupReplicaBestEffort(sourceReplica,
                         location.getTableName(),
                         "recover_stuck_finalizing",
                         "source");
+            if (!sourceCleaned) {
+                recoveryBlockedByCompensationFailure = true;
+            }
             }
         }
 
@@ -1364,11 +1371,24 @@ public class MasterServiceImpl implements MasterService.Iface {
                 && !targetReplicaId.isBlank()) {
             RegionServerInfo targetReplica = resolveRegionServerForRecovery(location, targetReplicaId);
             if (targetReplica != null) {
-                cleanupReplicaBestEffort(targetReplica,
+                boolean targetCleaned = cleanupReplicaBestEffort(targetReplica,
                         location.getTableName(),
                         "recover_stuck_" + currentStatus.toLowerCase(),
                         "target");
+                if (!targetCleaned) {
+                    recoveryBlockedByCompensationFailure = true;
+                }
             }
+        }
+
+        if (recoveryBlockedByCompensationFailure) {
+            log.warn("recoverStuckMigration blocked by compensation failure table={} status={} attemptId={} source={} target={}",
+                    location.getTableName(),
+                    currentStatus,
+                    attemptId,
+                    sourceReplicaId,
+                    targetReplicaId);
+            return location;
         }
 
         TableLocation recovered = new TableLocation(location);
