@@ -102,6 +102,7 @@ public class RegionServerMain {
             defaults.put("lastFailureMessage", "");
             defaults.put("recentFailures", java.util.Collections.emptyList());
             defaults.put("recentFailuresDropped", 0L);
+            defaults.put("duplicateAcksByTable", java.util.Collections.emptyMap());
             payload.put("transferManifestVerification", defaults);
         } else {
             payload.put("transferManifestVerification", transferManifestVerification);

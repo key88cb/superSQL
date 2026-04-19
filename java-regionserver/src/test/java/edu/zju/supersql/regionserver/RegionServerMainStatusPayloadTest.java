@@ -51,6 +51,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("other")).longValue());
         Assertions.assertTrue(((java.util.List<?>) transferManifestVerification.get("recentFailures")).isEmpty());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("recentFailuresDropped")).longValue());
+        Assertions.assertTrue(((Map<?, ?>) transferManifestVerification.get("duplicateAcksByTable")).isEmpty());
         Map<?, ?> transferTable = (Map<?, ?>) json.get("transferTable");
         Assertions.assertEquals(0L, ((Number) transferTable.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("success")).longValue());
@@ -88,6 +89,9 @@ class RegionServerMainStatusPayloadTest {
         manifestRecentFailures.add(manifestEvent);
         manifestStats.put("recentFailures", manifestRecentFailures);
         manifestStats.put("recentFailuresDropped", 3L);
+        Map<String, Object> manifestDuplicateByTable = new LinkedHashMap<>();
+        manifestDuplicateByTable.put("orders", 2L);
+        manifestStats.put("duplicateAcksByTable", manifestDuplicateByTable);
 
         Map<String, Object> transferTableStats = new LinkedHashMap<>();
         transferTableStats.put("total", 7L);
@@ -143,6 +147,8 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(1L, ((Number) manifestFailureReasons.get("file_missing")).longValue());
         Assertions.assertEquals(1, ((java.util.List<?>) transferManifestVerification.get("recentFailures")).size());
         Assertions.assertEquals(3L, ((Number) transferManifestVerification.get("recentFailuresDropped")).longValue());
+        Map<?, ?> duplicateAckTables = (Map<?, ?>) transferManifestVerification.get("duplicateAcksByTable");
+        Assertions.assertEquals(2L, ((Number) duplicateAckTables.get("orders")).longValue());
 
             Assertions.assertEquals(7L, ((Number) transferTable.get("total")).longValue());
             Assertions.assertEquals(4L, ((Number) transferTable.get("success")).longValue());

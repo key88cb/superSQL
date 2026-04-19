@@ -600,6 +600,8 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(2L, ((Number) snapshot.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) snapshot.get("failure")).longValue());
         Assertions.assertEquals(1L, ((Number) snapshot.get("duplicateAcks")).longValue());
+        Map<?, ?> duplicateByTable = (Map<?, ?>) snapshot.get("duplicateAcksByTable");
+        Assertions.assertEquals(1L, ((Number) duplicateByTable.get("orders")).longValue());
         }
 
         @Test

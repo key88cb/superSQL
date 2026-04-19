@@ -74,6 +74,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private volatile String manifestVerificationLastFailureMessage = "";
     private final Object manifestFailureHistoryLock = new Object();
     private final Deque<Map<String, Object>> manifestRecentFailures = new ArrayDeque<>();
+    private final Map<String, AtomicLong> manifestDuplicateAcksByTable = new ConcurrentHashMap<>();
     private final Map<String, Long> manifestVerifiedDigestByTable = new ConcurrentHashMap<>();
     private final AtomicLong transferTableTotal = new AtomicLong();
     private final AtomicLong transferTableSuccess = new AtomicLong();
@@ -587,7 +588,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             long manifestDigest = computeCrc32(manifestBytes);
             Long lastDigest = manifestVerifiedDigestByTable.get(expectedTablePrefix);
             if (lastDigest != null && lastDigest == manifestDigest) {
-                return manifestVerificationDuplicate(files.size());
+                return manifestVerificationDuplicate(files.size(), expectedTablePrefix);
             }
 
             for (Object raw : files) {
@@ -663,6 +664,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("lastFailureMessage", manifestVerificationLastFailureMessage);
         payload.put("recentFailures", snapshotManifestRecentFailures());
         payload.put("recentFailuresDropped", manifestRecentFailuresDropped.get());
+        payload.put("duplicateAcksByTable", snapshotManifestDuplicateAcksByTable());
         return payload;
     }
 
@@ -697,10 +699,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         return r;
     }
 
-    private Response manifestVerificationDuplicate(int fileCount) {
+    private Response manifestVerificationDuplicate(int fileCount, String tableName) {
         manifestVerificationSuccess.incrementAndGet();
         manifestVerificationDuplicateAcks.incrementAndGet();
         manifestVerificationLastSuccessTs.set(System.currentTimeMillis());
+        if (tableName != null && !tableName.isBlank()) {
+            manifestDuplicateAcksByTable
+                    .computeIfAbsent(tableName, ignored -> new AtomicLong())
+                    .incrementAndGet();
+        }
         Response r = new Response(StatusCode.OK);
         r.setMessage("duplicate transfer manifest acknowledged files=" + fileCount);
         return r;
@@ -748,6 +755,14 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 manifestRecentFailuresDropped.incrementAndGet();
             }
         }
+    }
+
+    private Map<String, Long> snapshotManifestDuplicateAcksByTable() {
+        Map<String, Long> snapshot = new LinkedHashMap<>();
+        manifestDuplicateAcksByTable.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> snapshot.put(entry.getKey(), entry.getValue().get()));
+        return snapshot;
     }
 
     private Response transferTableFailed(StatusCode code, String reason, String message) {
