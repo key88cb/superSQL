@@ -55,6 +55,8 @@ public class ReplicaManager {
     private static final long PENDING_COMMIT_MIN_BACKOFF_MS = 500L;
     private static final long PENDING_COMMIT_MAX_BACKOFF_MS = 30_000L;
     private static final long PENDING_COMMIT_STALLED_ATTEMPTS = 20L;
+    private static final long PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD = 8L;
+    private static final long PENDING_COMMIT_TRANSPORT_ESCALATION_COOLDOWN_MS = 120_000L;
     private static final String COMMIT_ERR_TABLE_NOT_FOUND = "table_not_found";
     private static final String COMMIT_ERR_INVALID_ADDRESS = "invalid replica address";
     private static final String COMMIT_ERR_INVALID_PORT = "invalid replica port";
@@ -71,6 +73,7 @@ public class ReplicaManager {
         private final List<String> replicaAddresses;
         private final long firstQueuedAtMs;
         private final AtomicLong attempts = new AtomicLong(0L);
+        private final AtomicLong consecutiveTransportFailures = new AtomicLong(0L);
         private volatile long lastAttemptAtMs;
         private volatile long nextRetryAtMs;
         private volatile String lastError;
@@ -91,11 +94,24 @@ public class ReplicaManager {
             this.lastError = initialError;
         }
 
-        private void markAttemptFailure(String error, long nowMs) {
+        private boolean markAttemptFailure(String error, long nowMs) {
             long currentAttempts = attempts.incrementAndGet();
+            long transportFailures;
+            if (isTransportError(error)) {
+                transportFailures = consecutiveTransportFailures.incrementAndGet();
+            } else {
+                consecutiveTransportFailures.set(0L);
+                transportFailures = 0L;
+            }
             lastAttemptAtMs = nowMs;
-            nextRetryAtMs = nowMs + computePendingRetryBackoffMs(currentAttempts);
+            long retryBackoffMs = computePendingRetryBackoffMs(currentAttempts);
+            boolean escalated = transportFailures >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD;
+            if (escalated) {
+                retryBackoffMs = Math.max(retryBackoffMs, PENDING_COMMIT_TRANSPORT_ESCALATION_COOLDOWN_MS);
+            }
+            nextRetryAtMs = nowMs + retryBackoffMs;
             lastError = error;
+            return escalated && transportFailures == PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD;
         }
 
         private boolean shouldRetry(long nowMs) {
@@ -127,6 +143,7 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitThrottledSkipCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastSuccessAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastFailureAtMs = new AtomicLong(0L);
+    private final AtomicLong pendingCommitEscalatedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairTriggeredCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairSuccessCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairFailureCount = new AtomicLong(0L);
@@ -250,6 +267,7 @@ public class ReplicaManager {
         stats.put("retryAttemptCount", pendingCommitRetryAttemptCount.get());
         stats.put("droppedCount", pendingCommitDroppedCount.get());
         stats.put("throttledSkipCount", pendingCommitThrottledSkipCount.get());
+        stats.put("escalatedCount", pendingCommitEscalatedCount.get());
         stats.put("repairTriggeredCount", pendingCommitRepairTriggeredCount.get());
         stats.put("repairSuccessCount", pendingCommitRepairSuccessCount.get());
         stats.put("repairFailureCount", pendingCommitRepairFailureCount.get());
@@ -259,14 +277,23 @@ public class ReplicaManager {
         long now = System.currentTimeMillis();
         long stalledCount = 0L;
         long oldestPendingAgeMs = 0L;
+        long activeEscalatedCount = 0L;
+        long maxConsecutiveTransportFailures = 0L;
         for (PendingCommit pendingCommit : pendingCommits.values()) {
             if (pendingCommit.attempts.get() >= PENDING_COMMIT_STALLED_ATTEMPTS) {
                 stalledCount++;
             }
             oldestPendingAgeMs = Math.max(oldestPendingAgeMs, pendingCommit.ageMs(now));
+            long transportFailures = pendingCommit.consecutiveTransportFailures.get();
+            if (transportFailures >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD) {
+                activeEscalatedCount++;
+            }
+            maxConsecutiveTransportFailures = Math.max(maxConsecutiveTransportFailures, transportFailures);
         }
         stats.put("stalledCount", stalledCount);
         stats.put("oldestPendingAgeMs", oldestPendingAgeMs);
+        stats.put("activeEscalatedCount", activeEscalatedCount);
+        stats.put("maxConsecutiveTransportFailures", maxConsecutiveTransportFailures);
         Map<String, Long> errorBreakdown = new LinkedHashMap<>();
         for (Map.Entry<String, AtomicLong> entry : pendingCommitErrorBreakdown.entrySet()) {
             errorBreakdown.put(entry.getKey(), entry.getValue().get());
@@ -276,6 +303,13 @@ public class ReplicaManager {
     }
 
     void retryPendingCommitsNow() {
+        retryPendingCommits();
+    }
+
+    void retryPendingCommitsNowIgnoringBackoff() {
+        for (PendingCommit task : pendingCommits.values()) {
+            task.nextRetryAtMs = 0L;
+        }
         retryPendingCommits();
     }
 
@@ -510,7 +544,9 @@ public class ReplicaManager {
         if (existing == null) {
             pendingCommitEnqueuedCount.incrementAndGet();
         } else {
-            existing.markAttemptFailure(initialError, System.currentTimeMillis());
+            if (existing.markAttemptFailure(initialError, System.currentTimeMillis())) {
+                pendingCommitEscalatedCount.incrementAndGet();
+            }
         }
         pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
         pendingCommitLastError = initialError;
@@ -556,7 +592,9 @@ public class ReplicaManager {
                 }
             }
 
-            task.markAttemptFailure(commitAttempt.error(), now);
+            if (task.markAttemptFailure(commitAttempt.error(), now)) {
+                pendingCommitEscalatedCount.incrementAndGet();
+            }
             pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
             pendingCommitLastError = commitAttempt.error();
 
@@ -633,6 +671,13 @@ public class ReplicaManager {
             return COMMIT_ERR_RESPONSE;
         }
         return "other";
+    }
+
+    private static boolean isTransportError(String error) {
+        if (error == null) {
+            return false;
+        }
+        return error.toLowerCase().contains(COMMIT_ERR_TRANSPORT);
     }
 
     private boolean repairMissingReplicaEntry(PendingCommit task) {

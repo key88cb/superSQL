@@ -187,11 +187,14 @@ public class RegionServerMain {
             defaults.put("retryAttemptCount", 0L);
             defaults.put("droppedCount", 0L);
             defaults.put("throttledSkipCount", 0L);
+            defaults.put("escalatedCount", 0L);
             defaults.put("repairTriggeredCount", 0L);
             defaults.put("repairSuccessCount", 0L);
             defaults.put("repairFailureCount", 0L);
             defaults.put("stalledCount", 0L);
             defaults.put("oldestPendingAgeMs", 0L);
+            defaults.put("activeEscalatedCount", 0L);
+            defaults.put("maxConsecutiveTransportFailures", 0L);
             defaults.put("lastSuccessAtMs", 0L);
             defaults.put("lastFailureAtMs", 0L);
             defaults.put("lastError", "");

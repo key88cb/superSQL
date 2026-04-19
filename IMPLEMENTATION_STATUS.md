@@ -122,6 +122,7 @@
 - 主副本对副本 `commitLog` 通知已增加有界重试（best-effort），降低短暂网络抖动下的提交通知丢失概率。
 - 当 `commitLog` 因 `TABLE_NOT_FOUND` 失败进入待重试队列时，ReplicaManager 会基于 donor 的 `pullLog` 定向回填缺失日志后再重试 commit，提升无新写入场景下的自愈收敛能力。
 - ReplicaManager 待重试队列已引入退避节流窗口，避免对故障副本持续高频无效重试；并新增 `throttledSkipCount/stalledCount/oldestPendingAgeMs` 观测字段用于识别重试停滞。
+- ReplicaManager 对连续 `transport_error` 已增加分级降频策略：达到阈值后进入升级重试窗口（更长冷却），并输出 `escalatedCount/activeEscalatedCount/maxConsecutiveTransportFailures` 观测字段。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。

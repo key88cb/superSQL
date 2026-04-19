@@ -238,6 +238,24 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldEscalateAfterConsecutiveTransportFailures() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 8888L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        for (int i = 0; i < 8; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertTrue(((Number) stats.get("escalatedCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("activeEscalatedCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("maxConsecutiveTransportFailures")).longValue() >= 8L);
+    }
+
+    @Test
     void commitOneWithRetryShouldReturnFalseForUnreachableReplica() {
         ReplicaManager manager = new ReplicaManager();
         boolean committed = manager.commitOneWithRetry("orders", 999L, "127.0.0.1:1");
