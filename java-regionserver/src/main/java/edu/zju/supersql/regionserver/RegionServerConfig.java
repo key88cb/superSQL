@@ -34,7 +34,7 @@ public record RegionServerConfig(
                 readString(env, "RS_WAL_DIR", "/data/wal"),
                 readString(env, "MINISQL_BIN", "/opt/minisql/main"),
                 readLong(env, "RS_HEARTBEAT_INTERVAL_MS", 10_000L),
-                readInt(env, "RS_MIN_REPLICA_ACKS", 1)
+                Math.max(1, readInt(env, "RS_MIN_REPLICA_ACKS", 1))
         );
     }
 

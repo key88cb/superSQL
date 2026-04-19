@@ -106,6 +106,7 @@
 - `RegionServiceImpl` 读写基础路径、`executeBatch`、索引相关接口。
 - 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`）用于拒绝 ACK 不足写入。
 - 写路径在“可见副本数低于 `RS_MIN_REPLICA_ACKS`”时会直接拒绝写入，不再按可见副本数自动降低 ACK 门槛。
+- RegionServer 配置解析会将 `RS_MIN_REPLICA_ACKS` 下限钳制为 1，避免通过环境变量将线上门槛设为 0。
 - ReplicaManager 已按 requiredAcks 等待 ACK，避免仅等待首个返回导致的门槛语义偏差。
 - ACK 不足拒绝写入时会将对应 WAL 条目标记为 ABORT，避免 PREPARE 长期滞留。
 - WAL 状态（PREPARE/COMMITTED/ABORTED）语义已在实现层显式化，并通过恢复边界测试验证仅回放 COMMITTED。

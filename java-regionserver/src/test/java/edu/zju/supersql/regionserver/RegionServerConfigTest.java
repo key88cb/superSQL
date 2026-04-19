@@ -31,4 +31,17 @@ class RegionServerConfigTest {
         Assertions.assertEquals(3_000L, config.heartbeatIntervalMs());
         Assertions.assertEquals(2, config.minReplicaAcks());
     }
+
+    @Test
+    void shouldClampMinReplicaAcksToOneWhenEnvValueIsZeroOrNegative() {
+        RegionServerConfig zero = RegionServerConfig.fromEnv(Map.of(
+                "RS_MIN_REPLICA_ACKS", "0"
+        ));
+        RegionServerConfig negative = RegionServerConfig.fromEnv(Map.of(
+                "RS_MIN_REPLICA_ACKS", "-3"
+        ));
+
+        Assertions.assertEquals(1, zero.minReplicaAcks());
+        Assertions.assertEquals(1, negative.minReplicaAcks());
+    }
 }
