@@ -131,17 +131,14 @@
 - ReplicaManager 对连续 `transport_error` 已增加分级降频策略：达到阈值后进入升级重试窗口（更长冷却），并输出 `escalatedCount/activeEscalatedCount/maxConsecutiveTransportFailures` 观测字段。
 - 当升级态 pending commit 最终成功收敛时，ReplicaManager 会记录升级恢复信号（`recoveredFromEscalationCount/lastRecoveredFromEscalationAtMs`），用于确认降频后是否真实恢复。
 - 对于长时间处于升级态且重试次数持续累积的 pending commit，ReplicaManager 会标记为决议候选并输出 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，作为自动最终决议前置阶段。
-- 决议候选项已提供预览视图 `decisionCandidatesPreview`（table/lsn/address/attempts/consecutiveTransportFailures/ageMs，最多5条），便于快速定位需要人工或自动决议的对象。
+- 决议候选项已提供预览视图 `decisionCandidatesPreview`（table/lsn/address/attempts/consecutiveTransportFailures/ageMs，最多5条），便于快速定位自动最终决议收敛中的异常对象。
 - 决议候选项引入二级冷却窗口（`decisionCandidateCooldownMs`，默认 300s），触发时记录 `decisionCandidateCooldownAppliedCount`，并在预览项中输出 `nextRetryAtMs`，用于降低长故障期重试噪音。
 - 在决议候选基础上新增“decision-ready”阶段：持续失败达到阈值后记录 `decisionReadyTransitionCount/lastDecisionReadyAtMs`，并输出 `activeDecisionReadyCount/decisionReadyAttemptsThreshold`，用于触发最终决议流程。
 - 进入 `decision-ready` 后，待提交重试会切换到更长冷却窗口（15 分钟）并上报 `decisionReadyCooldownAppliedCount/decisionReadyCooldownMs`，降低长故障期间的无效重试噪音。
 - 对进入 `decision-ready` 的待提交项，系统会执行“多数派已提交”最终决议判定（基于副本 `getMaxLsn` 与法定票数），满足法定票数时自动完成终局并清理 active pending；同时上报 `finalDecisionEvaluatedCount/finalDecisionCommittedCount/lastFinalDecisionAtMs`。
-- 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再走“仅保留等待”的临时路径，而是直接分流到终态人工队列，避免长期占用 active pending。
-- 对持续停留在 `decision-ready` 且超过终态阈值（`decisionTerminalAgeMs`）的待提交项，系统会自动从 active pending 分流到终态人工队列（`terminalQueueCount`），并记录 `decisionTerminalCount/lastDecisionTerminalAtMs/decisionTerminalPreview`，避免长期占用活跃重试队列。
-- `replicaCommitRetry` 统计已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态队列纳入人工处置信号。
-- RegionServer 已新增终态人工队列管理入口 `/admin/replica-commit-terminal`：支持 GET 查询终态队列、POST `action=ack` 单条确认、POST `action=ackAll` 批量确认，形成“可观测 + 可处置”闭环。
-- RegionServer 心跳节点已附带 `replicaCommitTerminalQueueCount/replicaCommitManualInterventionRequired/replicaCommitDecisionTerminalCount/replicaCommitLastDecisionTerminalAtMs`，Master 侧可直接聚合决议终态风险。
-- Master `/status` 已新增 `replicaDecision` 聚合视图（observed/manualIntervention/terminalQueue/decisionTerminal/latestTs/affectedRs），用于跨 RS 统一观测终态人工决议压力。
+- 对进入 `decision-ready` 的待提交项，系统会持续自动重试并周期评估多数派提交条件，不再分流到人工确认队列。
+- `replicaCommitRetry` 统计已收敛为自动决议观测字段（如 `activeDecisionReadyCount`、`decisionReadyOldestAgeMs`、`finalDecisionCommittedCount`），用于判断自动收敛进度。
+- RegionServer 心跳不再携带人工确认相关字段，Master `/status` 的 `replicaDecision` 聚合段同步移除人工终态队列信号。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。

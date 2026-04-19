@@ -1286,19 +1286,15 @@ class MasterServiceMetadataIntegrationTest {
 
     @Test
     void replicaDecisionSnapshotShouldAggregateRegionServerSignals() throws Exception {
-        registerRegionServer("rs-1", "127.0.0.1", 9090, 1, 0L, false, 0L, 0L);
-        registerRegionServer("rs-2", "127.0.0.1", 9091, 2, 3L, true, 8L, 2000L);
-        registerRegionServer("rs-3", "127.0.0.1", 9092, 3, 5L, false, 4L, 1500L);
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 1);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 3);
 
         MasterServiceImpl.ReplicaDecisionSnapshot snapshot = service.replicaDecisionSnapshot();
 
         Assertions.assertNotNull(snapshot);
         Assertions.assertEquals(3L, snapshot.observedRegionServers());
-        Assertions.assertEquals(2L, snapshot.manualInterventionRegionServers());
-        Assertions.assertEquals(8L, snapshot.totalTerminalQueueCount());
-        Assertions.assertEquals(12L, snapshot.totalDecisionTerminalCount());
-        Assertions.assertEquals(2000L, snapshot.latestDecisionTerminalAtMs());
-        Assertions.assertEquals(Set.of("rs-2", "rs-3"), Set.copyOf(snapshot.affectedRegionServers()));
+        Assertions.assertTrue(snapshot.affectedRegionServers().isEmpty());
         Assertions.assertNull(snapshot.lastError());
     }
 
@@ -1325,17 +1321,6 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     private void registerRegionServer(String id, String host, int port, int tableCount) throws Exception {
-        registerRegionServer(id, host, port, tableCount, 0L, false, 0L, 0L);
-    }
-
-    private void registerRegionServer(String id,
-                                      String host,
-                                      int port,
-                                      int tableCount,
-                                      long replicaCommitTerminalQueueCount,
-                                      boolean replicaCommitManualInterventionRequired,
-                                      long replicaCommitDecisionTerminalCount,
-                                      long replicaCommitLastDecisionTerminalAtMs) throws Exception {
         Map<String, Object> payload = new HashMap<>();
         payload.put("id", id);
         payload.put("host", host);
@@ -1345,10 +1330,6 @@ class MasterServiceMetadataIntegrationTest {
         payload.put("cpuUsage", 0.0);
         payload.put("memUsage", 0.0);
         payload.put("lastHeartbeat", System.currentTimeMillis());
-        payload.put("replicaCommitTerminalQueueCount", replicaCommitTerminalQueueCount);
-        payload.put("replicaCommitManualInterventionRequired", replicaCommitManualInterventionRequired);
-        payload.put("replicaCommitDecisionTerminalCount", replicaCommitDecisionTerminalCount);
-        payload.put("replicaCommitLastDecisionTerminalAtMs", replicaCommitLastDecisionTerminalAtMs);
 
         String path = "/region_servers/" + id;
         byte[] bytes = MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);

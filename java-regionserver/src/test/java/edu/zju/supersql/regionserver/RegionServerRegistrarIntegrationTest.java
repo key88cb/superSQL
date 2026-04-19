@@ -62,10 +62,6 @@ class RegionServerRegistrarIntegrationTest {
         Assertions.assertEquals(9090, ((Number) payload.get("port")).intValue());
         Assertions.assertEquals(9190, ((Number) payload.get("httpPort")).intValue());
         Assertions.assertEquals(0, ((Number) payload.get("tableCount")).intValue());
-        Assertions.assertEquals(0L, ((Number) payload.get("replicaCommitTerminalQueueCount")).longValue());
-        Assertions.assertEquals(Boolean.FALSE, payload.get("replicaCommitManualInterventionRequired"));
-        Assertions.assertEquals(0L, ((Number) payload.get("replicaCommitDecisionTerminalCount")).longValue());
-        Assertions.assertEquals(0L, ((Number) payload.get("replicaCommitLastDecisionTerminalAtMs")).longValue());
     }
 
     @Test
@@ -73,7 +69,7 @@ class RegionServerRegistrarIntegrationTest {
         RegionServerRegistrar registrar = new RegionServerRegistrar(zkClient, "rs-heartbeat");
         registrar.register("127.0.0.1", 9091, 9191);
 
-        registrar.heartbeat("127.0.0.1", 9091, 9191, 3, 11.5, 40.1, 60.2, 4L, true, 9L, 123L);
+        registrar.heartbeat("127.0.0.1", 9091, 9191, 3, 11.5, 40.1, 60.2);
 
         byte[] bytes = zkClient.getData().forPath("/region_servers/rs-heartbeat");
         Map<?, ?> payload = MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
@@ -82,10 +78,6 @@ class RegionServerRegistrarIntegrationTest {
         Assertions.assertEquals(11.5, ((Number) payload.get("qps1min")).doubleValue(), 0.0001);
         Assertions.assertEquals(40.1, ((Number) payload.get("cpuUsage")).doubleValue(), 0.0001);
         Assertions.assertEquals(60.2, ((Number) payload.get("memUsage")).doubleValue(), 0.0001);
-        Assertions.assertEquals(4L, ((Number) payload.get("replicaCommitTerminalQueueCount")).longValue());
-        Assertions.assertEquals(Boolean.TRUE, payload.get("replicaCommitManualInterventionRequired"));
-        Assertions.assertEquals(9L, ((Number) payload.get("replicaCommitDecisionTerminalCount")).longValue());
-        Assertions.assertEquals(123L, ((Number) payload.get("replicaCommitLastDecisionTerminalAtMs")).longValue());
     }
 
     @Test

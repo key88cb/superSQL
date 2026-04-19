@@ -222,10 +222,6 @@ public class MasterServer {
         }
         status.put("available", true);
         status.put("observedRegionServers", snapshot.observedRegionServers());
-        status.put("manualInterventionRegionServers", snapshot.manualInterventionRegionServers());
-        status.put("totalTerminalQueueCount", snapshot.totalTerminalQueueCount());
-        status.put("totalDecisionTerminalCount", snapshot.totalDecisionTerminalCount());
-        status.put("latestDecisionTerminalAtMs", snapshot.latestDecisionTerminalAtMs());
         status.put("affectedRegionServers", snapshot.affectedRegionServers());
         status.put("lastError", snapshot.lastError());
         return status;

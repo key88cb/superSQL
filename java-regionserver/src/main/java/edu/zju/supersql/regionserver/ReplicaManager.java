@@ -62,8 +62,6 @@ public class ReplicaManager {
     private static final long PENDING_COMMIT_TRANSPORT_ESCALATION_COOLDOWN_MS = 120_000L;
     private static final long PENDING_COMMIT_DECISION_CANDIDATE_COOLDOWN_MS = 300_000L;
     private static final long PENDING_COMMIT_DECISION_READY_COOLDOWN_MS = TimeUnit.MINUTES.toMillis(15);
-    private static final long PENDING_COMMIT_DECISION_TERMINAL_AGE_MS = TimeUnit.HOURS.toMillis(1);
-    private static final int PENDING_COMMIT_DECISION_TERMINAL_MAX_QUEUE_SIZE = 10_000;
     private static final String COMMIT_ERR_TABLE_NOT_FOUND = "table_not_found";
     private static final String COMMIT_ERR_INVALID_ADDRESS = "invalid replica address";
     private static final String COMMIT_ERR_INVALID_PORT = "invalid replica port";
@@ -72,15 +70,6 @@ public class ReplicaManager {
     private static final String COMMIT_ERR_DECISION_CONFLICT = "decision_conflict";
 
     private record CommitAttempt(boolean success, String error) {
-    }
-
-    private record DecisionTerminal(String tableName,
-                                    long lsn,
-                                    String address,
-                                    long attempts,
-                                    long ageMs,
-                                    long queuedAtMs,
-                                    String lastError) {
     }
 
     private static final class PendingCommit {
@@ -93,7 +82,6 @@ public class ReplicaManager {
         private final AtomicLong consecutiveTransportFailures = new AtomicLong(0L);
         private volatile boolean decisionCandidateMarked;
         private volatile boolean decisionReadyMarked;
-        private volatile boolean decisionReadyRetentionReported;
         private volatile long lastAttemptAtMs;
         private volatile long nextRetryAtMs;
         private volatile String lastError;
@@ -114,7 +102,6 @@ public class ReplicaManager {
             this.lastError = initialError;
             this.decisionCandidateMarked = false;
             this.decisionReadyMarked = false;
-            this.decisionReadyRetentionReported = false;
         }
 
         private boolean markAttemptFailure(String error, long nowMs) {
@@ -171,7 +158,6 @@ public class ReplicaManager {
                 return false;
             }
             decisionReadyMarked = true;
-            decisionReadyRetentionReported = false;
             return true;
         }
     }
@@ -189,9 +175,7 @@ public class ReplicaManager {
                 return t;
             });
     private final ConcurrentHashMap<String, PendingCommit> pendingCommits = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, DecisionTerminal> decisionTerminalQueue = new ConcurrentHashMap<>();
     private volatile long pendingCommitMaxAgeMs;
-    private volatile long pendingCommitDecisionTerminalAgeMs;
     private final AtomicLong pendingCommitEnqueuedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRecoveredCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRetryAttemptCount = new AtomicLong(0L);
@@ -206,11 +190,6 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitDecisionReadyTransitionCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastDecisionReadyAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitDecisionReadyCooldownAppliedCount = new AtomicLong(0L);
-    private final AtomicLong pendingCommitDecisionReadyRetainedCount = new AtomicLong(0L);
-    private final AtomicLong pendingCommitLastDecisionReadyRetainedAtMs = new AtomicLong(0L);
-    private final AtomicLong pendingCommitDecisionTerminalCount = new AtomicLong(0L);
-    private final AtomicLong pendingCommitDecisionTerminalDroppedCount = new AtomicLong(0L);
-    private final AtomicLong pendingCommitLastDecisionTerminalAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitRecoveredFromEscalationCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastRecoveredFromEscalationAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairTriggeredCount = new AtomicLong(0L);
@@ -232,7 +211,6 @@ public class ReplicaManager {
 
     ReplicaManager(boolean startRetryWorker, long pendingCommitMaxAgeMs) {
         this.pendingCommitMaxAgeMs = Math.max(1L, pendingCommitMaxAgeMs);
-        this.pendingCommitDecisionTerminalAgeMs = PENDING_COMMIT_DECISION_TERMINAL_AGE_MS;
         if (startRetryWorker) {
             pendingCommitRetryExecutor.scheduleWithFixedDelay(
                     this::retryPendingCommits,
@@ -354,15 +332,8 @@ public class ReplicaManager {
         stats.put("lastDecisionReadyAtMs", pendingCommitLastDecisionReadyAtMs.get());
         stats.put("decisionReadyCooldownAppliedCount", pendingCommitDecisionReadyCooldownAppliedCount.get());
         stats.put("decisionReadyCooldownMs", PENDING_COMMIT_DECISION_READY_COOLDOWN_MS);
-        stats.put("decisionReadyRetainedCount", pendingCommitDecisionReadyRetainedCount.get());
-        stats.put("lastDecisionReadyRetainedAtMs", pendingCommitLastDecisionReadyRetainedAtMs.get());
-        stats.put("decisionTerminalCount", pendingCommitDecisionTerminalCount.get());
-        stats.put("decisionTerminalDroppedCount", pendingCommitDecisionTerminalDroppedCount.get());
-        stats.put("terminalQueueCount", decisionTerminalQueue.size());
-        stats.put("lastDecisionTerminalAtMs", pendingCommitLastDecisionTerminalAtMs.get());
         stats.put("decisionReadyAttemptsThreshold", PENDING_COMMIT_DECISION_READY_ATTEMPTS);
         stats.put("maxAgeMs", pendingCommitMaxAgeMs);
-        stats.put("decisionTerminalAgeMs", pendingCommitDecisionTerminalAgeMs);
         stats.put("recoveredFromEscalationCount", pendingCommitRecoveredFromEscalationCount.get());
         stats.put("lastRecoveredFromEscalationAtMs", pendingCommitLastRecoveredFromEscalationAtMs.get());
         stats.put("repairTriggeredCount", pendingCommitRepairTriggeredCount.get());
@@ -406,7 +377,6 @@ public class ReplicaManager {
         stats.put("activeDecisionCandidateCount", activeDecisionCandidateCount);
         stats.put("activeDecisionReadyCount", activeDecisionReadyCount);
         stats.put("decisionReadyOldestAgeMs", decisionReadyOldestAgeMs);
-        stats.put("manualInterventionRequired", activeDecisionReadyCount > 0L || !decisionTerminalQueue.isEmpty());
         stats.put("maxConsecutiveTransportFailures", maxConsecutiveTransportFailures);
         List<Map<String, Object>> decisionCandidatesPreview = pendingCommits.values().stream()
             .filter(pendingCommit -> pendingCommit.decisionCandidateMarked)
@@ -426,68 +396,12 @@ public class ReplicaManager {
             })
             .toList();
         stats.put("decisionCandidatesPreview", decisionCandidatesPreview);
-        List<Map<String, Object>> decisionTerminalPreview = decisionTerminalQueue.values().stream()
-            .sorted((left, right) -> Long.compare(right.queuedAtMs(), left.queuedAtMs()))
-            .limit(5)
-            .map(decision -> {
-                Map<String, Object> terminal = new LinkedHashMap<>();
-                terminal.put("key", pendingCommitKey(decision.tableName(), decision.lsn(), decision.address()));
-                terminal.put("table", decision.tableName());
-                terminal.put("lsn", decision.lsn());
-                terminal.put("address", decision.address());
-                terminal.put("attempts", decision.attempts());
-                terminal.put("ageMs", decision.ageMs());
-                terminal.put("queuedAtMs", decision.queuedAtMs());
-                terminal.put("lastError", decision.lastError());
-                return terminal;
-            })
-            .toList();
-        stats.put("decisionTerminalPreview", decisionTerminalPreview);
         Map<String, Long> errorBreakdown = new LinkedHashMap<>();
         for (Map.Entry<String, AtomicLong> entry : pendingCommitErrorBreakdown.entrySet()) {
             errorBreakdown.put(entry.getKey(), entry.getValue().get());
         }
         stats.put("errorBreakdown", errorBreakdown);
         return stats;
-    }
-
-    Map<String, Object> getDecisionTerminalQueueSnapshot(int limit) {
-        int boundedLimit = Math.max(1, Math.min(500, limit));
-        List<Map<String, Object>> entries = decisionTerminalQueue.values().stream()
-                .sorted((left, right) -> Long.compare(right.queuedAtMs(), left.queuedAtMs()))
-                .limit(boundedLimit)
-                .map(decision -> {
-                    Map<String, Object> terminal = new LinkedHashMap<>();
-                    terminal.put("key", pendingCommitKey(decision.tableName(), decision.lsn(), decision.address()));
-                    terminal.put("table", decision.tableName());
-                    terminal.put("lsn", decision.lsn());
-                    terminal.put("address", decision.address());
-                    terminal.put("attempts", decision.attempts());
-                    terminal.put("ageMs", decision.ageMs());
-                    terminal.put("queuedAtMs", decision.queuedAtMs());
-                    terminal.put("lastError", decision.lastError());
-                    return terminal;
-                })
-                .toList();
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("count", decisionTerminalQueue.size());
-        snapshot.put("limit", boundedLimit);
-        snapshot.put("entries", entries);
-        return snapshot;
-    }
-
-    boolean acknowledgeDecisionTerminal(String tableName, long lsn, String address) {
-        if (tableName == null || tableName.isBlank() || address == null || address.isBlank()) {
-            return false;
-        }
-        String key = pendingCommitKey(tableName, lsn, address);
-        return decisionTerminalQueue.remove(key) != null;
-    }
-
-    int acknowledgeAllDecisionTerminals() {
-        int removed = decisionTerminalQueue.size();
-        decisionTerminalQueue.clear();
-        return removed;
     }
 
     void retryPendingCommitsNow() {
@@ -503,10 +417,6 @@ public class ReplicaManager {
 
     void setPendingCommitMaxAgeMsForTests(long pendingCommitMaxAgeMs) {
         this.pendingCommitMaxAgeMs = Math.max(1L, pendingCommitMaxAgeMs);
-    }
-
-    void setDecisionTerminalAgeMsForTests(long terminalAgeMs) {
-        this.pendingCommitDecisionTerminalAgeMs = Math.max(1L, terminalAgeMs);
     }
 
     /**
@@ -825,21 +735,6 @@ public class ReplicaManager {
             }
             pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
             pendingCommitLastError = commitAttempt.error();
-
-            if (task.decisionReadyMarked && now - task.firstQueuedAtMs > pendingCommitDecisionTerminalAgeMs) {
-                moveToDecisionTerminalQueue(key, task, now, "terminalAgeMs", pendingCommitDecisionTerminalAgeMs);
-                continue;
-            }
-
-            if (now - task.firstQueuedAtMs > pendingCommitMaxAgeMs) {
-                if (task.decisionReadyMarked) {
-                    moveToDecisionTerminalQueue(key, task, now, "maxAgeMs", pendingCommitMaxAgeMs);
-                    continue;
-                }
-                if (pendingCommits.remove(key, task)) {
-                    pendingCommitDroppedCount.incrementAndGet();
-                }
-            }
         }
     }
 
@@ -920,37 +815,6 @@ public class ReplicaManager {
         return error.toLowerCase().contains(COMMIT_ERR_TRANSPORT);
     }
 
-    private void moveToDecisionTerminalQueue(String key,
-                                             PendingCommit task,
-                                             long nowMs,
-                                             String reason,
-                                             long thresholdMs) {
-        if (!pendingCommits.remove(key, task)) {
-            return;
-        }
-        pendingCommitDecisionTerminalCount.incrementAndGet();
-        pendingCommitLastDecisionTerminalAtMs.set(System.currentTimeMillis());
-        if (decisionTerminalQueue.size() >= PENDING_COMMIT_DECISION_TERMINAL_MAX_QUEUE_SIZE) {
-            pendingCommitDecisionTerminalDroppedCount.incrementAndGet();
-        } else {
-            decisionTerminalQueue.put(key, new DecisionTerminal(
-                    task.tableName,
-                    task.lsn,
-                    task.address,
-                    task.attempts.get(),
-                    task.ageMs(nowMs),
-                    System.currentTimeMillis(),
-                    task.lastError));
-        }
-        log.warn("retryPendingCommits: moved decision-ready pending commit to terminal queue table={} lsn={} address={} ageMs={} {}={}",
-                task.tableName,
-                task.lsn,
-                task.address,
-                task.ageMs(nowMs),
-                reason,
-                thresholdMs);
-    }
-
     private boolean finalizeDecisionReadyCommitIfPossible(String key, PendingCommit task, long nowMs) {
         pendingCommitFinalDecisionEvaluatedCount.incrementAndGet();
         int replicaCount = task.replicaAddresses.size() + 1; // include primary itself
@@ -978,8 +842,9 @@ public class ReplicaManager {
 
         if (abortedVotes > 0) {
             task.lastError = COMMIT_ERR_DECISION_CONFLICT + ": observed " + abortedVotes + " ABORT vote(s)";
-            moveToDecisionTerminalQueue(key, task, nowMs, "decisionConflictAbortVotes", abortedVotes);
-            return true;
+            pendingCommitLastFailureAtMs.set(nowMs);
+            pendingCommitLastError = task.lastError;
+            return false;
         }
 
         if (committedVotes < quorum) {

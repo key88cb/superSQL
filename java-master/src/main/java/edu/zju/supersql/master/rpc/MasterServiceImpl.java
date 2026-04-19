@@ -51,10 +51,6 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     public record ReplicaDecisionSnapshot(long observedRegionServers,
-                                          long manualInterventionRegionServers,
-                                          long totalTerminalQueueCount,
-                                          long totalDecisionTerminalCount,
-                                          long latestDecisionTerminalAtMs,
                                           List<String> affectedRegionServers,
                                           String lastError) {
     }
@@ -74,10 +70,6 @@ public class MasterServiceImpl implements MasterService.Iface {
     private static final long DEFAULT_MIGRATION_STUCK_TIMEOUT_MS = 60_000L;
     private static final String STATUS_ACTIVE = "ACTIVE";
     private static final String STATUS_UNAVAILABLE = "UNAVAILABLE";
-    private static final String RS_FIELD_REPLICA_TERMINAL_QUEUE_COUNT = "replicaCommitTerminalQueueCount";
-    private static final String RS_FIELD_REPLICA_MANUAL_INTERVENTION_REQUIRED = "replicaCommitManualInterventionRequired";
-    private static final String RS_FIELD_REPLICA_DECISION_TERMINAL_COUNT = "replicaCommitDecisionTerminalCount";
-    private static final String RS_FIELD_REPLICA_LAST_DECISION_TERMINAL_AT_MS = "replicaCommitLastDecisionTerminalAtMs";
     private static final Pattern CREATE_TABLE_PATTERN =
             Pattern.compile("(?i)^\\s*create\\s+table\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
 
@@ -323,29 +315,6 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
-    private static boolean toBoolean(Object value, boolean fallback) {
-        if (value == null) {
-            return fallback;
-        }
-        if (value instanceof Boolean bool) {
-            return bool;
-        }
-        if (value instanceof Number number) {
-            return number.intValue() != 0;
-        }
-        String normalized = String.valueOf(value).trim();
-        if (normalized.isEmpty()) {
-            return fallback;
-        }
-        if ("1".equals(normalized) || "true".equalsIgnoreCase(normalized) || "yes".equalsIgnoreCase(normalized)) {
-            return true;
-        }
-        if ("0".equals(normalized) || "false".equalsIgnoreCase(normalized) || "no".equalsIgnoreCase(normalized)) {
-            return false;
-        }
-        return fallback;
-    }
-
     public int repairTableRoutesBestEffort() {
         return repairTableRoutesBestEffortInternal(null);
     }
@@ -475,10 +444,6 @@ public class MasterServiceImpl implements MasterService.Iface {
         try {
             List<String> children = zk.getChildren().forPath(ZkPaths.REGION_SERVERS);
             long observedRegionServers = 0L;
-            long manualInterventionRegionServers = 0L;
-            long totalTerminalQueueCount = 0L;
-            long totalDecisionTerminalCount = 0L;
-            long latestDecisionTerminalAtMs = 0L;
             List<String> affectedRegionServers = new ArrayList<>();
 
             for (String child : children) {
@@ -489,35 +454,15 @@ public class MasterServiceImpl implements MasterService.Iface {
                 }
                 Map<?, ?> node = MAPPER.readValue(bytes, Map.class);
                 observedRegionServers++;
-
-                long terminalQueueCount = Math.max(0L, toLong(node.get(RS_FIELD_REPLICA_TERMINAL_QUEUE_COUNT), 0L));
-                boolean manualInterventionRequired = toBoolean(node.get(RS_FIELD_REPLICA_MANUAL_INTERVENTION_REQUIRED), false);
-                long decisionTerminalCount = Math.max(0L, toLong(node.get(RS_FIELD_REPLICA_DECISION_TERMINAL_COUNT), 0L));
-                long lastDecisionTerminalAtMs = Math.max(0L, toLong(node.get(RS_FIELD_REPLICA_LAST_DECISION_TERMINAL_AT_MS), 0L));
-
-                if (manualInterventionRequired || terminalQueueCount > 0L || decisionTerminalCount > 0L) {
-                    manualInterventionRegionServers++;
-                    if (affectedRegionServers.size() < 20) {
-                        Object regionServerId = node.containsKey("id") ? node.get("id") : child;
-                        affectedRegionServers.add(String.valueOf(regionServerId));
-                    }
-                }
-                totalTerminalQueueCount += terminalQueueCount;
-                totalDecisionTerminalCount += decisionTerminalCount;
-                latestDecisionTerminalAtMs = Math.max(latestDecisionTerminalAtMs, lastDecisionTerminalAtMs);
             }
 
             return new ReplicaDecisionSnapshot(
                     observedRegionServers,
-                    manualInterventionRegionServers,
-                    totalTerminalQueueCount,
-                    totalDecisionTerminalCount,
-                    latestDecisionTerminalAtMs,
                     List.copyOf(affectedRegionServers),
                     null);
         } catch (Exception e) {
             log.warn("replicaDecisionSnapshot failed: {}", e.getMessage());
-            return new ReplicaDecisionSnapshot(0L, 0L, 0L, 0L, 0L, List.of(), e.getMessage());
+            return new ReplicaDecisionSnapshot(0L, List.of(), e.getMessage());
         }
     }
 

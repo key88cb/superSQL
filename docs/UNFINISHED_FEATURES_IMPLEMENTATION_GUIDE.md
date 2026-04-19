@@ -128,11 +128,9 @@
 - 在候选项持续失败达到阈值后，系统会标记为 `decisionReady` 并上报 `decisionReadyTransitionCount/activeDecisionReadyCount`（阈值由 `decisionReadyAttemptsThreshold` 表示），用于触发最终决议流程。
 - 对进入 `decisionReady` 的待提交项，系统会切换到更长重试冷却窗口（15 分钟）并上报 `decisionReadyCooldownAppliedCount/decisionReadyCooldownMs`，减少长故障期重试噪音。
 - 对进入 `decisionReady` 的待提交项，系统已支持“多数派已提交”自动最终决议：当法定票数满足时会自动完成终局并清理 active pending，同时上报 `finalDecisionEvaluatedCount/finalDecisionCommittedCount/lastFinalDecisionAtMs`。
-- 对达到 `decisionReady` 且超过 `maxAge` 的待提交项，系统不再采用“仅保留等待”的临时路径，而是直接分流到终态人工队列。
-- 对长期停留在 `decisionReady` 的待提交项，系统已增加终态分流：超过 `decisionTerminalAgeMs` 后会自动移出 active pending 并进入终态人工队列，输出 `decisionTerminalCount/terminalQueueCount/lastDecisionTerminalAtMs/decisionTerminalPreview`。
-- `replicaCommitRetry` 现已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态人工队列纳入人工决议信号。
-- RegionServer 已补充终态人工队列管理端点 `/admin/replica-commit-terminal`，支持按条确认（ack）与批量确认（ackAll），将终态分流从“仅告警”推进为“可执行处置”。
-- RegionServer 心跳节点已携带终态队列关键指标，Master `/status` 已新增 `replicaDecision` 聚合段，支持跨 RegionServer 聚合终态人工介入压力。
+- 对达到 `decisionReady` 的待提交项，系统会持续自动重试并周期评估多数派提交条件，不再进入人工确认队列。
+- `replicaCommitRetry` 统计保留自动收敛观测字段（如 `activeDecisionReadyCount`、`decisionReadyOldestAgeMs`、`finalDecisionCommittedCount`），用于跟踪最终决议推进。
+- RegionServer 与 Master 的状态观测已移除人工确认队列相关字段，转为自动最终决议收敛视角。
 - 主副本已接入基于 `getMaxLsn/pullLog` 的异步追赶编排：写成功后可自动尝试修复落后副本缺口（donor 拉取 + 重放 + commit，best-effort）。
 - 追赶编排已支持 donor 回退：当首选 donor 拉取不到 backlog 时，会自动尝试下一候选 donor 继续修复。
 - 追赶编排已支持连续 LSN 回放约束：当 donor 返回的 backlog 存在缺口时会跳过该 donor 并继续回退，避免跨缺口重放。

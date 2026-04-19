@@ -225,14 +225,21 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
         DecisionRecord existingDecision = tableDecisions(entry.getTableName()).get(entry.getLsn());
         if (existingDecision != null) {
             if (!existingDecision.committed()) {
-                Response r = new Response(StatusCode.ERROR);
-                r.setMessage("Entry already finalized as ABORT for table="
-                        + entry.getTableName() + " lsn=" + entry.getLsn());
+                if (isOverrideableAbortDecision(existingDecision)) {
+                    tableDecisions(entry.getTableName()).remove(entry.getLsn(), existingDecision);
+                    existingDecision = null;
+                } else {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("Entry already finalized as ABORT for table="
+                            + entry.getTableName() + " lsn=" + entry.getLsn());
+                    return r;
+                }
+            }
+            if (existingDecision != null) {
+                Response r = new Response(StatusCode.OK);
+                r.setMessage("ACK_ALREADY_DECIDED_COMMIT lsn=" + entry.getLsn());
                 return r;
             }
-            Response r = new Response(StatusCode.OK);
-            r.setMessage("ACK_ALREADY_DECIDED_COMMIT lsn=" + entry.getLsn());
-            return r;
         }
 
         // S4-04: Persist to disk before ACK
@@ -332,7 +339,6 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
                                         boolean committed,
                                         String decisionId,
                                         long decidedAtMs) throws TException {
-        resolveTimedOutPreparesBestEffort();
         if (tableName == null || tableName.isBlank()) {
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("Invalid table name");
@@ -346,6 +352,12 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
 
         ConcurrentHashMap<Long, DecisionRecord> decisions = tableDecisions(tableName);
         DecisionRecord existingDecision = decisions.get(lsn);
+        if (existingDecision != null) {
+            if (!existingDecision.committed() && committed && isOverrideableAbortDecision(existingDecision)) {
+                decisions.remove(lsn, existingDecision);
+                existingDecision = null;
+            }
+        }
         if (existingDecision != null) {
             if (existingDecision.committed() == committed) {
                 Response r = new Response(StatusCode.OK);
@@ -432,7 +444,6 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
 
     @Override
     public LogDecisionState getLogDecisionState(String tableName, long lsn) throws TException {
-        resolveTimedOutPreparesBestEffort();
         LogDecisionState state = new LogDecisionState(false);
         if (tableName == null || tableName.isBlank()) {
             return state;
@@ -483,5 +494,16 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
 
     private static WalEntry cloneEntry(WalEntry entry) {
         return new WalEntry(entry);
+    }
+
+    private static boolean isOverrideableAbortDecision(DecisionRecord decision) {
+        if (decision == null || decision.committed()) {
+            return false;
+        }
+        String id = decision.decisionId();
+        if (id == null || id.isBlank()) {
+            return false;
+        }
+        return id.startsWith("auto-timeout-abort-") || id.startsWith("recovered-abort-");
     }
 }

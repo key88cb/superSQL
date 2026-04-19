@@ -148,10 +148,6 @@ class MasterServerHttpPayloadTest {
                 edu.zju.supersql.master.rpc.MasterServiceImpl.ReplicaDecisionSnapshot snapshot =
                                 new edu.zju.supersql.master.rpc.MasterServiceImpl.ReplicaDecisionSnapshot(
                                                 5L,
-                                                2L,
-                                                11L,
-                                                17L,
-                                                9_999L,
                                                 java.util.List.of("rs-2", "rs-4"),
                                                 null);
 
@@ -161,10 +157,6 @@ class MasterServerHttpPayloadTest {
 
                 Assertions.assertEquals(Boolean.TRUE, replicaDecision.get("available"));
                 Assertions.assertEquals(5L, ((Number) replicaDecision.get("observedRegionServers")).longValue());
-                Assertions.assertEquals(2L, ((Number) replicaDecision.get("manualInterventionRegionServers")).longValue());
-                Assertions.assertEquals(11L, ((Number) replicaDecision.get("totalTerminalQueueCount")).longValue());
-                Assertions.assertEquals(17L, ((Number) replicaDecision.get("totalDecisionTerminalCount")).longValue());
-                Assertions.assertEquals(9_999L, ((Number) replicaDecision.get("latestDecisionTerminalAtMs")).longValue());
                 Assertions.assertEquals(java.util.List.of("rs-2", "rs-4"), replicaDecision.get("affectedRegionServers"));
                 Assertions.assertNull(replicaDecision.get("lastError"));
         }

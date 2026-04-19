@@ -341,7 +341,6 @@ class ReplicaManagerTest {
         Assertions.assertTrue(((Number) stats.get("decisionReadyTransitionCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("decisionReadyOldestAgeMs")).longValue() >= 0L);
-        Assertions.assertEquals(Boolean.TRUE, stats.get("manualInterventionRequired"));
         Assertions.assertTrue(((Number) stats.get("lastDecisionReadyAtMs")).longValue() > 0L);
         Assertions.assertEquals(24L, ((Number) stats.get("decisionReadyAttemptsThreshold")).longValue());
         List<?> preview = (List<?>) stats.get("decisionCandidatesPreview");
@@ -385,8 +384,6 @@ class ReplicaManagerTest {
             Assertions.assertTrue(((Number) stats.get("finalDecisionEvaluatedCount")).longValue() >= 1L);
             Assertions.assertTrue(((Number) stats.get("finalDecisionCommittedCount")).longValue() >= 1L);
             Assertions.assertTrue(((Number) stats.get("lastFinalDecisionAtMs")).longValue() > 0L);
-            Assertions.assertEquals(0L, ((Number) stats.get("terminalQueueCount")).longValue());
-            Assertions.assertEquals(Boolean.FALSE, stats.get("manualInterventionRequired"));
         } finally {
             donorServer.stop();
             pool.shutdownNow();
@@ -394,7 +391,7 @@ class ReplicaManagerTest {
     }
 
     @Test
-    void retryPendingCommitsShouldMoveDecisionReadyToTerminalQueueWhenMaxAgeExceeded() throws Exception {
+    void retryPendingCommitsShouldKeepDecisionReadyPendingWhenMaxAgeExceeded() throws Exception {
         ReplicaManager manager = new ReplicaManager(false);
         manager.commitOnReplicas("orders", 9393L, List.of("127.0.0.1:1"));
 
@@ -410,15 +407,12 @@ class ReplicaManagerTest {
         manager.retryPendingCommitsNowIgnoringBackoff();
 
         Map<String, Object> stats = manager.getCommitRetryStats();
-        Assertions.assertEquals(0L, ((Number) stats.get("activeDecisionReadyCount")).longValue());
-        Assertions.assertEquals(0L, ((Number) stats.get("pendingCount")).longValue());
-        Assertions.assertEquals(Boolean.TRUE, stats.get("manualInterventionRequired"));
-        Assertions.assertTrue(((Number) stats.get("decisionTerminalCount")).longValue() >= 1L);
-        Assertions.assertTrue(((Number) stats.get("terminalQueueCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("pendingCount")).longValue() >= 1L);
     }
 
     @Test
-    void retryPendingCommitsShouldMoveDecisionReadyToTerminalQueueAfterTerminalAge() throws Exception {
+    void retryPendingCommitsShouldNotDropDecisionReadyItemsAutomatically() throws Exception {
         ReplicaManager manager = new ReplicaManager(false);
         manager.commitOnReplicas("orders", 9595L, List.of("127.0.0.1:1"));
 
@@ -429,59 +423,13 @@ class ReplicaManagerTest {
             manager.retryPendingCommitsNowIgnoringBackoff();
         }
 
-        manager.setDecisionTerminalAgeMsForTests(1L);
+        manager.setPendingCommitMaxAgeMsForTests(1L);
         Thread.sleep(5L);
         manager.retryPendingCommitsNowIgnoringBackoff();
 
         Map<String, Object> stats = manager.getCommitRetryStats();
-        Assertions.assertEquals(0L, ((Number) stats.get("pendingCount")).longValue());
-        Assertions.assertTrue(((Number) stats.get("decisionTerminalCount")).longValue() >= 1L);
-        Assertions.assertTrue(((Number) stats.get("terminalQueueCount")).longValue() >= 1L);
-        Assertions.assertTrue(((Number) stats.get("lastDecisionTerminalAtMs")).longValue() > 0L);
-        Assertions.assertEquals(Boolean.TRUE, stats.get("manualInterventionRequired"));
-        List<?> terminalPreview = (List<?>) stats.get("decisionTerminalPreview");
-        Assertions.assertFalse(terminalPreview.isEmpty());
-        Map<?, ?> first = (Map<?, ?>) terminalPreview.get(0);
-        Assertions.assertTrue(first.containsKey("key"));
-        Assertions.assertEquals("orders", first.get("table"));
-        Assertions.assertEquals(9595L, ((Number) first.get("lsn")).longValue());
-
-        Map<String, Object> queueSnapshot = manager.getDecisionTerminalQueueSnapshot(10);
-        Assertions.assertTrue(((Number) queueSnapshot.get("count")).longValue() >= 1L);
-        List<?> queueEntries = (List<?>) queueSnapshot.get("entries");
-        Assertions.assertFalse(queueEntries.isEmpty());
-        Map<?, ?> firstQueueEntry = (Map<?, ?>) queueEntries.get(0);
-        Assertions.assertTrue(firstQueueEntry.containsKey("key"));
-
-        boolean removed = manager.acknowledgeDecisionTerminal("orders", 9595L, "127.0.0.1:1");
-        Assertions.assertTrue(removed);
-        Map<String, Object> afterAck = manager.getDecisionTerminalQueueSnapshot(10);
-        Assertions.assertEquals(0L, ((Number) afterAck.get("count")).longValue());
-    }
-
-    @Test
-    void acknowledgeAllDecisionTerminalsShouldClearTerminalQueue() throws Exception {
-        ReplicaManager manager = new ReplicaManager(false);
-        manager.commitOnReplicas("orders", 9696L, List.of("127.0.0.1:1"));
-        manager.commitOnReplicas("orders", 9797L, List.of("127.0.0.1:1"));
-
-        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 2L,
-                4_000L);
-
-        for (int i = 0; i < 24; i++) {
-            manager.retryPendingCommitsNowIgnoringBackoff();
-        }
-        manager.setDecisionTerminalAgeMsForTests(1L);
-        Thread.sleep(5L);
-        manager.retryPendingCommitsNowIgnoringBackoff();
-
-        Map<String, Object> queueSnapshot = manager.getDecisionTerminalQueueSnapshot(10);
-        Assertions.assertTrue(((Number) queueSnapshot.get("count")).longValue() >= 1L);
-
-        int removed = manager.acknowledgeAllDecisionTerminals();
-        Assertions.assertTrue(removed >= 1);
-        Map<String, Object> afterClear = manager.getDecisionTerminalQueueSnapshot(10);
-        Assertions.assertEquals(0L, ((Number) afterClear.get("count")).longValue());
+        Assertions.assertTrue(((Number) stats.get("pendingCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
     }
 
     @Test

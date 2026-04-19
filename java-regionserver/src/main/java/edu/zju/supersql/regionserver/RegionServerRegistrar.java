@@ -23,10 +23,6 @@ public class RegionServerRegistrar {
     private final String path;
 
     static final String FIELD_HTTP_PORT = "httpPort";
-    static final String FIELD_REPLICA_COMMIT_TERMINAL_QUEUE_COUNT = "replicaCommitTerminalQueueCount";
-    static final String FIELD_REPLICA_COMMIT_MANUAL_INTERVENTION_REQUIRED = "replicaCommitManualInterventionRequired";
-    static final String FIELD_REPLICA_COMMIT_DECISION_TERMINAL_COUNT = "replicaCommitDecisionTerminalCount";
-    static final String FIELD_REPLICA_COMMIT_LAST_DECISION_TERMINAL_AT_MS = "replicaCommitLastDecisionTerminalAtMs";
 
     public RegionServerRegistrar(CuratorFramework zkClient, String rsId) {
         this.zkClient = zkClient;
@@ -46,7 +42,7 @@ public class RegionServerRegistrar {
         info.setMemUsage(0.0);
         info.setLastHeartbeat(System.currentTimeMillis());
 
-        byte[] payload = toPayload(info, httpPort, 0L, false, 0L, 0L);
+        byte[] payload = toPayload(info, httpPort);
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
                     .forPath(path, payload);
@@ -64,11 +60,7 @@ public class RegionServerRegistrar {
                 tableCount,
                 qps1min,
                 cpuUsage,
-                memUsage,
-                0L,
-                false,
-                0L,
-                0L);
+                memUsage);
     }
 
     public void heartbeat(String host,
@@ -77,11 +69,7 @@ public class RegionServerRegistrar {
                           int tableCount,
                           double qps1min,
                           double cpuUsage,
-                          double memUsage,
-                          long terminalQueueCount,
-                          boolean manualInterventionRequired,
-                          long decisionTerminalCount,
-                          long lastDecisionTerminalAtMs) {
+                          double memUsage) {
         try {
             RegionServerInfo info = new RegionServerInfo(rsId, host, port);
             info.setTableCount(tableCount);
@@ -96,23 +84,13 @@ public class RegionServerRegistrar {
             }
 
             zkClient.setData().forPath(path,
-                    toPayload(info,
-                            httpPort,
-                            terminalQueueCount,
-                            manualInterventionRequired,
-                            decisionTerminalCount,
-                            lastDecisionTerminalAtMs));
+                    toPayload(info, httpPort));
         } catch (Exception e) {
             log.warn("Heartbeat update failed for {}: {}", rsId, e.getMessage());
         }
     }
 
-    private byte[] toPayload(RegionServerInfo info,
-                             int httpPort,
-                             long terminalQueueCount,
-                             boolean manualInterventionRequired,
-                             long decisionTerminalCount,
-                             long lastDecisionTerminalAtMs) throws Exception {
+    private byte[] toPayload(RegionServerInfo info, int httpPort) throws Exception {
         Map<String, Object> map = new HashMap<>();
         map.put("id", info.getId());
         map.put("host", info.getHost());
@@ -123,10 +101,6 @@ public class RegionServerRegistrar {
         map.put("cpuUsage", info.getCpuUsage());
         map.put("memUsage", info.getMemUsage());
         map.put("lastHeartbeat", info.getLastHeartbeat());
-        map.put(FIELD_REPLICA_COMMIT_TERMINAL_QUEUE_COUNT, Math.max(0L, terminalQueueCount));
-        map.put(FIELD_REPLICA_COMMIT_MANUAL_INTERVENTION_REQUIRED, manualInterventionRequired);
-        map.put(FIELD_REPLICA_COMMIT_DECISION_TERMINAL_COUNT, Math.max(0L, decisionTerminalCount));
-        map.put(FIELD_REPLICA_COMMIT_LAST_DECISION_TERMINAL_AT_MS, Math.max(0L, lastDecisionTerminalAtMs));
         return MAPPER.writeValueAsString(map).getBytes(StandardCharsets.UTF_8);
     }
 }

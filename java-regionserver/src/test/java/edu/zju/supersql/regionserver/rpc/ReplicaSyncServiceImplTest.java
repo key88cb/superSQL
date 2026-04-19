@@ -195,6 +195,40 @@ class ReplicaSyncServiceImplTest {
     }
 
     @Test
+    void autoTimeoutAbortShouldAllowResyncAndEventuallyCommit() throws Exception {
+        ReplicaSyncServiceImpl svc = service();
+        String table = "t_timeout_override";
+        long lsn = 202L;
+        String sql = "insert into t_timeout_override values(1);";
+        long staleTxnId = System.currentTimeMillis() - 10_000L;
+
+        WalEntry entry = new WalEntry(lsn, staleTxnId, table, WalOpType.INSERT, System.currentTimeMillis());
+        entry.setAfterRow(sql.getBytes());
+
+        Assertions.assertEquals(StatusCode.OK, svc.syncLog(entry).getCode());
+        svc.resolveTimedOutPrepares(System.currentTimeMillis(), 1_000L);
+
+        LogDecisionState aborted = svc.getLogDecisionState(table, lsn);
+        Assertions.assertTrue(aborted.isDecided());
+        Assertions.assertTrue(aborted.isSetCommitted());
+        Assertions.assertFalse(aborted.isCommitted());
+        Assertions.assertTrue(aborted.getDecisionId().startsWith("auto-timeout-abort-"));
+
+        // Simulate late repair/replication replay from donor: re-sync same entry then commit.
+        Response resync = svc.syncLog(entry);
+        Assertions.assertEquals(StatusCode.OK, resync.getCode());
+
+        Response commit = svc.commitLog(table, lsn);
+        Assertions.assertEquals(StatusCode.OK, commit.getCode());
+
+        LogDecisionState finalState = svc.getLogDecisionState(table, lsn);
+        Assertions.assertTrue(finalState.isDecided());
+        Assertions.assertTrue(finalState.isSetCommitted());
+        Assertions.assertTrue(finalState.isCommitted());
+        Mockito.verify(mockMiniSql).execute(sql);
+    }
+
+    @Test
     void freshPrepareShouldNotBeAutoAborted() throws Exception {
         ReplicaSyncServiceImpl svc = service();
         String table = "t_fresh";
