@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntSupplier;
 import java.util.function.ToIntFunction;
 
 /**
@@ -197,6 +198,21 @@ public class MasterServer {
         }
     }
 
+    static RebalanceScheduler.RebalanceTrigger composeScheduledTrigger(IntSupplier routeRepairTrigger,
+                                                                       RebalanceScheduler.RebalanceTrigger rebalanceTrigger) {
+        return () -> {
+            try {
+                int repaired = routeRepairTrigger.getAsInt();
+                if (repaired > 0) {
+                    log.info("Scheduled route repair pre-scan repaired {} table(s)", repaired);
+                }
+            } catch (Exception e) {
+                log.warn("Scheduled route repair pre-scan failed: {}", e.getMessage());
+            }
+            return rebalanceTrigger.trigger();
+        };
+    }
+
     static TMultiplexedProcessor buildThriftProcessor() {
         TMultiplexedProcessor processor = new TMultiplexedProcessor();
         processor.registerProcessor("MasterService",
@@ -255,7 +271,9 @@ public class MasterServer {
                     config.rebalanceSchedulerEnabled(),
                     config.rebalanceIntervalMs(),
                     config.rebalanceMinGapMs(),
-                    scheduledService::triggerRebalance);
+                    composeScheduledTrigger(
+                        scheduledService::repairTableRoutesBestEffort,
+                        scheduledService::triggerRebalance));
             rebalanceScheduler.start();
                 regionServerWatcher = new RegionServerWatcher(zkClient,
                     buildMembershipRebalanceListener(rebalanceScheduler,

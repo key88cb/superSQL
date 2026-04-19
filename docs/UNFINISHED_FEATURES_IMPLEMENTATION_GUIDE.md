@@ -64,6 +64,7 @@
 - 路由自愈写回已支持按表去抖节流，避免高频查询场景重复写 ZooKeeper。
 - 已有基础 `RebalanceScheduler`（定时触发 + 开关 + 最小触发间隔节流）。
 - `RebalanceScheduler` 已补充外部触发节流验证，membership 抖动场景下可抑制触发风暴。
+- `RebalanceScheduler` 定时 tick 也已接入 route repair 预扫描，可在无读流量/无 membership 事件时周期性执行后台路由自愈。
 - RegionServer 上下线事件已接入后台路由修复扫描（`repairTableRoutesBestEffort`），可主动修复离线主副本而非仅依赖读请求触发。
 - membership 事件触发的 route repair 现支持携带 `rsId` 定向扫描受影响表，减少集群规模增大时的无效全表修复扫描。
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
