@@ -193,8 +193,8 @@ public class MasterServiceImpl implements MasterService.Iface {
             assignmentManager,
             regionAdminExecutor,
             clockMs,
-            this::setMigrationContextBestEffort,
-            this::clearMigrationContextBestEffort,
+            this::setMigrationContext,
+            this::clearMigrationContext,
             this::touchStatusUpdatedAtBestEffort);
         this.routeHealMinGapMs = Math.max(0L, routeHealMinGapMs);
         this.routeRepairWindowSize = Math.max(1, routeRepairWindowSize);
@@ -352,7 +352,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 TableLocation recovered = regionMigrator.recoverStuckMigrationWithConfirmation(
                     table,
                     migrationStuckTimeoutMs,
-                    this::readMigrationContextBestEffort,
+                    this::readMigrationContext,
                     this::resolveRegionServerForRecovery);
                 TableLocation healed = healTableLocationBestEffort(recovered);
                 String after = healSignature(healed);
@@ -530,7 +530,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             TableLocation recovered = regionMigrator.recoverStuckMigrationWithConfirmation(
                 location,
                 migrationStuckTimeoutMs,
-                this::readMigrationContextBestEffort,
+                this::readMigrationContext,
                 this::resolveRegionServerForRecovery);
             return healTableLocationBestEffort(recovered);
         } catch (Exception e) {
@@ -695,7 +695,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 TableLocation recovered = regionMigrator.recoverStuckMigrationWithConfirmation(
                     location,
                     migrationStuckTimeoutMs,
-                    this::readMigrationContextBestEffort,
+                    this::readMigrationContext,
                     this::resolveRegionServerForRecovery);
                 healed.add(healTableLocationBestEffort(recovered));
             }
@@ -729,7 +729,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 return r;
             }
 
-            int recoveredBeforeSchedule = recoverStuckMigrationsForRebalanceBestEffort();
+            int recoveredBeforeSchedule = recoverStuckMigrationsForRebalanceWithConfirmation();
 
             if (loadBalancer.isBalanced(regionServers, MasterConfig.fromSystemEnv().rebalanceRatio())) {
                 log.info("triggerRebalance skipped: cluster already balanced");
@@ -777,14 +777,14 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
-    private int recoverStuckMigrationsForRebalanceBestEffort() {
+    private int recoverStuckMigrationsForRebalanceWithConfirmation() {
         try {
             int recovered = 0;
             for (TableLocation location : metaManager.listTables()) {
                 TableLocation recoveredLocation = regionMigrator.recoverStuckMigrationWithConfirmation(
                     location,
                     migrationStuckTimeoutMs,
-                    this::readMigrationContextBestEffort,
+                    this::readMigrationContext,
                     this::resolveRegionServerForRecovery);
                 if (!Objects.equals(location.getTableStatus(), recoveredLocation.getTableStatus())
                         && "ACTIVE".equalsIgnoreCase(recoveredLocation.getTableStatus())) {
@@ -1214,14 +1214,14 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     @SuppressWarnings("unchecked")
-    private boolean setMigrationContextBestEffort(String tableName,
-                                                  String migrationAttemptId,
-                                                  String sourceReplicaId,
-                                                  String targetReplicaId,
-                                                  String compensationRole,
-                                                  boolean compensationBlocked,
-                                                  String compensationLastError,
-                                                  long compensationUpdatedAtMs) {
+    private boolean setMigrationContext(String tableName,
+                                        String migrationAttemptId,
+                                        String sourceReplicaId,
+                                        String targetReplicaId,
+                                        String compensationRole,
+                                        boolean compensationBlocked,
+                                        String compensationLastError,
+                                        long compensationUpdatedAtMs) {
         CuratorFramework zk = zk();
         if (migrationAttemptId == null || migrationAttemptId.isBlank() || isZkUnavailable(zk)) {
             return false;
@@ -1292,7 +1292,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     @SuppressWarnings("unchecked")
-    private boolean clearMigrationContextBestEffort(String tableName) {
+    private boolean clearMigrationContext(String tableName) {
         CuratorFramework zk = zk();
         if (isZkUnavailable(zk)) {
             return false;
@@ -1332,7 +1332,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     @SuppressWarnings("unchecked")
-    private RegionMigrator.MigrationContext readMigrationContextBestEffort(String tableName) {
+    private RegionMigrator.MigrationContext readMigrationContext(String tableName) {
         CuratorFramework zk = zk();
         if (isZkUnavailable(zk)) {
             return null;

@@ -57,6 +57,7 @@
 - 当补偿失败或补偿对象不可解析时，迁移状态会进入 `COMPENSATING` 并保留补偿上下文（`migrationCompensationRole/migrationCompensationBlocked/migrationCompensationLastError/migrationCompensationUpdatedAtMs`），由后续读路径/修复路径继续推进直至完成。
 - 对历史残留且缺失 target 上下文的 `MOVING/PREPARING/ROLLBACK` 状态，保留安全兜底恢复路径，避免永久卡死；其它场景继续坚持“补偿确认后完成”的强约束。
 - 卡死迁移恢复逻辑已从 `MasterServiceImpl` 下沉到 `RegionMigrator`，迁移主流程与超时恢复已收敛到同一编排组件；Master 侧仅保留上下文读写与副本解析回调。
+- 迁移补偿链路相关命名已对齐“确认完成协议”语义：`set/clear/readMigrationContext` 与 `recoverStuckMigrationsForRebalanceWithConfirmation` 不再沿用 `best-effort` 命名。
 - `triggerRebalance()` 调度入口也会执行卡死迁移预恢复：即使本次调度因“集群已平衡”被跳过，也能先回收超时状态。
 - `triggerRebalance()` 在“跳过调度”响应中会附带本轮卡死迁移回收数量，便于外部调度器做轻量观测而不依赖日志解析。
 - `triggerRebalance()` 已限制仅对 `ACTIVE` 表挑选候选，避免迁移中的表被重复调度。
