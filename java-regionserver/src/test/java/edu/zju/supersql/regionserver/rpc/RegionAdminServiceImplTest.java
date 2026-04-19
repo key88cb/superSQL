@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -567,6 +568,52 @@ class RegionAdminServiceImplTest {
 
         Assertions.assertEquals(StatusCode.ERROR, manifestResp.getCode());
         Assertions.assertTrue(manifestResp.getMessage().contains("checksum mismatch"));
+        }
+
+        @Test
+        void transferManifestVerificationStatsShouldTrackSuccessAndFailure() throws Exception {
+        Map<String, Object> initial = service.getTransferManifestVerificationStats();
+        Assertions.assertEquals(0L, ((Number) initial.get("total")).longValue());
+        Assertions.assertEquals(0L, ((Number) initial.get("success")).longValue());
+        Assertions.assertEquals(0L, ((Number) initial.get("failure")).longValue());
+
+        byte[] failureManifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing\",\"size\":1,\"crc32\":0}]}"
+            .getBytes(StandardCharsets.UTF_8);
+        Response failureResp = service.copyTableData(new DataChunk(
+            "orders",
+            "__supersql_transfer_manifest__.orders.json",
+            0L,
+            ByteBuffer.wrap(failureManifest),
+            true));
+        Assertions.assertEquals(StatusCode.ERROR, failureResp.getCode());
+
+        byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+        long crc32 = crc32(data);
+        Response dataResp = service.copyTableData(new DataChunk(
+            "orders",
+            "orders_data",
+            0L,
+            ByteBuffer.wrap(data),
+            true));
+        Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+
+        byte[] successManifest = ("{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data\",\"size\":7,\"crc32\":"
+            + crc32 + "}]}")
+            .getBytes(StandardCharsets.UTF_8);
+        Response successResp = service.copyTableData(new DataChunk(
+            "orders",
+            "__supersql_transfer_manifest__.orders.json",
+            0L,
+            ByteBuffer.wrap(successManifest),
+            true));
+        Assertions.assertEquals(StatusCode.OK, successResp.getCode());
+
+        Map<String, Object> snapshot = service.getTransferManifestVerificationStats();
+        Assertions.assertEquals(2L, ((Number) snapshot.get("total")).longValue());
+        Assertions.assertEquals(1L, ((Number) snapshot.get("success")).longValue());
+        Assertions.assertEquals(1L, ((Number) snapshot.get("failure")).longValue());
+        Assertions.assertTrue(((Number) snapshot.get("lastFailureTs")).longValue() > 0L);
+        Assertions.assertTrue(String.valueOf(snapshot.get("lastFailureMessage")).contains("missing"));
         }
 
     @Test

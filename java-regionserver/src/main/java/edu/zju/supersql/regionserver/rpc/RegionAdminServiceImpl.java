@@ -22,10 +22,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32;
 
 /**
@@ -49,6 +51,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final String rsId;
     private final Path dataRootPath;
     private final Map<String, Long> nextExpectedOffsets = new ConcurrentHashMap<>();
+    private final AtomicLong manifestVerificationTotal = new AtomicLong();
+    private final AtomicLong manifestVerificationSuccess = new AtomicLong();
+    private final AtomicLong manifestVerificationFailure = new AtomicLong();
+    private final AtomicLong manifestVerificationLastFailureTs = new AtomicLong();
+    private volatile String manifestVerificationLastFailureMessage = "";
 
     public RegionAdminServiceImpl(WriteGuard writeGuard,
                                   CuratorFramework zkClient,
@@ -500,10 +507,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     }
 
     private Response validateTransferManifestChunk(DataChunk chunk) {
+        manifestVerificationTotal.incrementAndGet();
         if (chunk.getOffset() != 0L || !chunk.isIsLast()) {
-            Response r = new Response(StatusCode.ERROR);
-            r.setMessage("Invalid transfer manifest chunk metadata");
-            return r;
+            return manifestVerificationFailed("Invalid transfer manifest chunk metadata");
         }
 
         try {
@@ -516,16 +522,12 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             if (chunk.isSetTableName() && manifestTable != null
                     && !manifestTable.isBlank()
                     && !manifestTable.equals(chunk.getTableName())) {
-                Response r = new Response(StatusCode.ERROR);
-                r.setMessage("transfer manifest table mismatch");
-                return r;
+                return manifestVerificationFailed("transfer manifest table mismatch");
             }
 
             Object rawFiles = manifest.get("files");
             if (!(rawFiles instanceof List<?> files)) {
-                Response r = new Response(StatusCode.ERROR);
-                r.setMessage("transfer manifest missing files list");
-                return r;
+                return manifestVerificationFailed("transfer manifest missing files list");
             }
 
             String expectedTablePrefix = null;
@@ -535,87 +537,87 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 expectedTablePrefix = chunk.getTableName();
             }
             if (expectedTablePrefix == null) {
-                Response r = new Response(StatusCode.ERROR);
-                r.setMessage("transfer manifest missing tableName");
-                return r;
+                return manifestVerificationFailed("transfer manifest missing tableName");
             }
 
             Set<String> seenFileNames = new HashSet<>();
 
             for (Object raw : files) {
                 if (!(raw instanceof Map<?, ?> fileItem)) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest has invalid file item");
-                    return r;
+                    return manifestVerificationFailed("transfer manifest has invalid file item");
                 }
                 String fileName = String.valueOf(fileItem.get("fileName"));
                 if (fileName == null || fileName.isBlank()) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest has empty fileName");
-                    return r;
+                    return manifestVerificationFailed("transfer manifest has empty fileName");
                 }
                 if (fileName.endsWith(STAGING_SUFFIX)
                         || fileName.startsWith(TRANSFER_MANIFEST_PREFIX)) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest has invalid data fileName " + fileName);
-                    return r;
+                    return manifestVerificationFailed("transfer manifest has invalid data fileName " + fileName);
                 }
                 if (!fileName.startsWith(expectedTablePrefix)) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest file outside table scope " + fileName);
-                    return r;
+                    return manifestVerificationFailed("transfer manifest file outside table scope " + fileName);
                 }
                 if (!seenFileNames.add(fileName)) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest has duplicate fileName " + fileName);
-                    return r;
+                    return manifestVerificationFailed("transfer manifest has duplicate fileName " + fileName);
                 }
                 long expectedSize = toLong(fileItem.get("size"), -1L);
                 if (expectedSize < 0L) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest has invalid size for " + fileName);
-                    return r;
+                    return manifestVerificationFailed("transfer manifest has invalid size for " + fileName);
                 }
                 long expectedCrc32 = toLong(fileItem.get("crc32"), -1L);
                 if (expectedCrc32 < 0L) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest has invalid crc32 for " + fileName);
-                    return r;
+                    return manifestVerificationFailed("transfer manifest has invalid crc32 for " + fileName);
                 }
 
                 Path filePath = resolveDataPath(fileName);
                 if (!Files.exists(filePath)) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest verification failed: missing " + fileName);
-                    return r;
+                    return manifestVerificationFailed("transfer manifest verification failed: missing " + fileName);
                 }
 
                 long actualSize = Files.size(filePath);
                 if (actualSize != expectedSize) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest verification failed: size mismatch for "
+                    return manifestVerificationFailed("transfer manifest verification failed: size mismatch for "
                             + fileName + " expected=" + expectedSize + " actual=" + actualSize);
-                    return r;
                 }
 
                 long actualCrc32 = computeCrc32(filePath);
                 if (actualCrc32 != expectedCrc32) {
-                    Response r = new Response(StatusCode.ERROR);
-                    r.setMessage("transfer manifest verification failed: checksum mismatch for "
+                    return manifestVerificationFailed("transfer manifest verification failed: checksum mismatch for "
                             + fileName + " expected=" + expectedCrc32 + " actual=" + actualCrc32);
-                    return r;
                 }
             }
 
-            Response r = new Response(StatusCode.OK);
-            r.setMessage("transfer manifest verified files=" + files.size());
-            return r;
+            return manifestVerificationSucceeded(files.size());
         } catch (Exception e) {
             log.error("transfer manifest verification failed for table={}", chunk.getTableName(), e);
-            Response r = new Response(StatusCode.ERROR);
-            r.setMessage("transfer manifest verification failed: " + e.getMessage());
-            return r;
+            return manifestVerificationFailed("transfer manifest verification failed: " + e.getMessage());
         }
+    }
+
+    public Map<String, Object> getTransferManifestVerificationStats() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("total", manifestVerificationTotal.get());
+        payload.put("success", manifestVerificationSuccess.get());
+        payload.put("failure", manifestVerificationFailure.get());
+        payload.put("lastFailureTs", manifestVerificationLastFailureTs.get());
+        payload.put("lastFailureMessage", manifestVerificationLastFailureMessage);
+        return payload;
+    }
+
+    private Response manifestVerificationSucceeded(int fileCount) {
+        manifestVerificationSuccess.incrementAndGet();
+        Response r = new Response(StatusCode.OK);
+        r.setMessage("transfer manifest verified files=" + fileCount);
+        return r;
+    }
+
+    private Response manifestVerificationFailed(String message) {
+        manifestVerificationFailure.incrementAndGet();
+        manifestVerificationLastFailureTs.set(System.currentTimeMillis());
+        manifestVerificationLastFailureMessage = message;
+        Response r = new Response(StatusCode.ERROR);
+        r.setMessage(message);
+        return r;
     }
 
     private void sendChunkWithRetry(RegionAdminService.Client client,

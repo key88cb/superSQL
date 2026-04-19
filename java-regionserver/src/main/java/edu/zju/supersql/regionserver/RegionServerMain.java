@@ -49,6 +49,27 @@ public class RegionServerMain {
                                      String dataDir,
                                      String walDir,
                                      boolean miniSqlAlive) {
+        return buildStatusPayload(
+            rsId,
+            rsHost,
+            thriftPort,
+            httpPort,
+            zkConnect,
+            dataDir,
+            walDir,
+            miniSqlAlive,
+            null);
+        }
+
+        static byte[] buildStatusPayload(String rsId,
+                         String rsHost,
+                         int thriftPort,
+                         int httpPort,
+                         String zkConnect,
+                         String dataDir,
+                         String walDir,
+                         boolean miniSqlAlive,
+                         Map<String, Object> transferManifestVerification) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("status", "ok");
         payload.put("rsId", rsId);
@@ -59,6 +80,17 @@ public class RegionServerMain {
         payload.put("dataDir", dataDir);
         payload.put("walDir", walDir);
         payload.put("miniSqlAlive", miniSqlAlive);
+        if (transferManifestVerification == null) {
+            Map<String, Object> defaults = new LinkedHashMap<>();
+            defaults.put("total", 0L);
+            defaults.put("success", 0L);
+            defaults.put("failure", 0L);
+            defaults.put("lastFailureTs", 0L);
+            defaults.put("lastFailureMessage", "");
+            payload.put("transferManifestVerification", defaults);
+        } else {
+            payload.put("transferManifestVerification", transferManifestVerification);
+        }
         payload.put("timestamp", System.currentTimeMillis());
         try {
             return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
@@ -140,7 +172,11 @@ public class RegionServerMain {
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
         });
+        final RegionAdminServiceImpl[] adminServiceRef = new RegionAdminServiceImpl[1];
         healthServer.createContext("/status", exchange -> {
+            Map<String, Object> manifestStats = adminServiceRef[0] != null
+                    ? adminServiceRef[0].getTransferManifestVerificationStats()
+                    : null;
             byte[] body = buildStatusPayload(
                     rsId,
                     rsHost,
@@ -149,7 +185,8 @@ public class RegionServerMain {
                     zkConnect,
                     dataDir,
                     walDir,
-                    miniSql.isAlive());
+                    miniSql.isAlive(),
+                    manifestStats);
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
@@ -169,6 +206,7 @@ public class RegionServerMain {
             miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, minReplicaAcks);
         RegionAdminServiceImpl adminService = new RegionAdminServiceImpl(
                 writeGuard, zkClient, dataDir, rsId);
+        adminServiceRef[0] = adminService;
 
         // ── Thrift TMultiplexedProcessor ──────────────────────────────────────
         TMultiplexedProcessor processor = new TMultiplexedProcessor();
