@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -462,6 +463,45 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertTrue(snapshot.lastRunCandidateTables() >= 1);
         Assertions.assertNull(snapshot.lastRunFilterRegionServerId());
         Assertions.assertEquals("t_background_repair", snapshot.lastRepairedTable());
+    }
+
+    @Test
+    void getTableLocationShouldRetryCleanupWhenHealTransferFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+
+        Response create = service.createTable("create table t_heal_cleanup_retry(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        AtomicInteger cleanupAttempts = new AtomicInteger();
+        RecordingRegionAdminExecutor retryingAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response deleteLocalTable(RegionServerInfo regionServer, String tableName) {
+                if ("rs-4".equals(regionServer.getId()) && "t_heal_cleanup_retry".equals(tableName)) {
+                    int attempt = cleanupAttempts.incrementAndGet();
+                    if (attempt < 3) {
+                        Response fail = new Response(StatusCode.ERROR);
+                        fail.setMessage("simulated cleanup retry " + attempt);
+                        return fail;
+                    }
+                }
+                return super.deleteLocalTable(regionServer, tableName);
+            }
+        };
+        retryingAdmin.failTransferTo("rs-4");
+
+        MasterServiceImpl repairingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                retryingAdmin);
+
+        TableLocation healed = repairingService.getTableLocation("t_heal_cleanup_retry");
+        Assertions.assertEquals("ACTIVE", healed.getTableStatus());
+        Assertions.assertEquals(3, cleanupAttempts.get());
     }
 
     @Test

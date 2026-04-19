@@ -872,33 +872,56 @@ public class MasterServiceImpl implements MasterService.Iface {
         }
     }
 
-    private boolean cleanupTargetReplicaBestEffort(RegionServerInfo target, String tableName, String reason) {
-        return cleanupReplicaBestEffort(target, tableName, reason, "target");
+    private static final int HEAL_CLEANUP_MAX_ATTEMPTS = 3;
+
+    private boolean cleanupTargetReplicaWithConfirmation(RegionServerInfo target, String tableName, String reason) {
+        return cleanupReplicaWithConfirmation(target, tableName, reason, "target");
     }
 
-    private boolean cleanupReplicaBestEffort(RegionServerInfo replica,
-                                             String tableName,
-                                             String reason,
-                                             String role) {
+    private boolean cleanupReplicaWithConfirmation(RegionServerInfo replica,
+                                                   String tableName,
+                                                   String reason,
+                                                   String role) {
         if (replica == null || !replica.isSetId()) {
             return true;
         }
-        try {
-            Response response = regionAdminExecutor.deleteLocalTable(replica, tableName);
-            if (response.getCode() == StatusCode.OK || response.getCode() == StatusCode.TABLE_NOT_FOUND) {
-                log.info("triggerRebalance cleanup {} replica table={} replica={} reason={} code={}",
-                        role, tableName, replica.getId(), reason, response.getCode());
-                return true;
-            } else {
-                log.warn("triggerRebalance cleanup {} replica failed table={} replica={} reason={} code={} msg={}",
-                        role, tableName, replica.getId(), reason, response.getCode(), response.getMessage());
-                return false;
+        String lastError = null;
+        for (int attempt = 1; attempt <= HEAL_CLEANUP_MAX_ATTEMPTS; attempt++) {
+            try {
+                Response response = regionAdminExecutor.deleteLocalTable(replica, tableName);
+                if (response.getCode() == StatusCode.OK || response.getCode() == StatusCode.TABLE_NOT_FOUND) {
+                    log.info("healTableLocation cleanup {} replica confirmed table={} replica={} reason={} code={} attempt={}/{}",
+                            role, tableName, replica.getId(), reason, response.getCode(), attempt, HEAL_CLEANUP_MAX_ATTEMPTS);
+                    return true;
+                }
+                lastError = "code=" + response.getCode() + " msg=" + response.getMessage();
+                log.warn("healTableLocation cleanup {} replica failed table={} replica={} reason={} attempt={}/{} {}",
+                        role,
+                        tableName,
+                        replica.getId(),
+                        reason,
+                        attempt,
+                        HEAL_CLEANUP_MAX_ATTEMPTS,
+                        lastError);
+            } catch (Exception e) {
+                lastError = e.getClass().getSimpleName() + ": " + e.getMessage();
+                log.warn("healTableLocation cleanup {} replica exception table={} replica={} reason={} attempt={}/{} cause={}",
+                        role,
+                        tableName,
+                        replica.getId(),
+                        reason,
+                        attempt,
+                        HEAL_CLEANUP_MAX_ATTEMPTS,
+                        e.getMessage());
             }
-        } catch (Exception e) {
-            log.warn("triggerRebalance cleanup {} replica exception table={} replica={} reason={} cause={}",
-                    role, tableName, replica.getId(), reason, e.getMessage());
-            return false;
         }
+        log.warn("healTableLocation cleanup {} replica exhausted retries table={} replica={} reason={} lastError={}",
+                role,
+                tableName,
+                replica.getId(),
+                reason,
+                lastError == null ? "unknown" : lastError);
+        return false;
     }
 
     private TableLocation healTableLocationBestEffort(TableLocation location) {
@@ -1074,7 +1097,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             return promotedLocation;
         } catch (Exception e) {
             for (RegionServerInfo clonedTarget : clonedTargets) {
-                cleanupTargetReplicaBestEffort(clonedTarget,
+                cleanupTargetReplicaWithConfirmation(clonedTarget,
                         promotedLocation.getTableName(),
                         "heal_metadata_persist_failed");
             }
@@ -1143,7 +1166,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                     target.getId(),
                     e.getMessage());
         }
-        cleanupTargetReplicaBestEffort(target, tableName, "heal_transfer_failed");
+        cleanupTargetReplicaWithConfirmation(target, tableName, "heal_transfer_failed");
         return false;
     }
 

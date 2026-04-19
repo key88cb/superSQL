@@ -47,13 +47,13 @@
 - `getTableLocation` 在检测到主副本离线且存在在线副本时，会自动晋升在线副本并回写元数据（lazy failover）。
 - `listTables` 同样会在返回前执行主副本离线检测与 lazy failover，减少批量查询场景下的陈旧主路由。
 - lazy failover 补副本已升级为“先数据迁移后元数据落盘”：Master 会先触发 RegionAdmin `transferTable` 把表数据复制到新副本，成功后才回写 `/meta/tables` 与 `/assignments`。
-- lazy failover 的补副本迁移失败时会保持降副本状态并清理目标残留（best-effort），避免出现“元数据已宣告副本存在但数据未到位”的假副本。
+- lazy failover 的补副本迁移失败时会保持降副本状态，并对目标残留执行确认重试清理（`OK/TABLE_NOT_FOUND` 视为完成），避免出现“元数据已宣告副本存在但数据未到位”的假副本。
 - 当表的所有副本都离线时，路由自愈会将表状态标记为 `UNAVAILABLE`；有副本恢复在线后会自动回升到 `ACTIVE`。
 - 路由自愈写回已增加按表去抖节流（相同目标拓扑在最小间隔内不重复写 ZK），降低高频查询下写放大。
 
 当前限制：
 - 当前 rebalance 调度器仍是基础版；虽已形成 `RegionMigrator` 统一迁移/恢复编排并补齐阶段状态与超时回收，但跨节点故障自治恢复闭环仍待完善。
-- rebalance 对数据面迁移回滚当前仍以元数据回滚为主；target 清理虽已支持 best-effort，但尚未形成强一致、可确认完成的补偿协议。
+- rebalance 与卡死恢复已形成“补偿确认后完成”协议：必要副本清理采用确认重试，失败时显式进入 `COMPENSATING` 并保留上下文，避免假恢复。
 - 当前选主与脑裂防护已跑通基础路径，尚未补全网络分区/抖动场景下的混沌验证。
 
 ## 2. RegionServer 侧已实现内容

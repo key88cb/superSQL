@@ -80,7 +80,7 @@
 - Master `/status` 已新增 `migration` 指标快照，并细分 `rebalance*` / `recovery*` 分项计数与 `lastRebalanceError` / `lastRecoveryError`，可直接区分迁移主流程与卡死恢复链路的失败来源。
 - membership 事件触发链路在 route repair 抛错时会记录告警但不中断 rebalance 外部触发。
 - RegionServer 成员变更（up/down）已可触发调度器外部请求（受节流保护）。
-- rebalance 的元数据回滚、target 残留清理补偿、cache invalidation/resume best-effort。
+- rebalance 的元数据回滚、target 残留清理确认重试补偿、cache invalidation/resume best-effort。
 
 ### 仍待实现
 
