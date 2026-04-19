@@ -629,6 +629,7 @@ class RegionAdminServiceImplTest {
 
         Map<String, Object> snapshot = service.getTransferManifestVerificationStats();
         Assertions.assertEquals("checksum_mismatch", String.valueOf(snapshot.get("lastFailureReason")));
+        Assertions.assertEquals("orders", String.valueOf(snapshot.get("lastFailureTable")));
         Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
         Assertions.assertEquals(1L, ((Number) reasons.get("checksum_mismatch")).longValue());
         }
@@ -642,6 +643,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(0L, ((Number) initial.get("duplicateAcks")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("lastSuccessTs")).longValue());
         Assertions.assertEquals("", String.valueOf(initial.get("lastFailureReason")));
+        Assertions.assertEquals("", String.valueOf(initial.get("lastFailureTable")));
         Map<?, ?> initialReasons = (Map<?, ?>) initial.get("failureReasons");
         Assertions.assertEquals(0L, ((Number) initialReasons.get("invalid_manifest")).longValue());
         Assertions.assertEquals(0L, ((Number) initialReasons.get("scope_violation")).longValue());
@@ -689,6 +691,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertTrue(((Number) snapshot.get("lastSuccessTs")).longValue() > 0L);
         Assertions.assertTrue(((Number) snapshot.get("lastFailureTs")).longValue() > 0L);
         Assertions.assertEquals("file_missing", String.valueOf(snapshot.get("lastFailureReason")));
+        Assertions.assertEquals("orders", String.valueOf(snapshot.get("lastFailureTable")));
         Assertions.assertTrue(String.valueOf(snapshot.get("lastFailureMessage")).contains("missing"));
         Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
         Assertions.assertEquals(1L, ((Number) reasons.get("file_missing")).longValue());
@@ -721,8 +724,10 @@ class RegionAdminServiceImplTest {
         Map<?, ?> first = (Map<?, ?>) recent.get(0);
         Map<?, ?> last = (Map<?, ?>) recent.get(recent.size() - 1);
         Assertions.assertEquals("file_missing", String.valueOf(first.get("reason")));
+        Assertions.assertEquals("orders", String.valueOf(first.get("table")));
         Assertions.assertTrue(String.valueOf(first.get("message")).contains("orders_missing_2"));
         Assertions.assertEquals("file_missing", String.valueOf(last.get("reason")));
+        Assertions.assertEquals("orders", String.valueOf(last.get("table")));
         Assertions.assertTrue(String.valueOf(last.get("message")).contains("orders_missing_9"));
         Assertions.assertTrue(((Number) last.get("ts")).longValue() > 0L);
         }

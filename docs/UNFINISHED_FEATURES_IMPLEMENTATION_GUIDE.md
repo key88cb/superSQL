@@ -92,6 +92,7 @@
 - RegionServer `/status` 的 manifest 校验统计已补充 `duplicateAcksByTable`，可按表识别重复清单重放热点。
 - `duplicateAcksByTable` 已支持有界容量与 `duplicateAcksByTableDropped`，避免高基数表导致观测结构无限扩张。
 - transferTable 统计已补充 `lastFailureTable`，并在 `recentFailures` 事件内携带 `table`，支持按表聚焦迁移失败排查。
+- manifest 校验统计已补充 `lastFailureTable`，并在 `recentFailures` 事件内携带 `table`，便于按表关联清单失败与数据文件异常。
 - RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure/lastSuccessTs、失败原因分类、最近失败信息），便于外部排查迁移失败类型。
 - `transferTable` 失败原因分类已细化包含 `source_io_error`，便于区分源端本地 I/O 异常与链路/目标端拒绝类问题。
 - `transferTable` 统计已补充 `recentFailures` 有界窗口（最多 8 条），用于快速查看最近失败序列且控制 `/status` 体积。

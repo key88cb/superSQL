@@ -72,6 +72,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong manifestFailureOther = new AtomicLong();
     private final AtomicLong manifestRecentFailuresDropped = new AtomicLong();
     private volatile String manifestVerificationLastFailureReason = "";
+    private volatile String manifestVerificationLastFailureTable = "";
     private volatile String manifestVerificationLastFailureMessage = "";
     private final Object manifestFailureHistoryLock = new Object();
     private final Deque<Map<String, Object>> manifestRecentFailures = new ArrayDeque<>();
@@ -555,8 +556,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     private Response validateTransferManifestChunk(DataChunk chunk) {
         manifestVerificationTotal.incrementAndGet();
+        String failureTable = chunk != null && chunk.isSetTableName() ? chunk.getTableName() : "";
         if (chunk.getOffset() != 0L || !chunk.isIsLast()) {
-            return manifestVerificationFailed("invalid_manifest", "Invalid transfer manifest chunk metadata");
+            return manifestVerificationFailed(failureTable, "invalid_manifest", "Invalid transfer manifest chunk metadata");
         }
 
         try {
@@ -569,15 +571,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             if (chunk.isSetTableName() && manifestTable != null
                     && !manifestTable.isBlank()
                     && !manifestTable.equals(chunk.getTableName())) {
-                return manifestVerificationFailed("invalid_manifest", "transfer manifest table mismatch");
+                return manifestVerificationFailed(failureTable, "invalid_manifest", "transfer manifest table mismatch");
             }
 
             Object rawFiles = manifest.get("files");
             if (!(rawFiles instanceof List<?> files)) {
-                return manifestVerificationFailed("invalid_manifest", "transfer manifest missing files list");
+                return manifestVerificationFailed(failureTable, "invalid_manifest", "transfer manifest missing files list");
             }
             if (files.isEmpty()) {
-                return manifestVerificationFailed("invalid_manifest", "transfer manifest has empty files list");
+                return manifestVerificationFailed(failureTable, "invalid_manifest", "transfer manifest has empty files list");
             }
 
             String expectedTablePrefix = null;
@@ -587,8 +589,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 expectedTablePrefix = chunk.getTableName();
             }
             if (expectedTablePrefix == null) {
-                return manifestVerificationFailed("invalid_manifest", "transfer manifest missing tableName");
+                return manifestVerificationFailed(failureTable, "invalid_manifest", "transfer manifest missing tableName");
             }
+            failureTable = expectedTablePrefix;
 
             Set<String> seenFileNames = new HashSet<>();
             long manifestDigest = computeCrc32(manifestBytes);
@@ -599,45 +602,45 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
             for (Object raw : files) {
                 if (!(raw instanceof Map<?, ?> fileItem)) {
-                    return manifestVerificationFailed("invalid_manifest", "transfer manifest has invalid file item");
+                    return manifestVerificationFailed(failureTable, "invalid_manifest", "transfer manifest has invalid file item");
                 }
                 String fileName = String.valueOf(fileItem.get("fileName"));
                 if (fileName == null || fileName.isBlank()) {
-                    return manifestVerificationFailed("invalid_manifest", "transfer manifest has empty fileName");
+                    return manifestVerificationFailed(failureTable, "invalid_manifest", "transfer manifest has empty fileName");
                 }
                 if (fileName.endsWith(STAGING_SUFFIX)
                         || fileName.startsWith(TRANSFER_MANIFEST_PREFIX)) {
-                    return manifestVerificationFailed("scope_violation", "transfer manifest has invalid data fileName " + fileName);
+                    return manifestVerificationFailed(failureTable, "scope_violation", "transfer manifest has invalid data fileName " + fileName);
                 }
                 if (!fileName.startsWith(expectedTablePrefix)) {
-                    return manifestVerificationFailed("scope_violation", "transfer manifest file outside table scope " + fileName);
+                    return manifestVerificationFailed(failureTable, "scope_violation", "transfer manifest file outside table scope " + fileName);
                 }
                 if (!seenFileNames.add(fileName)) {
-                    return manifestVerificationFailed("scope_violation", "transfer manifest has duplicate fileName " + fileName);
+                    return manifestVerificationFailed(failureTable, "scope_violation", "transfer manifest has duplicate fileName " + fileName);
                 }
                 long expectedSize = toLong(fileItem.get("size"), -1L);
                 if (expectedSize < 0L) {
-                    return manifestVerificationFailed("invalid_manifest", "transfer manifest has invalid size for " + fileName);
+                    return manifestVerificationFailed(failureTable, "invalid_manifest", "transfer manifest has invalid size for " + fileName);
                 }
                 long expectedCrc32 = toLong(fileItem.get("crc32"), -1L);
                 if (expectedCrc32 < 0L) {
-                    return manifestVerificationFailed("invalid_manifest", "transfer manifest has invalid crc32 for " + fileName);
+                    return manifestVerificationFailed(failureTable, "invalid_manifest", "transfer manifest has invalid crc32 for " + fileName);
                 }
 
                 Path filePath = resolveDataPath(fileName);
                 if (!Files.exists(filePath)) {
-                    return manifestVerificationFailed("file_missing", "transfer manifest verification failed: missing " + fileName);
+                    return manifestVerificationFailed(failureTable, "file_missing", "transfer manifest verification failed: missing " + fileName);
                 }
 
                 long actualSize = Files.size(filePath);
                 if (actualSize != expectedSize) {
-                    return manifestVerificationFailed("size_mismatch", "transfer manifest verification failed: size mismatch for "
+                    return manifestVerificationFailed(failureTable, "size_mismatch", "transfer manifest verification failed: size mismatch for "
                             + fileName + " expected=" + expectedSize + " actual=" + actualSize);
                 }
 
                 long actualCrc32 = computeCrc32(filePath);
                 if (actualCrc32 != expectedCrc32) {
-                    return manifestVerificationFailed("checksum_mismatch", "transfer manifest verification failed: checksum mismatch for "
+                    return manifestVerificationFailed(failureTable, "checksum_mismatch", "transfer manifest verification failed: checksum mismatch for "
                             + fileName + " expected=" + expectedCrc32 + " actual=" + actualCrc32);
                 }
             }
@@ -646,7 +649,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             return manifestVerificationSucceeded(files.size());
         } catch (Exception e) {
             log.error("transfer manifest verification failed for table={}", chunk.getTableName(), e);
-            return manifestVerificationFailed("other", "transfer manifest verification failed: " + e.getMessage());
+            return manifestVerificationFailed(failureTable, "other", "transfer manifest verification failed: " + e.getMessage());
         }
     }
 
@@ -667,6 +670,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         reasons.put("other", manifestFailureOther.get());
         payload.put("failureReasons", reasons);
         payload.put("lastFailureReason", manifestVerificationLastFailureReason);
+        payload.put("lastFailureTable", manifestVerificationLastFailureTable);
         payload.put("lastFailureMessage", manifestVerificationLastFailureMessage);
         payload.put("recentFailures", snapshotManifestRecentFailures());
         payload.put("recentFailuresDropped", manifestRecentFailuresDropped.get());
@@ -728,14 +732,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         return r;
     }
 
-    private Response manifestVerificationFailed(String reason, String message) {
+    private Response manifestVerificationFailed(String tableName, String reason, String message) {
         manifestVerificationFailure.incrementAndGet();
         long now = System.currentTimeMillis();
         manifestVerificationLastFailureTs.set(now);
         manifestVerificationLastFailureReason = reason == null ? "other" : reason;
+        manifestVerificationLastFailureTable = tableName == null ? "" : tableName;
         String sanitizedMessage = sanitizeStatusMessage(message);
         manifestVerificationLastFailureMessage = sanitizedMessage;
-        recordManifestFailure(now, manifestVerificationLastFailureReason, sanitizedMessage);
+        recordManifestFailure(now, tableName, manifestVerificationLastFailureReason, sanitizedMessage);
 
         switch (manifestVerificationLastFailureReason) {
             case "invalid_manifest" -> manifestFailureInvalidManifest.incrementAndGet();
@@ -757,9 +762,10 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         }
     }
 
-    private void recordManifestFailure(long ts, String reason, String message) {
+    private void recordManifestFailure(long ts, String tableName, String reason, String message) {
         Map<String, Object> event = new LinkedHashMap<>();
         event.put("ts", ts);
+        event.put("table", tableName == null ? "" : tableName);
         event.put("reason", reason == null ? "" : reason);
         event.put("message", message == null ? "" : message);
 

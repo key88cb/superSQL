@@ -42,6 +42,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("duplicateAcks")).longValue());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("lastSuccessTs")).longValue());
         Assertions.assertEquals("", transferManifestVerification.get("lastFailureReason"));
+        Assertions.assertEquals("", transferManifestVerification.get("lastFailureTable"));
         Map<?, ?> manifestFailureReasons = (Map<?, ?>) transferManifestVerification.get("failureReasons");
         Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("invalid_manifest")).longValue());
         Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("scope_violation")).longValue());
@@ -82,10 +83,12 @@ class RegionServerMainStatusPayloadTest {
         manifestReasons.put("other", 0L);
         manifestStats.put("failureReasons", manifestReasons);
         manifestStats.put("lastFailureReason", "file_missing");
+        manifestStats.put("lastFailureTable", "orders");
         manifestStats.put("lastFailureMessage", "checksum mismatch");
         java.util.List<Map<String, Object>> manifestRecentFailures = new java.util.ArrayList<>();
         Map<String, Object> manifestEvent = new LinkedHashMap<>();
         manifestEvent.put("ts", 120L);
+        manifestEvent.put("table", "orders");
         manifestEvent.put("reason", "file_missing");
         manifestEvent.put("message", "missing orders_data");
         manifestRecentFailures.add(manifestEvent);
@@ -146,6 +149,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(111L, ((Number) transferManifestVerification.get("lastSuccessTs")).longValue());
         Assertions.assertEquals(123L, ((Number) transferManifestVerification.get("lastFailureTs")).longValue());
         Assertions.assertEquals("file_missing", transferManifestVerification.get("lastFailureReason"));
+        Assertions.assertEquals("orders", transferManifestVerification.get("lastFailureTable"));
         Assertions.assertEquals("checksum mismatch", transferManifestVerification.get("lastFailureMessage"));
         Map<?, ?> manifestFailureReasons = (Map<?, ?>) transferManifestVerification.get("failureReasons");
         Assertions.assertEquals(1L, ((Number) manifestFailureReasons.get("invalid_manifest")).longValue());

@@ -99,6 +99,7 @@ public class RegionServerMain {
             reasons.put("other", 0L);
             defaults.put("failureReasons", reasons);
             defaults.put("lastFailureReason", "");
+            defaults.put("lastFailureTable", "");
             defaults.put("lastFailureMessage", "");
             defaults.put("recentFailures", java.util.Collections.emptyList());
             defaults.put("recentFailuresDropped", 0L);
