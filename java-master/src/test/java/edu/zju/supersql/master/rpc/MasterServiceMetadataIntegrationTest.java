@@ -492,6 +492,64 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void migrationSnapshotShouldTrackAttemptSuccessFailureAndLastError() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Response create = service.createTable("create table t_migration_metrics(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 9);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        Response first = service.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, first.getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 8);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 9);
+        Response createFailureCase = service.createTable("create table t_migration_metrics_fail(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, createFailureCase.getCode());
+
+        RecordingRegionAdminExecutor failingAdmin = new RecordingRegionAdminExecutor();
+        failingAdmin.failAnyTransfer();
+        MasterServiceImpl failingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                failingAdmin);
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 9);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        Response second = failingService.triggerRebalance();
+        Assertions.assertEquals(StatusCode.ERROR, second.getCode());
+
+        edu.zju.supersql.master.migration.RegionMigrator.MigrationSnapshot successSnapshot = service.migrationSnapshot();
+        Assertions.assertTrue(successSnapshot.attemptCount() >= 1L);
+        Assertions.assertTrue(successSnapshot.successCount() >= 1L);
+        Assertions.assertEquals(0L, successSnapshot.failureCount());
+        Assertions.assertTrue(successSnapshot.lastAttemptAtMs() > 0L);
+        Assertions.assertTrue(successSnapshot.lastSuccessAtMs() > 0L);
+
+        edu.zju.supersql.master.migration.RegionMigrator.MigrationSnapshot failureSnapshot = failingService.migrationSnapshot();
+        Assertions.assertTrue(failureSnapshot.attemptCount() >= 1L);
+        Assertions.assertEquals(0L, failureSnapshot.successCount());
+        Assertions.assertTrue(failureSnapshot.failureCount() >= 1L);
+        Assertions.assertTrue(failureSnapshot.lastFailureAtMs() > 0L);
+        Assertions.assertNotNull(failureSnapshot.lastError());
+        Assertions.assertFalse(failureSnapshot.lastError().isBlank());
+    }
+
+    @Test
     void triggerRebalanceShouldExposeMovingStatusDuringTransfer() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 2);

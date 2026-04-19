@@ -55,6 +55,7 @@
 - 卡死迁移恢复已补充上下文补偿：基于 `migrationSourceReplicaId/migrationTargetReplicaId` 执行阶段化清理（`FINALIZING` 清理 source；`PREPARING/MOVING/ROLLBACK` 清理 target）后再恢复 `ACTIVE`，降低仅元数据回写导致的数据面残留风险。
 - 卡死迁移恢复已补充失败闸门：若可达副本上的必要补偿清理失败，则保持迁移中状态并保留上下文，避免进入“控制面已恢复、数据面未收敛”的不一致窗口。
 - 卡死迁移恢复已补充“补偿对象可解析”闸门：当上下文中的 source/target 无法解析到可操作副本时，恢复同样被阻断并保留上下文，避免在补偿对象不确定时提前切回 `ACTIVE`。
+- 卡死迁移恢复逻辑已从 `MasterServiceImpl` 下沉到 `RegionMigrator`，迁移主流程与超时恢复已收敛到同一编排组件；Master 侧仅保留上下文读写与副本解析回调。
 - `triggerRebalance()` 调度入口也会执行卡死迁移预恢复：即使本次调度因“集群已平衡”被跳过，也能先回收超时状态。
 - `triggerRebalance()` 在“跳过调度”响应中会附带本轮卡死迁移回收数量，便于外部调度器做轻量观测而不依赖日志解析。
 - `triggerRebalance()` 已限制仅对 `ACTIVE` 表挑选候选，避免迁移中的表被重复调度。
@@ -73,13 +74,14 @@
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
 - Master `/status` 已可查看 route repair 运行指标（最近修复时间/修复表/修复次数/最近错误），并包含近 N 次运行窗口统计（成功率、平均修复数）。
 - Master `/status` 的 route repair 指标已支持最近一次扫描范围观测（全表总数/候选表数/过滤 rsId）。
+- Master `/status` 已新增 `migration` 指标快照（attempt/success/failure/lastError 与最近时间戳），用于观测 `RegionMigrator` 迁移与卡死恢复执行状态。
 - membership 事件触发链路在 route repair 抛错时会记录告警但不中断 rebalance 外部触发。
 - RegionServer 成员变更（up/down）已可触发调度器外部请求（受节流保护）。
 - rebalance 的元数据回滚、target 残留清理补偿、cache invalidation/resume best-effort。
 
 ### 仍待实现
 
-- `RegionMigrator`：独立编排组件基础已落地（主迁移流程已从 `MasterServiceImpl` 抽离），后续仍需继续完善幂等恢复策略与更细粒度阶段恢复策略。
+- `RegionMigrator`：独立编排组件已覆盖主迁移流程与卡死恢复，后续仍需继续完善更细粒度幂等补偿策略与跨节点恢复策略。
 - 故障闭环：RegionServer 下线后的自动副本修复、主副本晋升、路由稳定切换。
 - 混沌与分区场景验证：确保 epoch/主从切换在网络抖动下行为可预测。
 

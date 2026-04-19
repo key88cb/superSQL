@@ -58,11 +58,6 @@ public class MasterServiceImpl implements MasterService.Iface {
                                           double avgRepairedCount) {
     }
 
-    private record MigrationContext(String attemptId,
-                                    String sourceReplicaId,
-                                    String targetReplicaId) {
-    }
-
     private static final Logger log = LoggerFactory.getLogger(MasterServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final long DEFAULT_ROUTE_HEAL_MIN_GAP_MS = 1_000L;
@@ -352,7 +347,11 @@ public class MasterServiceImpl implements MasterService.Iface {
                 }
                 candidateTables++;
                 String before = healSignature(table);
-                TableLocation recovered = recoverStuckMigrationBestEffort(table);
+                TableLocation recovered = regionMigrator.recoverStuckMigrationBestEffort(
+                    table,
+                    migrationStuckTimeoutMs,
+                    this::readMigrationContextBestEffort,
+                    this::resolveRegionServerForRecovery);
                 TableLocation healed = healTableLocationBestEffort(recovered);
                 String after = healSignature(healed);
                 if (!Objects.equals(before, after)) {
@@ -430,6 +429,10 @@ public class MasterServiceImpl implements MasterService.Iface {
                 windowStats.avgRepairedCount());
     }
 
+    public RegionMigrator.MigrationSnapshot migrationSnapshot() {
+        return regionMigrator.snapshot();
+    }
+
     private void recordRouteRepairRun(boolean success, long repairedCount) {
         synchronized (routeRepairWindowLock) {
             routeRepairRecentRuns.addLast(new RouteRepairRun(success, Math.max(0L, repairedCount)));
@@ -491,7 +494,11 @@ public class MasterServiceImpl implements MasterService.Iface {
                 notFound.setVersion(-1L);
                 return notFound;
             }
-            TableLocation recovered = recoverStuckMigrationBestEffort(location);
+            TableLocation recovered = regionMigrator.recoverStuckMigrationBestEffort(
+                location,
+                migrationStuckTimeoutMs,
+                this::readMigrationContextBestEffort,
+                this::resolveRegionServerForRecovery);
             return healTableLocationBestEffort(recovered);
         } catch (Exception e) {
             throw new TException("Failed to resolve table location: " + tableName, e);
@@ -652,7 +659,11 @@ public class MasterServiceImpl implements MasterService.Iface {
             List<TableLocation> locations = metaManager.listTables();
             List<TableLocation> healed = new ArrayList<>();
             for (TableLocation location : locations) {
-                TableLocation recovered = recoverStuckMigrationBestEffort(location);
+                TableLocation recovered = regionMigrator.recoverStuckMigrationBestEffort(
+                    location,
+                    migrationStuckTimeoutMs,
+                    this::readMigrationContextBestEffort,
+                    this::resolveRegionServerForRecovery);
                 healed.add(healTableLocationBestEffort(recovered));
             }
             return healed;
@@ -737,7 +748,11 @@ public class MasterServiceImpl implements MasterService.Iface {
         try {
             int recovered = 0;
             for (TableLocation location : metaManager.listTables()) {
-                TableLocation recoveredLocation = recoverStuckMigrationBestEffort(location);
+                TableLocation recoveredLocation = regionMigrator.recoverStuckMigrationBestEffort(
+                    location,
+                    migrationStuckTimeoutMs,
+                    this::readMigrationContextBestEffort,
+                    this::resolveRegionServerForRecovery);
                 if (recoveredLocation != location) {
                     recovered++;
                 }
@@ -1319,125 +1334,6 @@ public class MasterServiceImpl implements MasterService.Iface {
         return false;
     }
 
-    private boolean isTransientMigrationStatus(String status) {
-        if (status == null || status.isBlank()) {
-            return false;
-        }
-        String normalized = status.toUpperCase();
-        return STATUS_PREPARING.equals(normalized)
-                || STATUS_MOVING.equals(normalized)
-                || STATUS_FINALIZING.equals(normalized)
-                || STATUS_ROLLBACK.equals(normalized);
-    }
-
-    private TableLocation recoverStuckMigrationBestEffort(TableLocation location) {
-        if (location == null || !location.isSetTableName()) {
-            return location;
-        }
-        String currentStatus = location.isSetTableStatus() ? location.getTableStatus() : null;
-        if (!isTransientMigrationStatus(currentStatus)) {
-            return location;
-        }
-        if (migrationStuckTimeoutMs <= 0L) {
-            return location;
-        }
-        long version = location.isSetVersion() ? location.getVersion() : -1L;
-        long now = clockMs.getAsLong();
-        if (version <= 0L || now - version < migrationStuckTimeoutMs) {
-            return location;
-        }
-
-        MigrationContext migrationContext = readMigrationContextBestEffort(location.getTableName());
-        if (migrationContext == null
-                || migrationContext.attemptId() == null
-                || migrationContext.attemptId().isBlank()) {
-            return location;
-        }
-
-        String attemptId = migrationContext.attemptId();
-        String sourceReplicaId = migrationContext.sourceReplicaId();
-        String targetReplicaId = migrationContext.targetReplicaId();
-        boolean recoveryBlockedByCompensationFailure = false;
-
-        if (STATUS_FINALIZING.equalsIgnoreCase(currentStatus)
-                && sourceReplicaId != null
-                && !sourceReplicaId.isBlank()) {
-            RegionServerInfo sourceReplica = resolveRegionServerForRecovery(location, sourceReplicaId);
-            if (sourceReplica == null) {
-                recoveryBlockedByCompensationFailure = true;
-                log.warn("recoverStuckMigration missing source replica for compensation table={} sourceReplicaId={} status={}",
-                        location.getTableName(),
-                        sourceReplicaId,
-                        currentStatus);
-            } else {
-                boolean sourceCleaned = cleanupReplicaBestEffort(sourceReplica,
-                        location.getTableName(),
-                        "recover_stuck_finalizing",
-                        "source");
-                if (!sourceCleaned) {
-                    recoveryBlockedByCompensationFailure = true;
-                }
-            }
-        }
-
-        if ((STATUS_PREPARING.equalsIgnoreCase(currentStatus)
-                || STATUS_MOVING.equalsIgnoreCase(currentStatus)
-                || STATUS_ROLLBACK.equalsIgnoreCase(currentStatus))
-                && targetReplicaId != null
-                && !targetReplicaId.isBlank()) {
-            RegionServerInfo targetReplica = resolveRegionServerForRecovery(location, targetReplicaId);
-            if (targetReplica == null) {
-                recoveryBlockedByCompensationFailure = true;
-                log.warn("recoverStuckMigration missing target replica for compensation table={} targetReplicaId={} status={}",
-                        location.getTableName(),
-                        targetReplicaId,
-                        currentStatus);
-            } else {
-                boolean targetCleaned = cleanupReplicaBestEffort(targetReplica,
-                        location.getTableName(),
-                        "recover_stuck_" + currentStatus.toLowerCase(),
-                        "target");
-                if (!targetCleaned) {
-                    recoveryBlockedByCompensationFailure = true;
-                }
-            }
-        }
-
-        if (recoveryBlockedByCompensationFailure) {
-            log.warn("recoverStuckMigration blocked by compensation failure table={} status={} attemptId={} source={} target={}",
-                    location.getTableName(),
-                    currentStatus,
-                    attemptId,
-                    sourceReplicaId,
-                    targetReplicaId);
-            return location;
-        }
-
-        TableLocation recovered = new TableLocation(location);
-        recovered.setTableStatus(STATUS_ACTIVE);
-        recovered.setVersion(now);
-        try {
-            metaManager.saveTableLocation(recovered);
-            assignmentManager.saveAssignment(recovered.getTableName(), recovered.getReplicas());
-            touchStatusUpdatedAtBestEffort(recovered.getTableName());
-            clearMigrationContextBestEffort(recovered.getTableName());
-            log.warn("recoverStuckMigration finalized timed-out migration table={} status={} stuckFor={}ms attemptId={} source={} target={}",
-                    recovered.getTableName(),
-                    currentStatus,
-                    now - version,
-                    attemptId,
-                    sourceReplicaId,
-                    targetReplicaId);
-            return recovered;
-        } catch (Exception e) {
-            log.error("recoverStuckMigration failed table={} status={} cause={}",
-                    location.getTableName(),
-                    currentStatus,
-                    e.getMessage());
-            return location;
-        }
-    }
-
     private String healSignature(TableLocation location) {
         List<String> replicaIds = new ArrayList<>();
         if (location.isSetReplicas()) {
@@ -1591,7 +1487,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     @SuppressWarnings("unchecked")
-    private MigrationContext readMigrationContextBestEffort(String tableName) {
+    private RegionMigrator.MigrationContext readMigrationContextBestEffort(String tableName) {
         CuratorFramework zk = zk();
         if (isZkUnavailable(zk)) {
             return null;
@@ -1612,7 +1508,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             }
             Object source = root.get("migrationSourceReplicaId");
             Object target = root.get("migrationTargetReplicaId");
-            return new MigrationContext(
+                return new RegionMigrator.MigrationContext(
                     String.valueOf(attempt),
                     source == null ? null : String.valueOf(source),
                     target == null ? null : String.valueOf(target));

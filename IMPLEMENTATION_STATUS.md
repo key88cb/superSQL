@@ -1,4 +1,4 @@
-# SuperSQL 当前实现状态（2026-04-18）
+# SuperSQL 当前实现状态（2026-04-19）
 
 本文档记录已落地并通过测试的 Java 分布式层功能。
 
@@ -26,12 +26,14 @@
 - 卡死迁移恢复已收紧为“补偿成功后才转 `ACTIVE`”：若可达副本上的必要清理失败，则维持原迁移状态与上下文字段，避免出现“状态已恢复但数据面残留未收敛”的假恢复。
 - 卡死迁移恢复进一步收紧：当迁移上下文声明了 source/target 但对应副本无法解析（不在路由副本集合且当前在线列表不可见）时，同样阻断恢复并保持迁移态，避免在补偿对象不明确时误恢复。
 - Master 迁移主流程已抽离到独立组件 `RegionMigrator`（`PREPARING -> MOVING -> FINALIZING/ROLLBACK -> ACTIVE`），`MasterServiceImpl` 调度入口改为调用该组件执行迁移编排。
+- 卡死迁移恢复逻辑已进一步下沉到 `RegionMigrator`：`MasterServiceImpl` 仅保留迁移上下文读写与副本解析回调，迁移编排与超时恢复收敛到统一组件。
 - `triggerRebalance()` 候选选择已限制为 `ACTIVE` 表，避免对 `PREPARING/MOVING` 表重复触发迁移。
 - `createTable` 成功落盘元数据后也会初始化 `statusUpdatedAt`，保证新表从创建时起具备状态时间戳。
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
 - Master `/status` 已输出 RebalanceScheduler 运行快照（tick/trigger/throttle/success/failure、最近执行时间、最近触发原因）。
 - Master `/status` 已输出 route repair 运行指标（修复运行次数、累计修复表数、最近修复时间、最近修复表、最近错误），并新增近 N 次运行窗口统计（成功率、平均修复数）。
 - Master `/status` 的 route repair 指标已补充最近一次扫描范围观测（`lastRunTotalTables`/`lastRunCandidateTables`/`lastRunFilterRegionServerId`），便于区分全量修复与按 RS 定向修复的覆盖面。
+- Master `/status` 已新增迁移编排指标快照（`attemptCount/successCount/failureCount/lastError/lastAttemptAtMs/lastSuccessAtMs/lastFailureAtMs`），用于观测 `RegionMigrator` 的迁移与卡死恢复执行结果。
 - RegionServer 上下线事件已接入调度器外部触发（`rs_up` / `rs_down`），在节流保护下可即时请求一次 rebalance。
 - RebalanceScheduler 定时 tick 已接入 route repair 预扫描：即使没有读流量和 membership 事件，也会周期性后台修复离线路由再进入 rebalance。
 - RebalanceScheduler 已覆盖外部触发节流测试：连续 membership 事件会受 `minGapMs` 保护，避免抖动时触发风暴。
@@ -47,7 +49,7 @@
 - 路由自愈写回已增加按表去抖节流（相同目标拓扑在最小间隔内不重复写 ZK），降低高频查询下写放大。
 
 当前限制：
-- 当前 rebalance 调度器仍是基础版，虽已补齐阶段状态与超时回收，但尚未形成完整 RegionMigrator 编排与跨节点故障恢复闭环。
+- 当前 rebalance 调度器仍是基础版；虽已形成 `RegionMigrator` 统一迁移/恢复编排并补齐阶段状态与超时回收，但跨节点故障自治恢复闭环仍待完善。
 - rebalance 对数据面迁移回滚当前仍以元数据回滚为主；target 清理虽已支持 best-effort，但尚未形成强一致、可确认完成的补偿协议。
 - 当前选主与脑裂防护已跑通基础路径，尚未补全网络分区/抖动场景下的混沌验证。
 
@@ -237,6 +239,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：`copyTableData` 在“进行中重复 chunk”与“完成后重复末块”场景下的幂等确认语义，避免误触发 offset reset。
 - 2026-04-19 已补充覆盖：`copyTableData` 在“重复 offset 但内容冲突”场景下会返回错误且保持传输进度，后续正确 chunk 可继续完成迁移。
 - 2026-04-19 已补充覆盖：`triggerRebalance` 在“集群已平衡”返回前会先执行卡死迁移预恢复，验证调度路径不再依赖读路径才能回收超时状态。
+- 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（attempt/success/failure/lastError）与 Master `/status` 中 `migration` 字段契约。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 

@@ -33,10 +33,13 @@ class MasterServerHttpPayloadTest {
         Assertions.assertTrue(json.containsKey("zkReady"));
         Assertions.assertTrue(json.containsKey("rebalanceScheduler"));
         Assertions.assertTrue(json.containsKey("routeRepair"));
+        Assertions.assertTrue(json.containsKey("migration"));
         Map<?, ?> scheduler = (Map<?, ?>) json.get("rebalanceScheduler");
         Assertions.assertEquals(Boolean.FALSE, scheduler.get("available"));
         Map<?, ?> routeRepair = (Map<?, ?>) json.get("routeRepair");
         Assertions.assertEquals(Boolean.FALSE, routeRepair.get("available"));
+        Map<?, ?> migration = (Map<?, ?>) json.get("migration");
+        Assertions.assertEquals(Boolean.FALSE, migration.get("available"));
     }
 
     @Test
@@ -93,5 +96,31 @@ class MasterServerHttpPayloadTest {
         Assertions.assertEquals(4, ((Number) routeRepair.get("recentObservedRuns")).intValue());
         Assertions.assertEquals(0.75, ((Number) routeRepair.get("recentSuccessRate")).doubleValue());
         Assertions.assertEquals(1.5, ((Number) routeRepair.get("recentAvgRepairedCount")).doubleValue());
+    }
+
+    @Test
+    void statusPayloadShouldContainMigrationSnapshotWhenAvailable() throws Exception {
+        edu.zju.supersql.master.migration.RegionMigrator.MigrationSnapshot snapshot =
+                new edu.zju.supersql.master.migration.RegionMigrator.MigrationSnapshot(
+                        5L,
+                        3L,
+                        2L,
+                        2_001L,
+                        2_002L,
+                        2_003L,
+                        "transfer failed");
+
+        byte[] payload = MasterServer.buildStatusPayload(8080, 8880, "zk1:2181", null, null, snapshot);
+        Map<?, ?> json = MAPPER.readValue(new String(payload, StandardCharsets.UTF_8), Map.class);
+        Map<?, ?> migration = (Map<?, ?>) json.get("migration");
+
+        Assertions.assertEquals(Boolean.TRUE, migration.get("available"));
+        Assertions.assertEquals(5, ((Number) migration.get("attemptCount")).intValue());
+        Assertions.assertEquals(3, ((Number) migration.get("successCount")).intValue());
+        Assertions.assertEquals(2, ((Number) migration.get("failureCount")).intValue());
+        Assertions.assertEquals(2001L, ((Number) migration.get("lastAttemptAtMs")).longValue());
+        Assertions.assertEquals(2002L, ((Number) migration.get("lastSuccessAtMs")).longValue());
+        Assertions.assertEquals(2003L, ((Number) migration.get("lastFailureAtMs")).longValue());
+        Assertions.assertEquals("transfer failed", migration.get("lastError"));
     }
 }

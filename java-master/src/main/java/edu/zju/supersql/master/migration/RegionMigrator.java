@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -19,6 +20,30 @@ import java.util.function.LongSupplier;
  * Encapsulates the region migration orchestration for rebalance.
  */
 public final class RegionMigrator {
+
+    public record MigrationContext(String attemptId,
+                                   String sourceReplicaId,
+                                   String targetReplicaId) {
+    }
+
+    public record MigrationSnapshot(long attemptCount,
+                                    long successCount,
+                                    long failureCount,
+                                    long lastAttemptAtMs,
+                                    long lastSuccessAtMs,
+                                    long lastFailureAtMs,
+                                    String lastError) {
+    }
+
+    @FunctionalInterface
+    public interface MigrationContextReader {
+        MigrationContext read(String tableName);
+    }
+
+    @FunctionalInterface
+    public interface RecoveryResolver {
+        RegionServerInfo resolve(TableLocation location, String replicaId);
+    }
 
     @FunctionalInterface
     public interface MigrationContextWriter {
@@ -39,6 +64,13 @@ public final class RegionMigrator {
     private final MigrationContextWriter migrationContextWriter;
     private final Consumer<String> migrationContextClearer;
     private final Consumer<String> statusUpdatedAtToucher;
+    private final AtomicLong attemptCount = new AtomicLong(0L);
+    private final AtomicLong successCount = new AtomicLong(0L);
+    private final AtomicLong failureCount = new AtomicLong(0L);
+    private final AtomicLong lastAttemptAtMs = new AtomicLong(-1L);
+    private final AtomicLong lastSuccessAtMs = new AtomicLong(-1L);
+    private final AtomicLong lastFailureAtMs = new AtomicLong(-1L);
+    private volatile String lastError;
 
     public RegionMigrator(MetaManager metaManager,
                           AssignmentManager assignmentManager,
@@ -56,9 +88,21 @@ public final class RegionMigrator {
         this.statusUpdatedAtToucher = statusUpdatedAtToucher;
     }
 
+    public MigrationSnapshot snapshot() {
+        return new MigrationSnapshot(
+                attemptCount.get(),
+                successCount.get(),
+                failureCount.get(),
+                lastAttemptAtMs.get(),
+                lastSuccessAtMs.get(),
+                lastFailureAtMs.get(),
+                lastError);
+    }
+
     public Response rebalanceReplica(TableLocation location,
                                      RegionServerInfo source,
                                      RegionServerInfo target) throws Exception {
+        recordAttempt();
         RegionServerInfo primary = location.getPrimaryRS();
         String tableName = location.getTableName();
         String migrationAttemptId = buildMigrationAttemptId(tableName, source, target);
@@ -90,7 +134,8 @@ public final class RegionMigrator {
                     migrationAttemptId,
                     source.getId(),
                     target.getId());
-            return pause;
+            return recordFailureResponse(pause,
+                "rebalance pause failed table=" + tableName + " code=" + pause.getCode());
         }
 
         try {
@@ -109,7 +154,8 @@ public final class RegionMigrator {
                         target.getId());
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as MOVING before transfer: " + tableName);
-                return error;
+                return recordFailureResponse(error,
+                    "rebalance moving mark failed table=" + tableName);
             }
 
             Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
@@ -121,7 +167,8 @@ public final class RegionMigrator {
                         source.getId(),
                         target.getId());
                 cleanupTargetReplicaBestEffort(target, tableName, "transfer_failed");
-                return transfer;
+                return recordFailureResponse(transfer,
+                    "rebalance transfer failed table=" + tableName + " code=" + transfer.getCode());
             }
 
             List<RegionServerInfo> updatedReplicas = new ArrayList<>();
@@ -145,7 +192,8 @@ public final class RegionMigrator {
                 cleanupTargetReplicaBestEffort(target, tableName, "finalizing_mark_failed");
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as FINALIZING before metadata finalize: " + tableName);
-                return error;
+                return recordFailureResponse(error,
+                    "rebalance finalizing mark failed table=" + tableName);
             }
 
             try {
@@ -179,7 +227,8 @@ public final class RegionMigrator {
                         source.getId(),
                         target.getId());
                 cleanupTargetReplicaBestEffort(target, tableName, "source_delete_failed");
-                return delete;
+                return recordFailureResponse(delete,
+                    "rebalance source cleanup failed table=" + tableName + " code=" + delete.getCode());
             }
 
             TableLocation updatedLocation = new TableLocation(tableName, primary, updatedReplicas);
@@ -203,7 +252,10 @@ public final class RegionMigrator {
             Response ok = new Response(StatusCode.OK);
             ok.setMessage("Rebalanced table " + tableName + " from " + source.getId() + " to " + target.getId());
             log.info("triggerRebalance success table={} source={} target={}", tableName, source.getId(), target.getId());
-            return ok;
+            return recordSuccessResponse(ok);
+        } catch (Exception e) {
+            recordFailure("rebalance exception table=" + tableName + " cause=" + e.getMessage());
+            throw e;
         } finally {
             resumeWriteBestEffort(primary, tableName);
         }
@@ -344,5 +396,166 @@ public final class RegionMigrator {
                                            RegionServerInfo source,
                                            RegionServerInfo target) {
         return tableName + "-" + source.getId() + "-" + target.getId() + "-" + clockMs.getAsLong();
+    }
+
+    public TableLocation recoverStuckMigrationBestEffort(TableLocation location,
+                                                          long migrationStuckTimeoutMs,
+                                                          MigrationContextReader migrationContextReader,
+                                                          RecoveryResolver recoveryResolver) {
+        if (location == null || !location.isSetTableName()) {
+            return location;
+        }
+        String currentStatus = location.isSetTableStatus() ? location.getTableStatus() : null;
+        if (!isTransientMigrationStatus(currentStatus)) {
+            return location;
+        }
+        if (migrationStuckTimeoutMs <= 0L) {
+            return location;
+        }
+        long version = location.isSetVersion() ? location.getVersion() : -1L;
+        long now = clockMs.getAsLong();
+        if (version <= 0L || now - version < migrationStuckTimeoutMs) {
+            return location;
+        }
+
+        MigrationContext migrationContext = migrationContextReader.read(location.getTableName());
+        if (migrationContext == null
+                || migrationContext.attemptId() == null
+                || migrationContext.attemptId().isBlank()) {
+            return location;
+        }
+        recordAttempt();
+
+        String attemptId = migrationContext.attemptId();
+        String sourceReplicaId = migrationContext.sourceReplicaId();
+        String targetReplicaId = migrationContext.targetReplicaId();
+        boolean recoveryBlockedByCompensationFailure = false;
+
+        if (STATUS_FINALIZING.equalsIgnoreCase(currentStatus)
+                && sourceReplicaId != null
+                && !sourceReplicaId.isBlank()) {
+            RegionServerInfo sourceReplica = recoveryResolver.resolve(location, sourceReplicaId);
+            if (sourceReplica == null) {
+                recoveryBlockedByCompensationFailure = true;
+                log.warn("recoverStuckMigration missing source replica for compensation table={} sourceReplicaId={} status={}",
+                        location.getTableName(),
+                        sourceReplicaId,
+                        currentStatus);
+            } else {
+                boolean sourceCleaned = cleanupReplicaBestEffort(sourceReplica,
+                        location.getTableName(),
+                        "recover_stuck_finalizing",
+                        "source");
+                if (!sourceCleaned) {
+                    recoveryBlockedByCompensationFailure = true;
+                }
+            }
+        }
+
+        if ((STATUS_PREPARING.equalsIgnoreCase(currentStatus)
+                || STATUS_MOVING.equalsIgnoreCase(currentStatus)
+                || STATUS_ROLLBACK.equalsIgnoreCase(currentStatus))
+                && targetReplicaId != null
+                && !targetReplicaId.isBlank()) {
+            RegionServerInfo targetReplica = recoveryResolver.resolve(location, targetReplicaId);
+            if (targetReplica == null) {
+                recoveryBlockedByCompensationFailure = true;
+                log.warn("recoverStuckMigration missing target replica for compensation table={} targetReplicaId={} status={}",
+                        location.getTableName(),
+                        targetReplicaId,
+                        currentStatus);
+            } else {
+                boolean targetCleaned = cleanupReplicaBestEffort(targetReplica,
+                        location.getTableName(),
+                        "recover_stuck_" + currentStatus.toLowerCase(),
+                        "target");
+                if (!targetCleaned) {
+                    recoveryBlockedByCompensationFailure = true;
+                }
+            }
+        }
+
+        if (recoveryBlockedByCompensationFailure) {
+            log.warn("recoverStuckMigration blocked by compensation failure table={} status={} attemptId={} source={} target={}",
+                    location.getTableName(),
+                    currentStatus,
+                    attemptId,
+                    sourceReplicaId,
+                    targetReplicaId);
+            return recordFailureLocation(location,
+                "stuck recovery compensation blocked table=" + location.getTableName() + " status=" + currentStatus);
+        }
+
+        TableLocation recovered = new TableLocation(location);
+        recovered.setTableStatus(STATUS_ACTIVE);
+        recovered.setVersion(now);
+        try {
+            metaManager.saveTableLocation(recovered);
+            assignmentManager.saveAssignment(recovered.getTableName(), recovered.getReplicas());
+            touchStatusUpdatedAtBestEffort(recovered.getTableName());
+            clearMigrationContextBestEffort(recovered.getTableName());
+            log.warn("recoverStuckMigration finalized timed-out migration table={} status={} stuckFor={}ms attemptId={} source={} target={}",
+                    recovered.getTableName(),
+                    currentStatus,
+                    now - version,
+                    attemptId,
+                    sourceReplicaId,
+                    targetReplicaId);
+                return recordSuccessLocation(recovered);
+        } catch (Exception e) {
+            log.error("recoverStuckMigration failed table={} status={} cause={}",
+                    location.getTableName(),
+                    currentStatus,
+                    e.getMessage());
+                return recordFailureLocation(location,
+                    "stuck recovery persist failed table=" + location.getTableName() + " status=" + currentStatus + " cause=" + e.getMessage());
+        }
+    }
+
+    private boolean isTransientMigrationStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return false;
+        }
+        String normalized = status.toUpperCase();
+        return STATUS_PREPARING.equals(normalized)
+                || STATUS_MOVING.equals(normalized)
+                || STATUS_FINALIZING.equals(normalized)
+                || STATUS_ROLLBACK.equals(normalized);
+    }
+
+    private void recordAttempt() {
+        attemptCount.incrementAndGet();
+        lastAttemptAtMs.set(clockMs.getAsLong());
+    }
+
+    private void recordSuccess() {
+        successCount.incrementAndGet();
+        lastSuccessAtMs.set(clockMs.getAsLong());
+    }
+
+    private void recordFailure(String error) {
+        failureCount.incrementAndGet();
+        lastFailureAtMs.set(clockMs.getAsLong());
+        lastError = error;
+    }
+
+    private Response recordSuccessResponse(Response response) {
+        recordSuccess();
+        return response;
+    }
+
+    private Response recordFailureResponse(Response response, String error) {
+        recordFailure(error);
+        return response;
+    }
+
+    private TableLocation recordSuccessLocation(TableLocation location) {
+        recordSuccess();
+        return location;
+    }
+
+    private TableLocation recordFailureLocation(TableLocation location, String error) {
+        recordFailure(error);
+        return location;
     }
 }

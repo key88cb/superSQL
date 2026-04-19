@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import edu.zju.supersql.master.balance.RebalanceScheduler;
 import edu.zju.supersql.master.election.LeaderElector;
+import edu.zju.supersql.master.migration.RegionMigrator;
 import edu.zju.supersql.master.meta.MetaManager;
 import edu.zju.supersql.master.rpc.MasterServiceImpl;
 import edu.zju.supersql.rpc.MasterService;
@@ -72,14 +73,14 @@ public class MasterServer {
     }
 
     static byte[] buildStatusPayload(int thriftPort, int httpPort, String zkConnect) {
-        return buildStatusPayload(thriftPort, httpPort, zkConnect, null, null);
+        return buildStatusPayload(thriftPort, httpPort, zkConnect, null, null, null);
     }
 
     static byte[] buildStatusPayload(int thriftPort,
                                      int httpPort,
                                      String zkConnect,
                                      RebalanceScheduler rebalanceScheduler) {
-        return buildStatusPayload(thriftPort, httpPort, zkConnect, rebalanceScheduler, null);
+        return buildStatusPayload(thriftPort, httpPort, zkConnect, rebalanceScheduler, null, null);
     }
 
     static byte[] buildStatusPayload(int thriftPort,
@@ -87,6 +88,15 @@ public class MasterServer {
                                      String zkConnect,
                                      RebalanceScheduler rebalanceScheduler,
                                      MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot) {
+        return buildStatusPayload(thriftPort, httpPort, zkConnect, rebalanceScheduler, routeRepairSnapshot, null);
+    }
+
+    static byte[] buildStatusPayload(int thriftPort,
+                                     int httpPort,
+                                     String zkConnect,
+                                     RebalanceScheduler rebalanceScheduler,
+                                     MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot,
+                                     RegionMigrator.MigrationSnapshot migrationSnapshot) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("status", "ok");
         payload.put("role", resolveRole());
@@ -98,6 +108,7 @@ public class MasterServer {
         payload.put("zkReady", MasterRuntimeContext.isReady());
         payload.put("rebalanceScheduler", buildRebalanceSchedulerPayload(rebalanceScheduler));
         payload.put("routeRepair", buildRouteRepairPayload(routeRepairSnapshot));
+        payload.put("migration", buildMigrationPayload(migrationSnapshot));
         payload.put("timestamp", System.currentTimeMillis());
         try {
             return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
@@ -152,6 +163,23 @@ public class MasterServer {
         status.put("recentObservedRuns", snapshot.recentObservedRuns());
         status.put("recentSuccessRate", snapshot.recentSuccessRate());
         status.put("recentAvgRepairedCount", snapshot.recentAvgRepairedCount());
+        return status;
+    }
+
+    private static Map<String, Object> buildMigrationPayload(RegionMigrator.MigrationSnapshot snapshot) {
+        Map<String, Object> status = new LinkedHashMap<>();
+        if (snapshot == null) {
+            status.put("available", false);
+            return status;
+        }
+        status.put("available", true);
+        status.put("attemptCount", snapshot.attemptCount());
+        status.put("successCount", snapshot.successCount());
+        status.put("failureCount", snapshot.failureCount());
+        status.put("lastAttemptAtMs", snapshot.lastAttemptAtMs());
+        status.put("lastSuccessAtMs", snapshot.lastSuccessAtMs());
+        status.put("lastFailureAtMs", snapshot.lastFailureAtMs());
+        status.put("lastError", snapshot.lastError());
         return status;
     }
 
@@ -305,7 +333,8 @@ public class MasterServer {
                     httpPort,
                     zkConnect,
                     statusScheduler,
-                    statusService == null ? null : statusService.routeRepairSnapshot());
+                statusService == null ? null : statusService.routeRepairSnapshot(),
+                statusService == null ? null : statusService.migrationSnapshot());
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
