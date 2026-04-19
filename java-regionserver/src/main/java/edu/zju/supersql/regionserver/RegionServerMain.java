@@ -188,6 +188,8 @@ public class RegionServerMain {
             defaults.put("droppedCount", 0L);
             defaults.put("throttledSkipCount", 0L);
             defaults.put("escalatedCount", 0L);
+            defaults.put("recoveredFromEscalationCount", 0L);
+            defaults.put("lastRecoveredFromEscalationAtMs", 0L);
             defaults.put("repairTriggeredCount", 0L);
             defaults.put("repairSuccessCount", 0L);
             defaults.put("repairFailureCount", 0L);

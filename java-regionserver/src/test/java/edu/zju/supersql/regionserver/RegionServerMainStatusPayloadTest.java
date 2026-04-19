@@ -80,6 +80,8 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("droppedCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("throttledSkipCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("escalatedCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("recoveredFromEscalationCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastRecoveredFromEscalationAtMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("repairTriggeredCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("repairSuccessCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("repairFailureCount")).longValue());
@@ -174,6 +176,8 @@ class RegionServerMainStatusPayloadTest {
         replicaCommitRetry.put("droppedCount", 1L);
         replicaCommitRetry.put("throttledSkipCount", 6L);
         replicaCommitRetry.put("escalatedCount", 2L);
+        replicaCommitRetry.put("recoveredFromEscalationCount", 1L);
+        replicaCommitRetry.put("lastRecoveredFromEscalationAtMs", 777L);
         replicaCommitRetry.put("repairTriggeredCount", 4L);
         replicaCommitRetry.put("repairSuccessCount", 3L);
         replicaCommitRetry.put("repairFailureCount", 1L);
@@ -256,6 +260,8 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("droppedCount")).longValue());
         Assertions.assertEquals(6L, ((Number) commitRetryStats.get("throttledSkipCount")).longValue());
         Assertions.assertEquals(2L, ((Number) commitRetryStats.get("escalatedCount")).longValue());
+        Assertions.assertEquals(1L, ((Number) commitRetryStats.get("recoveredFromEscalationCount")).longValue());
+        Assertions.assertEquals(777L, ((Number) commitRetryStats.get("lastRecoveredFromEscalationAtMs")).longValue());
         Assertions.assertEquals(4L, ((Number) commitRetryStats.get("repairTriggeredCount")).longValue());
         Assertions.assertEquals(3L, ((Number) commitRetryStats.get("repairSuccessCount")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("repairFailureCount")).longValue());

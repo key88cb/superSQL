@@ -144,6 +144,8 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitLastSuccessAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastFailureAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitEscalatedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitRecoveredFromEscalationCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitLastRecoveredFromEscalationAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairTriggeredCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairSuccessCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairFailureCount = new AtomicLong(0L);
@@ -268,6 +270,8 @@ public class ReplicaManager {
         stats.put("droppedCount", pendingCommitDroppedCount.get());
         stats.put("throttledSkipCount", pendingCommitThrottledSkipCount.get());
         stats.put("escalatedCount", pendingCommitEscalatedCount.get());
+        stats.put("recoveredFromEscalationCount", pendingCommitRecoveredFromEscalationCount.get());
+        stats.put("lastRecoveredFromEscalationAtMs", pendingCommitLastRecoveredFromEscalationAtMs.get());
         stats.put("repairTriggeredCount", pendingCommitRepairTriggeredCount.get());
         stats.put("repairSuccessCount", pendingCommitRepairSuccessCount.get());
         stats.put("repairFailureCount", pendingCommitRepairFailureCount.get());
@@ -569,6 +573,10 @@ public class ReplicaManager {
             pendingCommitRetryAttemptCount.incrementAndGet();
 
             if (commitAttempt.success()) {
+                if (task.consecutiveTransportFailures.getAndSet(0L) >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD) {
+                    pendingCommitRecoveredFromEscalationCount.incrementAndGet();
+                    pendingCommitLastRecoveredFromEscalationAtMs.set(System.currentTimeMillis());
+                }
                 if (pendingCommits.remove(key, task)) {
                     pendingCommitRecoveredCount.incrementAndGet();
                     pendingCommitLastSuccessAtMs.set(System.currentTimeMillis());
@@ -582,6 +590,10 @@ public class ReplicaManager {
                 pendingCommitRepairTriggeredCount.incrementAndGet();
                 boolean repaired = repairMissingReplicaEntry(task);
                 if (repaired && pendingCommits.remove(key, task)) {
+                    if (task.consecutiveTransportFailures.getAndSet(0L) >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD) {
+                        pendingCommitRecoveredFromEscalationCount.incrementAndGet();
+                        pendingCommitLastRecoveredFromEscalationAtMs.set(System.currentTimeMillis());
+                    }
                     pendingCommitRecoveredCount.incrementAndGet();
                     pendingCommitRepairSuccessCount.incrementAndGet();
                     pendingCommitLastSuccessAtMs.set(System.currentTimeMillis());

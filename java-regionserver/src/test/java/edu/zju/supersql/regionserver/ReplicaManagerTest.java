@@ -256,6 +256,49 @@ class ReplicaManagerTest {
     }
 
     @Test
+    void retryPendingCommitsShouldRecordRecoveryFromEscalation() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        int recoveryPort = freePort();
+        String replica = "127.0.0.1:" + recoveryPort;
+        long lsn = 9999L;
+
+        manager.commitOnReplicas("orders", lsn, List.of(replica));
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        for (int i = 0; i < 8; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+
+        MiniSqlProcess mockMiniSql = Mockito.mock(MiniSqlProcess.class);
+        Mockito.when(mockMiniSql.execute(Mockito.anyString())).thenReturn(">>> SUCCESS\n");
+        WalManager mockWal = Mockito.mock(WalManager.class);
+
+        TServer recoveryServer = buildServer(recoveryPort, new ReplicaSyncServiceImpl(mockMiniSql, mockWal));
+        ExecutorService recoveryPool = Executors.newSingleThreadExecutor();
+        recoveryPool.submit(recoveryServer::serve);
+        Thread.sleep(200);
+
+        try {
+            WalEntry entry = buildEntry(lsn, "orders", "insert into orders values(9999);");
+            Assertions.assertEquals(1, manager.syncToReplicas(entry, List.of(replica), 1));
+
+            manager.retryPendingCommitsNowIgnoringBackoff();
+
+            waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() == 0L,
+                    4_000L);
+
+            Map<String, Object> stats = manager.getCommitRetryStats();
+            Assertions.assertTrue(((Number) stats.get("recoveredFromEscalationCount")).longValue() >= 1L);
+            Assertions.assertTrue(((Number) stats.get("lastRecoveredFromEscalationAtMs")).longValue() > 0L);
+            Assertions.assertEquals(0L, ((Number) stats.get("activeEscalatedCount")).longValue());
+        } finally {
+            recoveryServer.stop();
+            recoveryPool.shutdownNow();
+        }
+    }
+
+    @Test
     void commitOneWithRetryShouldReturnFalseForUnreachableReplica() {
         ReplicaManager manager = new ReplicaManager();
         boolean committed = manager.commitOneWithRetry("orders", 999L, "127.0.0.1:1");
