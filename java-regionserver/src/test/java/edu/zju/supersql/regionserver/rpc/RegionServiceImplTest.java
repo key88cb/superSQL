@@ -104,6 +104,30 @@ class RegionServiceImplTest {
     }
 
     @Test
+    void alterShouldUseWritePathWithWalAndReplicaSync() throws Exception {
+        String sql = "alter table orders add column note char(16);";
+
+        QueryResult result = service.execute("orders", sql);
+
+        Assertions.assertEquals(StatusCode.OK, result.getStatus().getCode());
+        Assertions.assertTrue(walDir.resolve("orders.wal").toFile().exists());
+        Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.eq(List.of()), Mockito.eq(0));
+        Mockito.verify(mockMiniSql).execute(sql);
+    }
+
+    @Test
+    void truncateShouldUseWritePathWithWalAndReplicaSync() throws Exception {
+        String sql = "truncate table orders;";
+
+        QueryResult result = service.execute("orders", sql);
+
+        Assertions.assertEquals(StatusCode.OK, result.getStatus().getCode());
+        Assertions.assertTrue(walDir.resolve("orders.wal").toFile().exists());
+        Mockito.verify(mockReplicaManager).syncToReplicas(Mockito.any(), Mockito.eq(List.of()), Mockito.eq(0));
+        Mockito.verify(mockMiniSql).execute(sql);
+    }
+
+    @Test
     void walEntryLsnIsMonotonicallyIncreasing() throws Exception {
         service.execute("t", "insert into t values(1);");
         service.execute("t", "insert into t values(2);");

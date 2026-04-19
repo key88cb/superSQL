@@ -92,6 +92,7 @@
 - ReplicaManager：主侧通过 Thrift 并发 sync 到副本，支持半同步等待与异步 commit。
 - ReplicaManager 半同步等待已按 requiredAcks 收敛：会在超时窗口内等待达到所需 ACK 数（而非固定等待首个返回）。
 - RegionServiceImpl 已实现基础写路径：WriteGuard 检查、WAL append、副本 sync、本地 MiniSQL 执行、异步 commit、checkpoint 计数。
+- RegionServiceImpl 写路径判定已补齐 `ALTER` / `TRUNCATE`，避免 DDL 走只读分支导致 WAL 与副本同步缺失。
 - RegionServiceImpl 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`，默认 1）：ACK 不足时拒绝本地执行并返回错误。
 - RegionServiceImpl 写路径在“可见副本数低于 `RS_MIN_REPLICA_ACKS`”时会直接拒绝写入并将 WAL 条目标记为 ABORT，不再按可见副本数自动降低 ACK 门槛。
 - RegionServer 运行时配置会将环境变量 `RS_MIN_REPLICA_ACKS` 下限钳制为 1，避免线上通过配置把写入 ACK 门槛降为 0。

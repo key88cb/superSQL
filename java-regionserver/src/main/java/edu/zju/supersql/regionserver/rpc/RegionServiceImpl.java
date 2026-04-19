@@ -289,7 +289,8 @@ public class RegionServiceImpl implements RegionService.Iface {
         if (sql == null) return false;
         String s = sql.trim().toLowerCase();
         return s.startsWith("insert") || s.startsWith("delete") || s.startsWith("update")
-                || s.startsWith("create") || s.startsWith("drop");
+                || s.startsWith("create") || s.startsWith("drop")
+                || s.startsWith("alter") || s.startsWith("truncate");
     }
 
     private static WalOpType classifyOpType(String sql) {
@@ -297,6 +298,8 @@ public class RegionServiceImpl implements RegionService.Iface {
         if (s.startsWith("insert"))       return WalOpType.INSERT;
         if (s.startsWith("update"))       return WalOpType.UPDATE;
         if (s.startsWith("delete"))       return WalOpType.DELETE;
+        if (s.startsWith("truncate"))     return WalOpType.DELETE;
+        if (s.startsWith("alter"))        return WalOpType.UPDATE;
         if (s.startsWith("create table")) return WalOpType.CREATE_TABLE;
         if (s.startsWith("drop table"))   return WalOpType.DROP_TABLE;
         if (s.startsWith("create index")) return WalOpType.CREATE_INDEX;
