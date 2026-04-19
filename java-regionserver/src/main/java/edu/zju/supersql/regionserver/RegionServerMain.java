@@ -1,5 +1,6 @@
 package edu.zju.supersql.regionserver;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import edu.zju.supersql.regionserver.rpc.RegionAdminServiceImpl;
 import edu.zju.supersql.regionserver.rpc.RegionServiceImpl;
@@ -20,6 +21,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +39,33 @@ import java.util.concurrent.TimeUnit;
 public class RegionServerMain {
 
     private static final Logger log = LoggerFactory.getLogger(RegionServerMain.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    static byte[] buildStatusPayload(String rsId,
+                                     String rsHost,
+                                     int thriftPort,
+                                     int httpPort,
+                                     String zkConnect,
+                                     String dataDir,
+                                     String walDir,
+                                     boolean miniSqlAlive) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", "ok");
+        payload.put("rsId", rsId);
+        payload.put("rsHost", rsHost);
+        payload.put("thriftPort", thriftPort);
+        payload.put("httpPort", httpPort);
+        payload.put("zkConnect", zkConnect);
+        payload.put("dataDir", dataDir);
+        payload.put("walDir", walDir);
+        payload.put("miniSqlAlive", miniSqlAlive);
+        payload.put("timestamp", System.currentTimeMillis());
+        try {
+            return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build regionserver status payload", e);
+        }
+    }
 
     public static void main(String[] args) throws Exception {
         RegionServerConfig config = RegionServerConfig.fromSystemEnv();
@@ -109,8 +140,22 @@ public class RegionServerMain {
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
         });
+        healthServer.createContext("/status", exchange -> {
+            byte[] body = buildStatusPayload(
+                    rsId,
+                    rsHost,
+                    thriftPort,
+                    httpPort,
+                    zkConnect,
+                    dataDir,
+                    walDir,
+                    miniSql.isAlive());
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
+        });
         healthServer.start();
-        log.info("Health endpoint listening on :{}/health", httpPort);
+        log.info("Health endpoints listening on :{} (/health, /status)", httpPort);
 
         // ── Service wiring ────────────────────────────────────────────────────
         WriteGuard writeGuard = new WriteGuard();

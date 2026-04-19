@@ -62,6 +62,7 @@
 已落地能力：
 - 启动时在 `/region_servers/{rsId}` 注册节点，每 10 秒上报心跳。
 - `MiniSqlProcess` 已支持崩溃后自动重启和显式 restart。
+- RegionServer HTTP 端点已支持 `/status` JSON 运行态输出（含 rsId/端口/zk/dataDir/walDir/miniSqlAlive/timestamp）。
 - 持久化 WAL 基础能力：按表写入 `.wal` 文件，启动时扫描 WAL 恢复全局 LSN。
 - WriteGuard：per-table 写入暂停/恢复（用于迁移中的 MOVING 保护）。
 - ReplicaManager：主侧通过 Thrift 并发 sync 到副本，支持半同步等待与异步 commit。
