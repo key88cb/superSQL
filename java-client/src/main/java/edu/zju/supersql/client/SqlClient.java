@@ -722,6 +722,7 @@ public class SqlClient {
         Map<String, Object> root = new LinkedHashMap<>();
         List<Map<String, Object>> tables = new ArrayList<>();
         ClientRoutingMetrics.MetricsSnapshot totals = aggregateRoutingMetrics(snapshot);
+        long nowMs = System.currentTimeMillis();
 
         if (snapshot != null && !snapshot.isEmpty()) {
             List<String> names = new ArrayList<>(snapshot.keySet());
@@ -750,6 +751,9 @@ public class SqlClient {
         totalsRow.put("readFallbacks", totals.readFallbackCount());
 
         root.put("tableCount", tables.size());
+        root.put("generatedAtEpochMs", nowMs);
+        root.put("processStartEpochMs", PROCESS_START_MS);
+        root.put("processUptimeSeconds", Math.max(0L, (nowMs - PROCESS_START_MS) / 1000L));
         root.put("totals", totalsRow);
         root.put("tables", tables);
         try {

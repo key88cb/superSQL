@@ -133,6 +133,7 @@
 - 已支持基于 `/meta/tables` 事件的 route cache 主动失效（create/change/delete）。
 - 已支持 `SHOW ROUTING METRICS` 命令输出当前客户端进程内按表路由指标快照。
 - 已支持 `SHOW ROUTING METRICS JSON` 输出结构化指标快照，便于外部脚本/采集端读取。
+- `SHOW ROUTING METRICS JSON` 与 HTTP `/metrics/json` 已补充运行态元数据（生成时间/进程启动时间/进程运行秒数），便于监控侧做窗口对齐。
 - 已支持 `SHOW ROUTING METRICS PROMETHEUS` 输出 Prometheus 文本格式指标，便于外部抓取系统接入。
 - 路由指标输出（文本/JSON/Prometheus）已支持全表汇总总量计数，降低统一监控侧的聚合成本。
 - Prometheus 输出已支持客户端进程级 gauge（启动时间、运行时长），便于监控侧做重启识别与窗口聚合。

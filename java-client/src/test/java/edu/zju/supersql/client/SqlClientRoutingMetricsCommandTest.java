@@ -57,6 +57,9 @@ class SqlClientRoutingMetricsCommandTest {
         Map<?, ?> root = MAPPER.readValue(json, Map.class);
 
         Assertions.assertEquals(2, ((Number) root.get("tableCount")).intValue());
+        Assertions.assertTrue(((Number) root.get("generatedAtEpochMs")).longValue() > 0L);
+        Assertions.assertTrue(((Number) root.get("processStartEpochMs")).longValue() > 0L);
+        Assertions.assertTrue(((Number) root.get("processUptimeSeconds")).longValue() >= 0L);
         Map<?, ?> totals = (Map<?, ?>) root.get("totals");
         Assertions.assertEquals(12, ((Number) totals.get("redirects")).intValue());
         Assertions.assertEquals(14, ((Number) totals.get("movingRetries")).intValue());

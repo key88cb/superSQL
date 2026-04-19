@@ -134,6 +134,7 @@
 - 已支持按表路由指标统计（内存态）：重定向次数、MOVING 重试次数、异常重试次数、路由回源次数、读降级命中次数。
 - REPL 已支持 `SHOW ROUTING METRICS` 命令，可直接查看当前进程内按表路由指标快照。
 - REPL 已支持 `SHOW ROUTING METRICS JSON`，可输出结构化 JSON 结果供日志采集或外部脚本消费。
+- `SHOW ROUTING METRICS JSON` 与 `/metrics/json` 输出已补充运行态元数据（`generatedAtEpochMs`/`processStartEpochMs`/`processUptimeSeconds`），便于监控侧做时间对齐与重启识别。
 - REPL 已支持 `SHOW ROUTING METRICS PROMETHEUS`，可输出 Prometheus 文本格式指标，便于接入监控抓取。
 - 路由指标在文本/JSON/Prometheus 输出中已补充“全表汇总总量”计数，便于统一监控直接抓取全局趋势而无需外部二次聚合。
 - Prometheus 输出已补充客户端进程级指标（启动时间、运行时长），便于外部监控识别重启与计算趋势窗口。
