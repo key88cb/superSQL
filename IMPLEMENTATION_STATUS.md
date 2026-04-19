@@ -85,6 +85,7 @@
 - `transferTable` 已补充迁移完成 manifest 确认：源端在分块传输结束后发送文件清单与大小，目标端逐项校验后才确认完成。
 - manifest 校验已拒绝 `.part` 临时文件与 manifest 控制文件自身作为数据条目，避免异常输入误确认非业务文件。
 - manifest 条目已增加 `crc32` 校验和，目标端按“文件大小 + CRC32”双重校验确认迁移完整性。
+- manifest 校验已拒绝跨表文件项与重复文件项，避免错误文件混入或重复条目掩盖异常传输。
 - `transferTable` 对 0 字节文件已支持发送最终完成块，保证空文件迁移也能触发目标端发布。
 - `copyTableData` 已增加 fileName 安全约束，禁止路径穿越写入 dataDir 外部文件。
 - `transferTable` 发送分块时已支持有界重试（默认 3 次），可吸收短暂目标端抖动导致的单次 chunk 失败。

@@ -21,8 +21,10 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.CRC32;
 
@@ -526,6 +528,20 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 return r;
             }
 
+            String expectedTablePrefix = null;
+            if (manifestTable != null && !manifestTable.isBlank()) {
+                expectedTablePrefix = manifestTable;
+            } else if (chunk.isSetTableName() && chunk.getTableName() != null && !chunk.getTableName().isBlank()) {
+                expectedTablePrefix = chunk.getTableName();
+            }
+            if (expectedTablePrefix == null) {
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("transfer manifest missing tableName");
+                return r;
+            }
+
+            Set<String> seenFileNames = new HashSet<>();
+
             for (Object raw : files) {
                 if (!(raw instanceof Map<?, ?> fileItem)) {
                     Response r = new Response(StatusCode.ERROR);
@@ -542,6 +558,16 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                         || fileName.startsWith(TRANSFER_MANIFEST_PREFIX)) {
                     Response r = new Response(StatusCode.ERROR);
                     r.setMessage("transfer manifest has invalid data fileName " + fileName);
+                    return r;
+                }
+                if (!fileName.startsWith(expectedTablePrefix)) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest file outside table scope " + fileName);
+                    return r;
+                }
+                if (!seenFileNames.add(fileName)) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest has duplicate fileName " + fileName);
                     return r;
                 }
                 long expectedSize = toLong(fileItem.get("size"), -1L);

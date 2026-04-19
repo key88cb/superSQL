@@ -464,6 +464,61 @@ class RegionAdminServiceImplTest {
         Assertions.assertTrue(r.getMessage().contains("invalid data fileName"));
     }
 
+        @Test
+        void copyTableDataShouldRejectTransferManifestWithCrossTableEntry() throws Exception {
+        byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+        Response dataResp = service.copyTableData(new DataChunk(
+            "users",
+            "users_data",
+            0L,
+            ByteBuffer.wrap(data),
+            true));
+        Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+
+        long crc32 = crc32(data);
+        byte[] manifest = ("{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"users_data\",\"size\":7,\"crc32\":"
+            + crc32 + "}]}")
+            .getBytes(StandardCharsets.UTF_8);
+
+        Response r = service.copyTableData(new DataChunk(
+            "orders",
+            "__supersql_transfer_manifest__.orders.json",
+            0L,
+            ByteBuffer.wrap(manifest),
+            true));
+
+        Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+        Assertions.assertTrue(r.getMessage().contains("outside table scope"));
+        }
+
+        @Test
+        void copyTableDataShouldRejectTransferManifestWithDuplicateEntries() throws Exception {
+        byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+        Response dataResp = service.copyTableData(new DataChunk(
+            "orders",
+            "orders_data",
+            0L,
+            ByteBuffer.wrap(data),
+            true));
+        Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+
+        long crc32 = crc32(data);
+        byte[] manifest = ("{\"tableName\":\"orders\",\"files\":["
+            + "{\"fileName\":\"orders_data\",\"size\":7,\"crc32\":" + crc32 + "},"
+            + "{\"fileName\":\"orders_data\",\"size\":7,\"crc32\":" + crc32 + "}]}")
+            .getBytes(StandardCharsets.UTF_8);
+
+        Response r = service.copyTableData(new DataChunk(
+            "orders",
+            "__supersql_transfer_manifest__.orders.json",
+            0L,
+            ByteBuffer.wrap(manifest),
+            true));
+
+        Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+        Assertions.assertTrue(r.getMessage().contains("duplicate fileName"));
+        }
+
     @Test
     void copyTableDataShouldAcceptTransferManifestWhenFilesMatch() throws Exception {
         byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
