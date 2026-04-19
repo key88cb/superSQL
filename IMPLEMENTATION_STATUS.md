@@ -28,6 +28,7 @@
 - Master 迁移主流程已抽离到独立组件 `RegionMigrator`（`PREPARING -> MOVING -> FINALIZING/ROLLBACK -> ACTIVE`），`MasterServiceImpl` 调度入口改为调用该组件执行迁移编排。
 - 卡死迁移恢复逻辑已进一步下沉到 `RegionMigrator`：`MasterServiceImpl` 仅保留迁移上下文读写与副本解析回调，迁移编排与超时恢复收敛到统一组件。
 - `triggerRebalance()` 候选选择已限制为 `ACTIVE` 表，避免对 `PREPARING/MOVING` 表重复触发迁移。
+- `triggerRebalance()` 候选选择已引入轮转游标（round-robin），连续调度时会轮换候选起点，降低同一表在失败重试场景下被重复优先命中的风险。
 - `createTable` 成功落盘元数据后也会初始化 `statusUpdatedAt`，保证新表从创建时起具备状态时间戳。
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
 - Master `/status` 已输出 RebalanceScheduler 运行快照（tick/trigger/throttle/success/failure、最近执行时间、最近触发原因）。

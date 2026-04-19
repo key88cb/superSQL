@@ -84,6 +84,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     private final AtomicLong routeRepairLastRunRepairedCount = new AtomicLong(0L);
     private final AtomicLong routeRepairLastRunTotalTables = new AtomicLong(0L);
     private final AtomicLong routeRepairLastRunCandidateTables = new AtomicLong(0L);
+    private final AtomicLong rebalanceCandidateCursor = new AtomicLong(0L);
     private final int routeRepairWindowSize;
     private final Object routeRepairWindowLock = new Object();
     private final ArrayDeque<RouteRepairRun> routeRepairRecentRuns = new ArrayDeque<>();
@@ -787,7 +788,13 @@ public class MasterServiceImpl implements MasterService.Iface {
         if (hot == null) {
             return null;
         }
-        for (TableLocation table : metaManager.listTables()) {
+        List<TableLocation> tables = metaManager.listTables();
+        if (tables.isEmpty()) {
+            return null;
+        }
+        int startIndex = (int) Math.floorMod(rebalanceCandidateCursor.getAndIncrement(), tables.size());
+        for (int i = 0; i < tables.size(); i++) {
+            TableLocation table = tables.get((startIndex + i) % tables.size());
             if (!STATUS_ACTIVE.equalsIgnoreCase(table.getTableStatus())) {
                 log.info("triggerRebalance skip non-active table={} status={}",
                         table.getTableName(), table.getTableStatus());

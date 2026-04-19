@@ -491,6 +491,41 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op -> op.method.equals("resume")));
     }
 
+        @Test
+        void triggerRebalanceShouldRotateCandidateAfterFailure() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 3);
+
+        Assertions.assertEquals(StatusCode.OK,
+            service.createTable("create table t_rr_a(id int, primary key(id));").getCode());
+        Assertions.assertEquals(StatusCode.OK,
+            service.createTable("create table t_rr_b(id int, primary key(id));").getCode());
+
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 10);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 2);
+
+        adminExecutor.failAnyTransfer();
+        Response first = service.triggerRebalance();
+        Assertions.assertEquals(StatusCode.ERROR, first.getCode());
+
+        adminExecutor.clearTransferFailures();
+        Response second = service.triggerRebalance();
+        Assertions.assertEquals(StatusCode.OK, second.getCode());
+
+        List<AdminOperation> transferOps = adminExecutor.operations.stream()
+            .filter(op -> op.method.equals("transfer"))
+            .toList();
+        Assertions.assertTrue(transferOps.size() >= 2);
+        String firstTable = transferOps.get(0).tableName();
+        String secondTable = transferOps.get(1).tableName();
+        Assertions.assertNotEquals(firstTable, secondTable,
+            "Rebalance candidate selection should rotate across tables after failure");
+        }
+
     @Test
     void migrationSnapshotShouldTrackAttemptSuccessFailureAndLastError() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
@@ -1361,6 +1396,11 @@ class MasterServiceMetadataIntegrationTest {
 
         void failAnyTransfer() {
             this.failAnyTransfer = true;
+        }
+
+        void clearTransferFailures() {
+            this.failTransferTargetId = null;
+            this.failAnyTransfer = false;
         }
 
         @Override

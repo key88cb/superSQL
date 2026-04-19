@@ -59,6 +59,7 @@
 - `triggerRebalance()` 调度入口也会执行卡死迁移预恢复：即使本次调度因“集群已平衡”被跳过，也能先回收超时状态。
 - `triggerRebalance()` 在“跳过调度”响应中会附带本轮卡死迁移回收数量，便于外部调度器做轻量观测而不依赖日志解析。
 - `triggerRebalance()` 已限制仅对 `ACTIVE` 表挑选候选，避免迁移中的表被重复调度。
+- `triggerRebalance()` 候选选择已支持 round-robin 轮转起点，失败重试场景下可避免连续命中同一表导致其他候选饥饿。
 - `createTable` 也会初始化 `statusUpdatedAt`，新表元数据默认具备可观测时间戳。
 - `getTableLocation` 已支持 lazy failover：主副本离线时自动晋升在线副本并回写元数据。
 - `listTables` 也已支持 lazy failover：批量路由查询时会同步修复离线主副本路由。
