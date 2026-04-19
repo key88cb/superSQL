@@ -541,52 +541,52 @@ public final class RegionMigrator {
         String compensationRole = resolveCompensationRole(currentStatus, migrationContext);
         String compensationReplicaId = resolveCompensationReplicaId(compensationRole, sourceReplicaId, targetReplicaId);
         boolean missingCompensationReplicaId = compensationRole != null
-            && (compensationReplicaId == null || compensationReplicaId.isBlank());
+                && (compensationReplicaId == null || compensationReplicaId.isBlank());
 
         if (compensationRole != null) {
             boolean cleaned = false;
             String cleanupReason = "recover_stuck_" + (currentStatus == null
-                ? "unknown"
-                : currentStatus.toLowerCase());
+                    ? "unknown"
+                    : currentStatus.toLowerCase());
             if (!missingCompensationReplicaId) {
-            RegionServerInfo compensationReplica = recoveryResolver.resolve(location, compensationReplicaId);
-            if (compensationReplica != null) {
-                cleaned = cleanupReplicaWithConfirmation(
-                    compensationReplica,
-                    location.getTableName(),
-                    cleanupReason,
-                    compensationRole);
-            }
+                RegionServerInfo compensationReplica = recoveryResolver.resolve(location, compensationReplicaId);
+                if (compensationReplica != null) {
+                    cleaned = cleanupReplicaWithConfirmation(
+                            compensationReplica,
+                            location.getTableName(),
+                            cleanupReason,
+                            compensationRole);
+                }
             }
 
             if (!cleaned) {
-            boolean cleanedByCandidates = cleanupViaRecoveryCandidates(
-                location,
-                compensationRole,
-                sourceReplicaId,
-                targetReplicaId,
-                cleanupReason,
-                recoveryCandidateResolver);
-            if (!cleanedByCandidates) {
-                if (missingCompensationReplicaId
-                    && (STATUS_MOVING.equalsIgnoreCase(currentStatus)
-                    || STATUS_PREPARING.equalsIgnoreCase(currentStatus)
-                    || STATUS_ROLLBACK.equalsIgnoreCase(currentStatus))) {
-                // No target context and no cross-node cleanup candidates: safe to finalize ACTIVE.
-                compensationRole = null;
-                } else {
-                String reason = missingCompensationReplicaId
-                    ? "missing compensation replica id for role=" + compensationRole
-                    : "cleanup confirmation failed role=" + compensationRole + " replicaId=" + compensationReplicaId;
-                return transitionToCompensating(location,
-                    attemptId,
-                    sourceReplicaId,
-                    targetReplicaId,
-                    compensationRole,
-                    reason + " status=" + currentStatus,
-                    now);
+                boolean cleanedByCandidates = cleanupViaRecoveryCandidates(
+                        location,
+                        compensationRole,
+                        sourceReplicaId,
+                        targetReplicaId,
+                        cleanupReason,
+                        recoveryCandidateResolver);
+                if (!cleanedByCandidates) {
+                    if (missingCompensationReplicaId
+                            && (STATUS_MOVING.equalsIgnoreCase(currentStatus)
+                            || STATUS_PREPARING.equalsIgnoreCase(currentStatus)
+                            || STATUS_ROLLBACK.equalsIgnoreCase(currentStatus))) {
+                        // No target context and no cross-node cleanup candidates: safe to finalize ACTIVE.
+                        compensationRole = null;
+                    } else {
+                        String reason = missingCompensationReplicaId
+                                ? "missing compensation replica id for role=" + compensationRole
+                                : "cleanup confirmation failed role=" + compensationRole + " replicaId=" + compensationReplicaId;
+                        return transitionToCompensating(location,
+                                attemptId,
+                                sourceReplicaId,
+                                targetReplicaId,
+                                compensationRole,
+                                reason + " status=" + currentStatus,
+                                now);
+                    }
                 }
-            }
             }
         }
 
@@ -605,13 +605,13 @@ public final class RegionMigrator {
                     attemptId,
                     sourceReplicaId,
                     targetReplicaId);
-                return recordRecoverySuccessLocation(recovered);
+            return recordRecoverySuccessLocation(recovered);
         } catch (Exception e) {
             log.error("recoverStuckMigration failed table={} status={} cause={}",
                     location.getTableName(),
                     currentStatus,
                     e.getMessage());
-                return recordRecoveryFailureLocation(location,
+            return recordRecoveryFailureLocation(location,
                     "stuck recovery persist failed table=" + location.getTableName() + " status=" + currentStatus + " cause=" + e.getMessage());
         }
     }

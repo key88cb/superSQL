@@ -429,9 +429,9 @@ public class MasterServiceImpl implements MasterService.Iface {
                 routeRepairTotalRepairedTables.get(),
                 routeRepairLastRunAtMs.get(),
                 routeRepairLastRunRepairedCount.get(),
-            routeRepairLastRunTotalTables.get(),
-            routeRepairLastRunCandidateTables.get(),
-            routeRepairLastRunFilterRegionServerId,
+                routeRepairLastRunTotalTables.get(),
+                routeRepairLastRunCandidateTables.get(),
+                routeRepairLastRunFilterRegionServerId,
                 routeRepairLastRepairedTable,
                 routeRepairLastError,
                 routeRepairWindowSize,
@@ -1432,7 +1432,7 @@ public class MasterServiceImpl implements MasterService.Iface {
             Object compensationBlocked = root.get("migrationCompensationBlocked");
             Object compensationError = root.get("migrationCompensationLastError");
             Object compensationUpdatedAt = root.get("migrationCompensationUpdatedAtMs");
-                return new RegionMigrator.MigrationContext(
+            return new RegionMigrator.MigrationContext(
                     String.valueOf(attempt),
                     source == null ? null : String.valueOf(source),
                     target == null ? null : String.valueOf(target),
