@@ -30,7 +30,7 @@
 ### 1.2 仍未完成且需继续推进的内容
 
 - Master：完整动态调度与自治恢复闭环仍待完善（基础定时重均衡已落地）。
-- RegionServer：WAL/复制/恢复的最终形态（更强一致语义与恢复协议）。
+- RegionServer：WAL/复制/恢复在显式最终决议主链路已落地，后续重点转向极端故障验证与运维自动化。
 - RegionServer：完整迁移协议（包括更可靠的数据校验、幂等补偿与可确认完成语义）。
 - Client：更细粒度可观测能力仍待完善（命令行/JSON/文件导出已落地，但统一监控接入与长期趋势聚合未完成）。
 
@@ -122,14 +122,17 @@
 - 待提交重试已增加退避节流窗口，避免对不可达副本高频重试；并通过 `throttledSkipCount/stalledCount/oldestPendingAgeMs` 暴露重试饱和与停滞风险。
 - 对连续 `transport_error` 的待提交项已增加阈值触发的升级冷却窗口，避免网络长故障期间的重试风暴，并通过 `escalatedCount/activeEscalatedCount/maxConsecutiveTransportFailures` 观测升级状态。
 - 对进入升级冷却窗口后成功收敛的待提交项，已增加恢复信号指标 `recoveredFromEscalationCount/lastRecoveredFromEscalationAtMs`，便于运维侧判断升级策略是否有效。
-- 对连续 transport 故障且重试次数持续增长的待提交项，已增加“决议候选”观测指标 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，用于后续多数派最终决议策略落地。
+- 对连续 transport 故障且重试次数持续增长的待提交项，已增加“决议候选”观测指标 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，作为自动最终决议的前置阶段。
 - 决议候选项已增加 `decisionCandidatesPreview`（最多5条）用于展示 table/lsn/address/attempts/连续 transport 失败数/age，支持快速巡检和后续决议执行。
 - 对决议候选项已增加二级冷却窗口（默认 300s）：触发后会上报 `decisionCandidateCooldownAppliedCount/decisionCandidateCooldownMs`，并在预览中输出 `nextRetryAtMs` 以便观测下一次重试时间。
-- 在候选项持续失败达到阈值后，系统会标记为 `decisionReady` 并上报 `decisionReadyTransitionCount/activeDecisionReadyCount`（阈值由 `decisionReadyAttemptsThreshold` 表示），为下一步自动决议动作提供触发条件。
+- 在候选项持续失败达到阈值后，系统会标记为 `decisionReady` 并上报 `decisionReadyTransitionCount/activeDecisionReadyCount`（阈值由 `decisionReadyAttemptsThreshold` 表示），用于触发最终决议流程。
 - 对进入 `decisionReady` 的待提交项，系统会切换到更长重试冷却窗口（15 分钟）并上报 `decisionReadyCooldownAppliedCount/decisionReadyCooldownMs`，减少长故障期重试噪音。
-- 对达到 `decisionReady` 且超过 `maxAge` 的待提交项，系统会继续保留并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，避免静默丢弃。
+- 对进入 `decisionReady` 的待提交项，系统已支持“多数派已提交”自动最终决议：当法定票数满足时会自动完成终局并清理 active pending，同时上报 `finalDecisionEvaluatedCount/finalDecisionCommittedCount/lastFinalDecisionAtMs`。
+- 对达到 `decisionReady` 且超过 `maxAge` 的待提交项，系统不再采用“仅保留等待”的临时路径，而是直接分流到终态人工队列。
 - 对长期停留在 `decisionReady` 的待提交项，系统已增加终态分流：超过 `decisionTerminalAgeMs` 后会自动移出 active pending 并进入终态人工队列，输出 `decisionTerminalCount/terminalQueueCount/lastDecisionTerminalAtMs/decisionTerminalPreview`。
 - `replicaCommitRetry` 现已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态人工队列纳入人工决议信号。
+- RegionServer 已补充终态人工队列管理端点 `/admin/replica-commit-terminal`，支持按条确认（ack）与批量确认（ackAll），将终态分流从“仅告警”推进为“可执行处置”。
+- RegionServer 心跳节点已携带终态队列关键指标，Master `/status` 已新增 `replicaDecision` 聚合段，支持跨 RegionServer 聚合终态人工介入压力。
 - 主副本已接入基于 `getMaxLsn/pullLog` 的异步追赶编排：写成功后可自动尝试修复落后副本缺口（donor 拉取 + 重放 + commit，best-effort）。
 - 追赶编排已支持 donor 回退：当首选 donor 拉取不到 backlog 时，会自动尝试下一候选 donor 继续修复。
 - 追赶编排已支持连续 LSN 回放约束：当 donor 返回的 backlog 存在缺口时会跳过该 donor 并继续回退，避免跨缺口重放。
@@ -156,8 +159,8 @@
 
 ### 仍待实现
 
-- WAL 最终协议：已具备“超时 PREPARE 自动 ABORT”的基础处置，但多数派最终决议、跨节点确认链路与恢复后再决议策略仍需进一步对齐。
-- 多数派复制最终语义：失败重试、超时降级、追赶一致性与幂等保障。
+- WAL 最终协议：显式最终决议 RPC（`finalizeLogDecision/getLogDecisionState`）与 `decisionReady` 多数派自动终局已落地；后续主要缺口是极端网络分区/长抖动场景的混沌验证与策略参数化。
+- 多数派复制最终语义：失败重试、超时降级、追赶一致性与幂等保障仍需补齐跨节点协议级闭环。
 - 迁移协议完善：更强完整性校验（如校验和/块序号签名）、断点续传/重试、完成确认与回滚协议。
 - 自治恢复：主副本晋升、补副本、恢复后自动追赶到一致状态。
 

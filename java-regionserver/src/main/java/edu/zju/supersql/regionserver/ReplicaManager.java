@@ -1,5 +1,6 @@
 package edu.zju.supersql.regionserver;
 
+import edu.zju.supersql.rpc.LogDecisionState;
 import edu.zju.supersql.rpc.ReplicaSyncService;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
@@ -69,6 +70,7 @@ public class ReplicaManager {
     private static final String COMMIT_ERR_INVALID_PORT = "invalid replica port";
     private static final String COMMIT_ERR_TRANSPORT = "transport_error";
     private static final String COMMIT_ERR_RESPONSE = "response_error";
+    private static final String COMMIT_ERR_DECISION_CONFLICT = "decision_conflict";
 
     private record CommitAttempt(boolean success, String error) {
     }
@@ -231,6 +233,9 @@ public class ReplicaManager {
     private final AtomicLong pendingCommitRepairTriggeredCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairSuccessCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRepairFailureCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitFinalDecisionEvaluatedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitFinalDecisionCommittedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitLastFinalDecisionAtMs = new AtomicLong(0L);
     private final ConcurrentHashMap<String, AtomicLong> pendingCommitErrorBreakdown = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, SuspectedReplica> suspectedReplicas = new ConcurrentHashMap<>();
     private final AtomicLong suspectedReplicaMarkCount = new AtomicLong(0L);
@@ -397,6 +402,9 @@ public class ReplicaManager {
         stats.put("suspectedReplicaRecoveredCount", suspectedReplicaRecoveredCount.get());
         stats.put("suspectedReplicaLastMarkedAtMs", suspectedReplicaLastMarkedAtMs.get());
         stats.put("suspectedReplicaLastRecoveredAtMs", suspectedReplicaLastRecoveredAtMs.get());
+        stats.put("finalDecisionEvaluatedCount", pendingCommitFinalDecisionEvaluatedCount.get());
+        stats.put("finalDecisionCommittedCount", pendingCommitFinalDecisionCommittedCount.get());
+        stats.put("lastFinalDecisionAtMs", pendingCommitLastFinalDecisionAtMs.get());
         stats.put("lastSuccessAtMs", pendingCommitLastSuccessAtMs.get());
         stats.put("lastFailureAtMs", pendingCommitLastFailureAtMs.get());
         stats.put("lastError", pendingCommitLastError);
@@ -475,6 +483,7 @@ public class ReplicaManager {
             .limit(5)
             .map(decision -> {
                 Map<String, Object> terminal = new LinkedHashMap<>();
+                terminal.put("key", pendingCommitKey(decision.tableName(), decision.lsn(), decision.address()));
                 terminal.put("table", decision.tableName());
                 terminal.put("lsn", decision.lsn());
                 terminal.put("address", decision.address());
@@ -492,6 +501,45 @@ public class ReplicaManager {
         }
         stats.put("errorBreakdown", errorBreakdown);
         return stats;
+    }
+
+    Map<String, Object> getDecisionTerminalQueueSnapshot(int limit) {
+        int boundedLimit = Math.max(1, Math.min(500, limit));
+        List<Map<String, Object>> entries = decisionTerminalQueue.values().stream()
+                .sorted((left, right) -> Long.compare(right.queuedAtMs(), left.queuedAtMs()))
+                .limit(boundedLimit)
+                .map(decision -> {
+                    Map<String, Object> terminal = new LinkedHashMap<>();
+                    terminal.put("key", pendingCommitKey(decision.tableName(), decision.lsn(), decision.address()));
+                    terminal.put("table", decision.tableName());
+                    terminal.put("lsn", decision.lsn());
+                    terminal.put("address", decision.address());
+                    terminal.put("attempts", decision.attempts());
+                    terminal.put("ageMs", decision.ageMs());
+                    terminal.put("queuedAtMs", decision.queuedAtMs());
+                    terminal.put("lastError", decision.lastError());
+                    return terminal;
+                })
+                .toList();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("count", decisionTerminalQueue.size());
+        snapshot.put("limit", boundedLimit);
+        snapshot.put("entries", entries);
+        return snapshot;
+    }
+
+    boolean acknowledgeDecisionTerminal(String tableName, long lsn, String address) {
+        if (tableName == null || tableName.isBlank() || address == null || address.isBlank()) {
+            return false;
+        }
+        String key = pendingCommitKey(tableName, lsn, address);
+        return decisionTerminalQueue.remove(key) != null;
+    }
+
+    int acknowledgeAllDecisionTerminals() {
+        int removed = decisionTerminalQueue.size();
+        decisionTerminalQueue.clear();
+        return removed;
     }
 
     void retryPendingCommitsNow() {
@@ -697,21 +745,30 @@ public class ReplicaManager {
             TMultiplexedProtocol protocol = new TMultiplexedProtocol(
                     new TBinaryProtocol(transport), "ReplicaSyncService");
             ReplicaSyncService.Client client = new ReplicaSyncService.Client(protocol);
-            Response resp = client.commitLog(tableName, lsn);
+            String decisionId = buildDecisionId(tableName, lsn, true);
+            Response resp = client.finalizeLogDecision(
+                    tableName,
+                    lsn,
+                    true,
+                    decisionId,
+                    System.currentTimeMillis());
                 if (resp.getCode() == StatusCode.OK) {
-                log.debug("commitLog to {} for table={} lsn={}: code={} attempt=success",
+                log.debug("finalizeLogDecision(commit) to {} for table={} lsn={}: code={} attempt=success",
                     address, tableName, lsn, resp.getCode());
                 return new CommitAttempt(true, "");
                 }
-                log.warn("commitLog to {} for table={} lsn={} returned code={} msg={}",
+                log.warn("finalizeLogDecision(commit) to {} for table={} lsn={} returned code={} msg={}",
                     address, tableName, lsn, resp.getCode(), resp.getMessage());
                 if (resp.getCode() == StatusCode.TABLE_NOT_FOUND) {
                     return new CommitAttempt(false, COMMIT_ERR_TABLE_NOT_FOUND);
                 }
+                if (resp.getMessage() != null && resp.getMessage().toLowerCase().contains("conflict")) {
+                    return new CommitAttempt(false, COMMIT_ERR_DECISION_CONFLICT + ": " + resp.getMessage());
+                }
                 return new CommitAttempt(false,
                         COMMIT_ERR_RESPONSE + ": " + resp.getCode() + " msg=" + resp.getMessage());
         } catch (Exception e) {
-            log.warn("commitLog to {} failed for table={} lsn={}: {}",
+            log.warn("finalizeLogDecision(commit) to {} failed for table={} lsn={}: {}",
                     address, tableName, lsn, e.getMessage());
                 return new CommitAttempt(false, COMMIT_ERR_TRANSPORT + ": " + e.getMessage());
         }
@@ -823,49 +880,21 @@ public class ReplicaManager {
             }
             if (task.decisionReadyMarked) {
                 pendingCommitDecisionReadyCooldownAppliedCount.incrementAndGet();
+                if (finalizeDecisionReadyCommitIfPossible(key, task, now)) {
+                    continue;
+                }
             }
             pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
             pendingCommitLastError = commitAttempt.error();
 
             if (task.decisionReadyMarked && now - task.firstQueuedAtMs > pendingCommitDecisionTerminalAgeMs) {
-                if (pendingCommits.remove(key, task)) {
-                    pendingCommitDecisionTerminalCount.incrementAndGet();
-                    pendingCommitLastDecisionTerminalAtMs.set(System.currentTimeMillis());
-                    if (decisionTerminalQueue.size() >= PENDING_COMMIT_DECISION_TERMINAL_MAX_QUEUE_SIZE) {
-                        pendingCommitDecisionTerminalDroppedCount.incrementAndGet();
-                    } else {
-                        decisionTerminalQueue.put(key, new DecisionTerminal(
-                                task.tableName,
-                                task.lsn,
-                                task.address,
-                                task.attempts.get(),
-                                task.ageMs(now),
-                                System.currentTimeMillis(),
-                                task.lastError));
-                    }
-                    log.warn("retryPendingCommits: moved decision-ready pending commit to terminal queue table={} lsn={} address={} ageMs={} terminalAgeMs={}",
-                            task.tableName,
-                            task.lsn,
-                            task.address,
-                            task.ageMs(now),
-                            pendingCommitDecisionTerminalAgeMs);
-                }
+                moveToDecisionTerminalQueue(key, task, now, "terminalAgeMs", pendingCommitDecisionTerminalAgeMs);
                 continue;
             }
 
             if (now - task.firstQueuedAtMs > pendingCommitMaxAgeMs) {
                 if (task.decisionReadyMarked) {
-                    if (!task.decisionReadyRetentionReported) {
-                        task.decisionReadyRetentionReported = true;
-                        pendingCommitDecisionReadyRetainedCount.incrementAndGet();
-                        pendingCommitLastDecisionReadyRetainedAtMs.set(System.currentTimeMillis());
-                        log.warn("retryPendingCommits: retained decision-ready pending commit table={} lsn={} address={} ageMs={} maxAgeMs={}",
-                                task.tableName,
-                                task.lsn,
-                                task.address,
-                                task.ageMs(now),
-                                pendingCommitMaxAgeMs);
-                    }
+                    moveToDecisionTerminalQueue(key, task, now, "maxAgeMs", pendingCommitMaxAgeMs);
                     continue;
                 }
                 if (pendingCommits.remove(key, task)) {
@@ -939,6 +968,9 @@ public class ReplicaManager {
         if (lowered.contains(COMMIT_ERR_RESPONSE)) {
             return COMMIT_ERR_RESPONSE;
         }
+        if (lowered.contains(COMMIT_ERR_DECISION_CONFLICT)) {
+            return COMMIT_ERR_DECISION_CONFLICT;
+        }
         return "other";
     }
 
@@ -1005,6 +1037,94 @@ public class ReplicaManager {
         }
     }
 
+    private void moveToDecisionTerminalQueue(String key,
+                                             PendingCommit task,
+                                             long nowMs,
+                                             String reason,
+                                             long thresholdMs) {
+        if (!pendingCommits.remove(key, task)) {
+            return;
+        }
+        pendingCommitDecisionTerminalCount.incrementAndGet();
+        pendingCommitLastDecisionTerminalAtMs.set(System.currentTimeMillis());
+        if (decisionTerminalQueue.size() >= PENDING_COMMIT_DECISION_TERMINAL_MAX_QUEUE_SIZE) {
+            pendingCommitDecisionTerminalDroppedCount.incrementAndGet();
+        } else {
+            decisionTerminalQueue.put(key, new DecisionTerminal(
+                    task.tableName,
+                    task.lsn,
+                    task.address,
+                    task.attempts.get(),
+                    task.ageMs(nowMs),
+                    System.currentTimeMillis(),
+                    task.lastError));
+        }
+        log.warn("retryPendingCommits: moved decision-ready pending commit to terminal queue table={} lsn={} address={} ageMs={} {}={}",
+                task.tableName,
+                task.lsn,
+                task.address,
+                task.ageMs(nowMs),
+                reason,
+                thresholdMs);
+    }
+
+    private boolean finalizeDecisionReadyCommitIfPossible(String key, PendingCommit task, long nowMs) {
+        pendingCommitFinalDecisionEvaluatedCount.incrementAndGet();
+        int replicaCount = task.replicaAddresses.size() + 1; // include primary itself
+        int quorum = replicaCount / 2 + 1;
+        int committedVotes = 1; // primary commit already persisted before async replica commit
+        int abortedVotes = 0;
+
+        for (String replica : task.replicaAddresses) {
+            LogDecisionState decisionState = getLogDecisionState(task.tableName, task.lsn, replica);
+            if (decisionState != null && decisionState.isDecided()) {
+                if (decisionState.isSetCommitted() && decisionState.isCommitted()) {
+                    committedVotes++;
+                    continue;
+                }
+                if (decisionState.isSetCommitted() && !decisionState.isCommitted()) {
+                    abortedVotes++;
+                    continue;
+                }
+            }
+            long maxLsn = getMaxLsn(task.tableName, replica);
+            if (maxLsn >= task.lsn) {
+                committedVotes++;
+            }
+        }
+
+        if (abortedVotes > 0) {
+            task.lastError = COMMIT_ERR_DECISION_CONFLICT + ": observed " + abortedVotes + " ABORT vote(s)";
+            moveToDecisionTerminalQueue(key, task, nowMs, "decisionConflictAbortVotes", abortedVotes);
+            return true;
+        }
+
+        if (committedVotes < quorum) {
+            return false;
+        }
+
+        int removed = removePendingForLsn(task.tableName, task.lsn);
+        if (removed <= 0) {
+            return true;
+        }
+
+        if (task.consecutiveTransportFailures.getAndSet(0L) >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD) {
+            pendingCommitRecoveredFromEscalationCount.incrementAndGet();
+            pendingCommitLastRecoveredFromEscalationAtMs.set(nowMs);
+        }
+        pendingCommitRecoveredCount.addAndGet(removed);
+        pendingCommitLastSuccessAtMs.set(nowMs);
+        pendingCommitFinalDecisionCommittedCount.incrementAndGet();
+        pendingCommitLastFinalDecisionAtMs.set(nowMs);
+        log.info("retryPendingCommits: finalized decision-ready commit via quorum table={} lsn={} target={} votes={}/{}",
+                task.tableName,
+                task.lsn,
+                task.address,
+                committedVotes,
+                replicaCount);
+        return true;
+    }
+
     private boolean repairMissingReplicaEntry(PendingCommit task) {
         if (task == null || task.replicaAddresses == null || task.replicaAddresses.isEmpty()) {
             return false;
@@ -1059,6 +1179,20 @@ public class ReplicaManager {
                 .toList();
     }
 
+    private int removePendingForLsn(String tableName, long lsn) {
+        int removed = 0;
+        for (Map.Entry<String, PendingCommit> entry : pendingCommits.entrySet()) {
+            PendingCommit pending = entry.getValue();
+            if (!pending.tableName.equals(tableName) || pending.lsn != lsn) {
+                continue;
+            }
+            if (pendingCommits.remove(entry.getKey(), pending)) {
+                removed++;
+            }
+        }
+        return removed;
+    }
+
     private long getMaxLsn(String tableName, String address) {
         String[] parts = address.split(":");
         if (parts.length != 2) {
@@ -1083,6 +1217,37 @@ public class ReplicaManager {
             log.warn("getMaxLsn from {} failed for table={}: {}", address, tableName, e.getMessage());
             return -1L;
         }
+    }
+
+    private LogDecisionState getLogDecisionState(String tableName, long lsn, String address) {
+        String[] parts = address.split(":");
+        if (parts.length != 2) {
+            return null;
+        }
+        String host = parts[0];
+        int port;
+        try {
+            port = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+
+        try (TTransport transport = new TFramedTransport(
+                new TSocket(host, port, CONNECT_TIMEOUT_MS))) {
+            transport.open();
+            TMultiplexedProtocol protocol = new TMultiplexedProtocol(
+                    new TBinaryProtocol(transport), "ReplicaSyncService");
+            ReplicaSyncService.Client client = new ReplicaSyncService.Client(protocol);
+            return client.getLogDecisionState(tableName, lsn);
+        } catch (Exception e) {
+            log.warn("getLogDecisionState from {} failed for table={} lsn={}: {}",
+                    address, tableName, lsn, e.getMessage());
+            return null;
+        }
+    }
+
+    private static String buildDecisionId(String tableName, long lsn, boolean committed) {
+        return tableName + "#" + lsn + "#" + (committed ? "COMMIT" : "ABORT");
     }
 
     private List<WalEntry> pullLogs(String address, String tableName, long startLsn) {

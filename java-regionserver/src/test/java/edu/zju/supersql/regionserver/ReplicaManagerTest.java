@@ -1,6 +1,7 @@
 package edu.zju.supersql.regionserver;
 
 import edu.zju.supersql.regionserver.rpc.ReplicaSyncServiceImpl;
+import edu.zju.supersql.rpc.LogDecisionState;
 import edu.zju.supersql.rpc.ReplicaSyncService;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
@@ -359,7 +360,50 @@ class ReplicaManagerTest {
     }
 
     @Test
-    void retryPendingCommitsShouldRetainDecisionReadyWhenMaxAgeExceeded() throws Exception {
+    void retryPendingCommitsShouldFinalizeDecisionReadyCommitWhenQuorumAlreadyCommitted() throws Exception {
+        int donorPort = freePort();
+        InMemoryReplicaSyncService donor = new InMemoryReplicaSyncService();
+        TServer donorServer = buildServer(donorPort, donor);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        pool.submit(donorServer::serve);
+        Thread.sleep(200);
+
+        try {
+            ReplicaManager manager = new ReplicaManager(false);
+            String donorAddress = "127.0.0.1:" + donorPort;
+            String unavailableReplica = "127.0.0.1:1";
+            long lsn = 9399L;
+
+            WalEntry entry = buildEntry(lsn, "orders", "insert into orders values(9399);");
+            Assertions.assertEquals(1, manager.syncToReplicas(entry, List.of(donorAddress), 1));
+            Assertions.assertTrue(manager.commitOneWithRetry("orders", lsn, donorAddress));
+
+            manager.commitOnReplicas("orders", lsn, List.of(donorAddress, unavailableReplica));
+
+            waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                    4_000L);
+
+            for (int i = 0; i < 24; i++) {
+                manager.retryPendingCommitsNowIgnoringBackoff();
+            }
+
+            waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() == 0L,
+                    4_000L);
+
+            Map<String, Object> stats = manager.getCommitRetryStats();
+            Assertions.assertTrue(((Number) stats.get("finalDecisionEvaluatedCount")).longValue() >= 1L);
+            Assertions.assertTrue(((Number) stats.get("finalDecisionCommittedCount")).longValue() >= 1L);
+            Assertions.assertTrue(((Number) stats.get("lastFinalDecisionAtMs")).longValue() > 0L);
+            Assertions.assertEquals(0L, ((Number) stats.get("terminalQueueCount")).longValue());
+            Assertions.assertEquals(Boolean.FALSE, stats.get("manualInterventionRequired"));
+        } finally {
+            donorServer.stop();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void retryPendingCommitsShouldMoveDecisionReadyToTerminalQueueWhenMaxAgeExceeded() throws Exception {
         ReplicaManager manager = new ReplicaManager(false);
         manager.commitOnReplicas("orders", 9393L, List.of("127.0.0.1:1"));
 
@@ -375,11 +419,11 @@ class ReplicaManagerTest {
         manager.retryPendingCommitsNowIgnoringBackoff();
 
         Map<String, Object> stats = manager.getCommitRetryStats();
-        Assertions.assertTrue(((Number) stats.get("activeDecisionReadyCount")).longValue() >= 1L);
-        Assertions.assertTrue(((Number) stats.get("pendingCount")).longValue() >= 1L);
+        Assertions.assertEquals(0L, ((Number) stats.get("activeDecisionReadyCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) stats.get("pendingCount")).longValue());
         Assertions.assertEquals(Boolean.TRUE, stats.get("manualInterventionRequired"));
-        Assertions.assertTrue(((Number) stats.get("decisionReadyRetainedCount")).longValue() >= 1L);
-        Assertions.assertTrue(((Number) stats.get("lastDecisionReadyRetainedAtMs")).longValue() > 0L);
+        Assertions.assertTrue(((Number) stats.get("decisionTerminalCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("terminalQueueCount")).longValue() >= 1L);
     }
 
     @Test
@@ -407,8 +451,46 @@ class ReplicaManagerTest {
         List<?> terminalPreview = (List<?>) stats.get("decisionTerminalPreview");
         Assertions.assertFalse(terminalPreview.isEmpty());
         Map<?, ?> first = (Map<?, ?>) terminalPreview.get(0);
+        Assertions.assertTrue(first.containsKey("key"));
         Assertions.assertEquals("orders", first.get("table"));
         Assertions.assertEquals(9595L, ((Number) first.get("lsn")).longValue());
+
+        Map<String, Object> queueSnapshot = manager.getDecisionTerminalQueueSnapshot(10);
+        Assertions.assertTrue(((Number) queueSnapshot.get("count")).longValue() >= 1L);
+        List<?> queueEntries = (List<?>) queueSnapshot.get("entries");
+        Assertions.assertFalse(queueEntries.isEmpty());
+        Map<?, ?> firstQueueEntry = (Map<?, ?>) queueEntries.get(0);
+        Assertions.assertTrue(firstQueueEntry.containsKey("key"));
+
+        boolean removed = manager.acknowledgeDecisionTerminal("orders", 9595L, "127.0.0.1:1");
+        Assertions.assertTrue(removed);
+        Map<String, Object> afterAck = manager.getDecisionTerminalQueueSnapshot(10);
+        Assertions.assertEquals(0L, ((Number) afterAck.get("count")).longValue());
+    }
+
+    @Test
+    void acknowledgeAllDecisionTerminalsShouldClearTerminalQueue() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false);
+        manager.commitOnReplicas("orders", 9696L, List.of("127.0.0.1:1"));
+        manager.commitOnReplicas("orders", 9797L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 2L,
+                4_000L);
+
+        for (int i = 0; i < 24; i++) {
+            manager.retryPendingCommitsNowIgnoringBackoff();
+        }
+        manager.setDecisionTerminalAgeMsForTests(1L);
+        Thread.sleep(5L);
+        manager.retryPendingCommitsNowIgnoringBackoff();
+
+        Map<String, Object> queueSnapshot = manager.getDecisionTerminalQueueSnapshot(10);
+        Assertions.assertTrue(((Number) queueSnapshot.get("count")).longValue() >= 1L);
+
+        int removed = manager.acknowledgeAllDecisionTerminals();
+        Assertions.assertTrue(removed >= 1);
+        Map<String, Object> afterClear = manager.getDecisionTerminalQueueSnapshot(10);
+        Assertions.assertEquals(0L, ((Number) afterClear.get("count")).longValue());
     }
 
     @Test
@@ -659,6 +741,7 @@ class ReplicaManagerTest {
     private static class InMemoryReplicaSyncService implements ReplicaSyncService.Iface {
         private final ConcurrentSkipListMap<Long, WalEntry> walByLsn = new ConcurrentSkipListMap<>();
         private final Set<Long> committed = ConcurrentHashMap.newKeySet();
+        private final Map<Long, Boolean> decisions = new ConcurrentHashMap<>();
 
         void preload(WalEntry entry, boolean isCommitted) {
             walByLsn.put(entry.getLsn(), new WalEntry(entry));
@@ -705,20 +788,75 @@ class ReplicaManagerTest {
 
         @Override
         public Response commitLog(String tableName, long lsn) {
+            return finalizeLogDecision(tableName, lsn, true,
+                    "legacy-commit-" + tableName + "-" + lsn, System.currentTimeMillis());
+        }
+
+        @Override
+        public Response finalizeLogDecision(String tableName,
+                                            long lsn,
+                                            boolean committedDecision,
+                                            String decisionId,
+                                            long decidedAtMs) {
+            Boolean existing = decisions.get(lsn);
+            if (existing != null) {
+                if (existing == committedDecision) {
+                    Response r = new Response(StatusCode.OK);
+                    r.setMessage(committedDecision
+                            ? "ALREADY_COMMITTED lsn=" + lsn
+                            : "ALREADY_ABORTED lsn=" + lsn);
+                    return r;
+                }
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("Decision conflict for lsn=" + lsn);
+                return r;
+            }
+
             WalEntry entry = walByLsn.get(lsn);
-            if (entry == null || !tableName.equals(entry.getTableName())) {
+            if (committedDecision && (entry == null || !tableName.equals(entry.getTableName()))) {
                 Response r = new Response(StatusCode.TABLE_NOT_FOUND);
                 r.setMessage("No wal entry found for table=" + tableName + " lsn=" + lsn);
                 return r;
             }
-            if (!committed.add(lsn)) {
+
+            if (committedDecision) {
+                if (!committed.add(lsn)) {
+                    decisions.put(lsn, true);
+                    Response r = new Response(StatusCode.OK);
+                    r.setMessage("ALREADY_COMMITTED lsn=" + lsn);
+                    return r;
+                }
+                decisions.put(lsn, true);
                 Response r = new Response(StatusCode.OK);
-                r.setMessage("ALREADY_COMMITTED lsn=" + lsn);
+                r.setMessage("COMMITTED lsn=" + lsn);
                 return r;
             }
+
+            decisions.put(lsn, false);
+            walByLsn.remove(lsn);
             Response r = new Response(StatusCode.OK);
-            r.setMessage("COMMITTED lsn=" + lsn);
+            r.setMessage("DECIDED_ABORT lsn=" + lsn);
             return r;
+        }
+
+        @Override
+        public LogDecisionState getLogDecisionState(String tableName, long lsn) {
+            LogDecisionState state = new LogDecisionState(false);
+            Boolean decision = decisions.get(lsn);
+            if (decision != null) {
+                state.setDecided(true);
+                state.setCommitted(decision);
+                state.setDecisionId("in-memory-" + tableName + "-" + lsn);
+                state.setDecidedAtMs(System.currentTimeMillis());
+                return state;
+            }
+            if (committed.contains(lsn)) {
+                state.setDecided(true);
+                state.setCommitted(true);
+                state.setDecisionId("in-memory-legacy-" + tableName + "-" + lsn);
+                state.setDecidedAtMs(0L);
+            }
+            return state;
         }
     }
 

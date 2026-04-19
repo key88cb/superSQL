@@ -21,6 +21,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -217,6 +219,9 @@ public class RegionServerMain {
             defaults.put("suspectedReplicaRecoveredCount", 0L);
             defaults.put("suspectedReplicaLastMarkedAtMs", 0L);
             defaults.put("suspectedReplicaLastRecoveredAtMs", 0L);
+            defaults.put("finalDecisionEvaluatedCount", 0L);
+            defaults.put("finalDecisionCommittedCount", 0L);
+            defaults.put("lastFinalDecisionAtMs", 0L);
             defaults.put("stalledCount", 0L);
             defaults.put("oldestPendingAgeMs", 0L);
             defaults.put("activeEscalatedCount", 0L);
@@ -245,6 +250,107 @@ public class RegionServerMain {
         }
     }
 
+    private static void writeJsonResponse(com.sun.net.httpserver.HttpExchange exchange,
+                                          int statusCode,
+                                          Map<String, Object> payload) throws java.io.IOException {
+        byte[] body;
+        try {
+            body = MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            body = "{\"status\":\"error\",\"message\":\"failed to serialize response\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            statusCode = 500;
+        }
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(statusCode, body.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(body);
+        }
+    }
+
+    private static Map<String, String> parseQueryParams(URI uri) {
+        Map<String, String> result = new LinkedHashMap<>();
+        if (uri == null || uri.getRawQuery() == null || uri.getRawQuery().isBlank()) {
+            return result;
+        }
+        String[] pairs = uri.getRawQuery().split("&");
+        for (String pair : pairs) {
+            if (pair == null || pair.isBlank()) {
+                continue;
+            }
+            int idx = pair.indexOf('=');
+            if (idx <= 0) {
+                result.put(urlDecode(pair), "");
+                continue;
+            }
+            String key = urlDecode(pair.substring(0, idx));
+            String value = urlDecode(pair.substring(idx + 1));
+            result.put(key, value);
+        }
+        return result;
+    }
+
+    private static String urlDecode(String value) {
+        if (value == null) {
+            return "";
+        }
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
+    }
+
+    private static int parseLimit(String value, int fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static long parseLong(String value, long fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static long readLongStat(Map<String, Object> stats, String key) {
+        if (stats == null) {
+            return 0L;
+        }
+        Object value = stats.get(key);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    private static boolean readBooleanStat(Map<String, Object> stats, String key) {
+        if (stats == null) {
+            return false;
+        }
+        Object value = stats.get(key);
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
     public static void main(String[] args) throws Exception {
         RegionServerConfig config = RegionServerConfig.fromSystemEnv();
         String rsId = config.rsId();
@@ -260,6 +366,10 @@ public class RegionServerMain {
         log.info("Starting SuperSQL RegionServer: id={} host={} thriftPort={} httpPort={} zk={}",
                 rsId, rsHost, thriftPort, httpPort, zkConnect);
         log.info("  data={} wal={} minisql={} minReplicaAcks={}", dataDir, walDir, miniSqlBin, minReplicaAcks);
+
+        final RegionAdminServiceImpl[] adminServiceRef = new RegionAdminServiceImpl[1];
+        final ReplicaManager[] replicaManagerRef = new ReplicaManager[1];
+        final ReplicaSyncServiceImpl[] replicaSyncRef = new ReplicaSyncServiceImpl[1];
 
         // ── ZooKeeper connection ───────────────────────────────────────────────
         CuratorFramework zkClient = null;
@@ -278,7 +388,7 @@ public class RegionServerMain {
             log.info("ZooKeeper client started (connecting to {})", zkConnect);
 
             registrar = new RegionServerRegistrar(zkClient, rsId);
-            registrar.register(rsHost, thriftPort);
+            registrar.register(rsHost, thriftPort, httpPort);
 
             RegionServerRegistrar finalRegistrar = registrar;
             heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -286,8 +396,27 @@ public class RegionServerMain {
                 t.setDaemon(true);
                 return t;
             });
-            heartbeatExecutor.scheduleAtFixedRate(() ->
-                            finalRegistrar.heartbeat(rsHost, thriftPort, 0, 0.0, 0.0, 0.0),
+                heartbeatExecutor.scheduleAtFixedRate(() -> {
+                    Map<String, Object> retryStats = replicaManagerRef[0] == null
+                        ? null
+                        : replicaManagerRef[0].getCommitRetryStats();
+                    long terminalQueueCount = readLongStat(retryStats, "terminalQueueCount");
+                    boolean manualInterventionRequired = readBooleanStat(retryStats, "manualInterventionRequired");
+                    long decisionTerminalCount = readLongStat(retryStats, "decisionTerminalCount");
+                    long lastDecisionTerminalAtMs = readLongStat(retryStats, "lastDecisionTerminalAtMs");
+                    finalRegistrar.heartbeat(
+                        rsHost,
+                        thriftPort,
+                        httpPort,
+                        0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        terminalQueueCount,
+                        manualInterventionRequired,
+                        decisionTerminalCount,
+                        lastDecisionTerminalAtMs);
+                    },
                     config.heartbeatIntervalMs(),
                     config.heartbeatIntervalMs(),
                     TimeUnit.MILLISECONDS);
@@ -318,9 +447,6 @@ public class RegionServerMain {
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
         });
-        final RegionAdminServiceImpl[] adminServiceRef = new RegionAdminServiceImpl[1];
-        final ReplicaManager[] replicaManagerRef = new ReplicaManager[1];
-        final ReplicaSyncServiceImpl[] replicaSyncRef = new ReplicaSyncServiceImpl[1];
         healthServer.createContext("/status", exchange -> {
             Map<String, Object> manifestStats = adminServiceRef[0] != null
                     ? adminServiceRef[0].getTransferManifestVerificationStats()
@@ -351,8 +477,72 @@ public class RegionServerMain {
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
         });
+        healthServer.createContext("/admin/replica-commit-terminal", exchange -> {
+            ReplicaManager manager = replicaManagerRef[0];
+            if (manager == null) {
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("status", "error");
+                response.put("message", "replica manager is not ready");
+                writeJsonResponse(exchange, 503, response);
+                return;
+            }
+
+            String method = exchange.getRequestMethod();
+            Map<String, String> query = parseQueryParams(exchange.getRequestURI());
+            if ("GET".equalsIgnoreCase(method)) {
+                int limit = parseLimit(query.get("limit"), 100);
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("status", "ok");
+                response.put("queue", manager.getDecisionTerminalQueueSnapshot(limit));
+                writeJsonResponse(exchange, 200, response);
+                return;
+            }
+
+            if (!"POST".equalsIgnoreCase(method)) {
+                exchange.getResponseHeaders().set("Allow", "GET, POST");
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("status", "error");
+                response.put("message", "method not allowed");
+                writeJsonResponse(exchange, 405, response);
+                return;
+            }
+
+            String action = query.getOrDefault("action", "ack").trim();
+            if ("ackAll".equalsIgnoreCase(action)) {
+                int removed = manager.acknowledgeAllDecisionTerminals();
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("status", "ok");
+                response.put("action", "ackAll");
+                response.put("removed", removed);
+                response.put("queue", manager.getDecisionTerminalQueueSnapshot(100));
+                writeJsonResponse(exchange, 200, response);
+                return;
+            }
+
+            String table = query.get("table");
+            String address = query.get("address");
+            long lsn = parseLong(query.get("lsn"), Long.MIN_VALUE);
+            if (table == null || table.isBlank() || address == null || address.isBlank() || lsn == Long.MIN_VALUE) {
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("status", "error");
+                response.put("message", "ack requires table, lsn, and address query params");
+                writeJsonResponse(exchange, 400, response);
+                return;
+            }
+
+            boolean removed = manager.acknowledgeDecisionTerminal(table, lsn, address);
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("status", "ok");
+            response.put("action", "ack");
+            response.put("removed", removed);
+            response.put("table", table);
+            response.put("lsn", lsn);
+            response.put("address", address);
+            response.put("queue", manager.getDecisionTerminalQueueSnapshot(100));
+            writeJsonResponse(exchange, 200, response);
+        });
         healthServer.start();
-        log.info("Health endpoints listening on :{} (/health, /status)", httpPort);
+        log.info("Health endpoints listening on :{} (/health, /status, /admin/replica-commit-terminal)", httpPort);
 
         // ── Service wiring ────────────────────────────────────────────────────
         WriteGuard writeGuard = new WriteGuard();

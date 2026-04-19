@@ -122,21 +122,28 @@
 - ReplicaSyncServiceImpl 的 `commitLog` 已具备幂等语义：重复 COMMIT 不再重复回放 SQL。
 - ReplicaSyncServiceImpl 的 `pullLog/getMaxLsn` 已收敛为仅暴露 COMMITTED 日志（并在启动时恢复 committed 索引），避免将未提交 PREPARE 暴露给追赶链路。
 - ReplicaSyncServiceImpl 已新增超时 PREPARE 自动决议（超时后本地标记 ABORT 并从内存待提交集合移除），降低跨节点提交确认丢失时 PREPARE 长期滞留风险。
+- ReplicaSyncService/ReplicaManager 已落地显式最终决议 RPC 语义：新增 `finalizeLogDecision` 与 `getLogDecisionState`，主副本可显式下发 COMMIT/ABORT 终局并查询副本决议状态。
+- ReplicaSyncServiceImpl 已支持“legacy commit + 显式决议”双轨兼容：`commitLog` 保持历史幂等语义（COMMITTED/ALREADY_COMMITTED），显式 ABORT 冲突会拒绝后续提交，超时自动 ABORT 保持 TABLE_NOT_FOUND 兼容行为。
+- ReplicaSyncServiceImpl 启动恢复已支持从 WAL 状态重建决议状态（COMMITTED/ABORTED），保证重启后决议查询与重复决议幂等行为一致。
 - 主副本对副本 `commitLog` 通知已增加有界重试（best-effort），降低短暂网络抖动下的提交通知丢失概率。
 - 当 `commitLog` 因 `TABLE_NOT_FOUND` 失败进入待重试队列时，ReplicaManager 会基于 donor 的 `pullLog` 定向回填缺失日志后再重试 commit，提升无新写入场景下的自愈收敛能力。
 - ReplicaManager 待重试队列已引入退避节流窗口，避免对故障副本持续高频无效重试；并新增 `throttledSkipCount/stalledCount/oldestPendingAgeMs` 观测字段用于识别重试停滞。
 - ReplicaManager 对连续 `transport_error` 已增加分级降频策略：达到阈值后进入升级重试窗口（更长冷却），并输出 `escalatedCount/activeEscalatedCount/maxConsecutiveTransportFailures` 观测字段。
 - 当升级态 pending commit 最终成功收敛时，ReplicaManager 会记录升级恢复信号（`recoveredFromEscalationCount/lastRecoveredFromEscalationAtMs`），用于确认降频后是否真实恢复。
-- 对于长时间处于升级态且重试次数持续累积的 pending commit，ReplicaManager 会标记为决议候选并输出 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，为后续“多数派最终决议”提供前置信号。
+- 对于长时间处于升级态且重试次数持续累积的 pending commit，ReplicaManager 会标记为决议候选并输出 `decisionCandidateCount/activeDecisionCandidateCount/lastDecisionCandidateAtMs`，作为自动最终决议前置阶段。
 - 决议候选项已提供预览视图 `decisionCandidatesPreview`（table/lsn/address/attempts/consecutiveTransportFailures/ageMs，最多5条），便于快速定位需要人工或自动决议的对象。
 - 决议候选项引入二级冷却窗口（`decisionCandidateCooldownMs`，默认 300s），触发时记录 `decisionCandidateCooldownAppliedCount`，并在预览项中输出 `nextRetryAtMs`，用于降低长故障期重试噪音。
-- 在决议候选基础上新增“decision-ready”阶段：持续失败达到阈值后记录 `decisionReadyTransitionCount/lastDecisionReadyAtMs`，并输出 `activeDecisionReadyCount/decisionReadyAttemptsThreshold`，用于后续多数派最终决议动作触发。
+- 在决议候选基础上新增“decision-ready”阶段：持续失败达到阈值后记录 `decisionReadyTransitionCount/lastDecisionReadyAtMs`，并输出 `activeDecisionReadyCount/decisionReadyAttemptsThreshold`，用于触发最终决议流程。
 - 进入 `decision-ready` 后，待提交重试会切换到更长冷却窗口（15 分钟）并上报 `decisionReadyCooldownAppliedCount/decisionReadyCooldownMs`，降低长故障期间的无效重试噪音。
-- 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再静默丢弃；会保留在待处理队列并上报 `decisionReadyRetainedCount/lastDecisionReadyRetainedAtMs/maxAgeMs`，用于后续决议链路接管。
+- 对进入 `decision-ready` 的待提交项，系统会执行“多数派已提交”最终决议判定（基于副本 `getMaxLsn` 与法定票数），满足法定票数时自动完成终局并清理 active pending；同时上报 `finalDecisionEvaluatedCount/finalDecisionCommittedCount/lastFinalDecisionAtMs`。
+- 对达到 `decision-ready` 且超过 `maxAge` 的待提交项，系统不再走“仅保留等待”的临时路径，而是直接分流到终态人工队列，避免长期占用 active pending。
 - 对持续停留在 `decision-ready` 且超过终态阈值（`decisionTerminalAgeMs`）的待提交项，系统会自动从 active pending 分流到终态人工队列（`terminalQueueCount`），并记录 `decisionTerminalCount/lastDecisionTerminalAtMs/decisionTerminalPreview`，避免长期占用活跃重试队列。
 - `replicaCommitRetry` 统计已补充 `manualInterventionRequired/decisionReadyOldestAgeMs`，并将终态队列纳入人工处置信号。
 - ReplicaManager 已补充 suspected 副本观测：当同步阶段 ACK 不足或 commit 重试阶段出现连续 `transport_error` 时，会记录 `suspectedReplicaCount/suspectedReplicaMarkCount/suspectedReplicaPreview` 等字段，用于推进 S6-05 前半部分的“可疑副本检测、触发条件与状态暴露”。
 - suspected 副本在后续提交通知恢复成功时会自动从 suspected 集合移除，并上报 `suspectedReplicaRecoveredCount/suspectedReplicaLastRecoveredAtMs`，便于区分短暂抖动与持续异常。
+- RegionServer 已新增终态人工队列管理入口 `/admin/replica-commit-terminal`：支持 GET 查询终态队列、POST `action=ack` 单条确认、POST `action=ackAll` 批量确认，形成“可观测 + 可处置”闭环。
+- RegionServer 心跳节点已附带 `replicaCommitTerminalQueueCount/replicaCommitManualInterventionRequired/replicaCommitDecisionTerminalCount/replicaCommitLastDecisionTerminalAtMs`，Master 侧可直接聚合决议终态风险。
+- Master `/status` 已新增 `replicaDecision` 聚合视图（observed/manualIntervention/terminalQueue/decisionTerminal/latestTs/affectedRs），用于跨 RS 统一观测终态人工决议压力。
 - ReplicaManager 已新增基于 `getMaxLsn + pullLog` 的落后副本追赶编排：会选择最新副本作为 donor，向落后副本重放缺失日志并补发 commit（best-effort）。
 - ReplicaManager 追赶编排已支持 donor 回退：首选 donor 无法提供 backlog 时会自动尝试下一候选 donor，提升追赶收敛稳定性。
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。
@@ -144,7 +151,7 @@
 - RegionServer `/status` 已补充 `prepareDecision` 与 `replicaCommitRetry` 统计，支持观测 PREPARE 超时决议与副本提交通知重试收敛情况；其中 `replicaCommitRetry` 进一步包含 repair 计数与错误分类分布（如 `table_not_found`/`transport_error`）。
 
 当前限制：
-- WAL、ReplicaManager 与 ReplicaSyncService 仍未达到最终语义（当前已具备“超时 PREPARE 自动 ABORT”的基础闭环，但多数派决议/跨节点一致提交协议仍未完成）。
+- WAL、ReplicaManager 与 ReplicaSyncService 已落地显式最终决议 RPC 与自动终局主链路；后续仍需继续加强极端网络分区下的跨节点一致性混沌验证与运维处置自动化。
 - Region 迁移、主副本晋升、恢复 3 副本等自治能力还未打通完整闭环。
 - transfer/copyTableData 已有基础实现，但尚未形成完整迁移协议。
 
@@ -256,6 +263,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：rebalance `FINALIZING` 阶段可观测性，以及超时 `MOVING` 状态在读路径触发下自动恢复为 `ACTIVE` 的自恢复语义。
 - 2026-04-19 已补充覆盖：checkpoint 与 recover 对陈旧 PREPARE 的自动裁剪（`LSN<=checkpointLsn`）语义，避免悬挂 PREPARE 污染后续恢复与统计。
 - 2026-04-19 已补充覆盖：`copyTableData` 在“进行中重复 chunk”与“完成后重复末块”场景下的幂等确认语义，避免误触发 offset reset。
+- 2026-04-19 已补充覆盖：显式最终决议 RPC（`finalizeLogDecision/getLogDecisionState`）与 legacy `commitLog` 兼容语义（显式 ABORT 冲突拒绝、超时自动 ABORT 返回 `TABLE_NOT_FOUND`）的回归验证。
 - 2026-04-19 已补充覆盖：`copyTableData` 在“重复 offset 但内容冲突”场景下会返回错误且保持传输进度，后续正确 chunk 可继续完成迁移。
 - 2026-04-19 已补充覆盖：`triggerRebalance` 在“集群已平衡”返回前会先执行卡死迁移预恢复，验证调度路径不再依赖读路径才能回收超时状态。
 - 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（总量 + `rebalance/recovery` 分项 + 分项最近错误）与 Master `/status` 中 `migration` 字段契约。

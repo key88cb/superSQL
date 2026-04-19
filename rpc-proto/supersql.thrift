@@ -103,6 +103,14 @@ struct DataChunk {
     5: required bool    isLast,         // 最后一块标志
 }
 
+/** 显式最终决议状态（用于跨节点确认日志最终语义） */
+struct LogDecisionState {
+    1: required bool    decided,       // 是否已有最终决议
+    2: optional bool    committed,     // true=COMMIT, false=ABORT
+    3: optional string  decisionId,    // 幂等决议 ID
+    4: optional i64     decidedAtMs,
+}
+
 // ================================================================
 //  1. MasterService — Client 向 Master 发起的 RPC
 // ================================================================
@@ -200,4 +208,16 @@ service ReplicaSyncService {
 
     /** 主副本确认提交（COMMIT）通知从副本更新状态。 */
     Response commitLog(1: string tableName, 2: i64 lsn),
+
+    /** 主副本下发显式最终决议（COMMIT/ABORT），用于跨节点收敛与幂等重放。 */
+    Response finalizeLogDecision(
+        1: string tableName,
+        2: i64 lsn,
+        3: bool committed,
+        4: string decisionId,
+        5: i64 decidedAtMs,
+    ),
+
+    /** 查询某条日志的最终决议状态（用于主副本恢复后再决议/校验）。 */
+    LogDecisionState getLogDecisionState(1: string tableName, 2: i64 lsn),
 }
