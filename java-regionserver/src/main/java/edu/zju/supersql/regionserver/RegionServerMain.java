@@ -90,6 +90,15 @@ public class RegionServerMain {
             defaults.put("duplicateAcks", 0L);
             defaults.put("lastSuccessTs", 0L);
             defaults.put("lastFailureTs", 0L);
+            Map<String, Object> reasons = new LinkedHashMap<>();
+            reasons.put("invalid_manifest", 0L);
+            reasons.put("scope_violation", 0L);
+            reasons.put("file_missing", 0L);
+            reasons.put("size_mismatch", 0L);
+            reasons.put("checksum_mismatch", 0L);
+            reasons.put("other", 0L);
+            defaults.put("failureReasons", reasons);
+            defaults.put("lastFailureReason", "");
             defaults.put("lastFailureMessage", "");
             payload.put("transferManifestVerification", defaults);
         } else {

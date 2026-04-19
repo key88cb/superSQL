@@ -624,6 +624,11 @@ class RegionAdminServiceImplTest {
 
         Assertions.assertEquals(StatusCode.ERROR, manifestResp.getCode());
         Assertions.assertTrue(manifestResp.getMessage().contains("checksum mismatch"));
+
+        Map<String, Object> snapshot = service.getTransferManifestVerificationStats();
+        Assertions.assertEquals("checksum_mismatch", String.valueOf(snapshot.get("lastFailureReason")));
+        Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
+        Assertions.assertEquals(1L, ((Number) reasons.get("checksum_mismatch")).longValue());
         }
 
         @Test
@@ -634,6 +639,14 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(0L, ((Number) initial.get("failure")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("duplicateAcks")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("lastSuccessTs")).longValue());
+        Assertions.assertEquals("", String.valueOf(initial.get("lastFailureReason")));
+        Map<?, ?> initialReasons = (Map<?, ?>) initial.get("failureReasons");
+        Assertions.assertEquals(0L, ((Number) initialReasons.get("invalid_manifest")).longValue());
+        Assertions.assertEquals(0L, ((Number) initialReasons.get("scope_violation")).longValue());
+        Assertions.assertEquals(0L, ((Number) initialReasons.get("file_missing")).longValue());
+        Assertions.assertEquals(0L, ((Number) initialReasons.get("size_mismatch")).longValue());
+        Assertions.assertEquals(0L, ((Number) initialReasons.get("checksum_mismatch")).longValue());
+        Assertions.assertEquals(0L, ((Number) initialReasons.get("other")).longValue());
 
         byte[] failureManifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing\",\"size\":1,\"crc32\":0}]}"
             .getBytes(StandardCharsets.UTF_8);
@@ -673,7 +686,11 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(0L, ((Number) snapshot.get("duplicateAcks")).longValue());
         Assertions.assertTrue(((Number) snapshot.get("lastSuccessTs")).longValue() > 0L);
         Assertions.assertTrue(((Number) snapshot.get("lastFailureTs")).longValue() > 0L);
+        Assertions.assertEquals("file_missing", String.valueOf(snapshot.get("lastFailureReason")));
         Assertions.assertTrue(String.valueOf(snapshot.get("lastFailureMessage")).contains("missing"));
+        Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
+        Assertions.assertEquals(1L, ((Number) reasons.get("file_missing")).longValue());
+        Assertions.assertEquals(0L, ((Number) reasons.get("checksum_mismatch")).longValue());
         }
 
     @Test

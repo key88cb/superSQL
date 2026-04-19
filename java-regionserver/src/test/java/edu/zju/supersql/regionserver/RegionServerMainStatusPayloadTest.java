@@ -41,6 +41,14 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("failure")).longValue());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("duplicateAcks")).longValue());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("lastSuccessTs")).longValue());
+        Assertions.assertEquals("", transferManifestVerification.get("lastFailureReason"));
+        Map<?, ?> manifestFailureReasons = (Map<?, ?>) transferManifestVerification.get("failureReasons");
+        Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("invalid_manifest")).longValue());
+        Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("scope_violation")).longValue());
+        Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("file_missing")).longValue());
+        Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("size_mismatch")).longValue());
+        Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("checksum_mismatch")).longValue());
+        Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("other")).longValue());
         Map<?, ?> transferTable = (Map<?, ?>) json.get("transferTable");
         Assertions.assertEquals(0L, ((Number) transferTable.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("success")).longValue());
@@ -60,6 +68,15 @@ class RegionServerMainStatusPayloadTest {
         manifestStats.put("duplicateAcks", 1L);
         manifestStats.put("lastSuccessTs", 111L);
         manifestStats.put("lastFailureTs", 123L);
+        Map<String, Object> manifestReasons = new LinkedHashMap<>();
+        manifestReasons.put("invalid_manifest", 1L);
+        manifestReasons.put("scope_violation", 0L);
+        manifestReasons.put("file_missing", 1L);
+        manifestReasons.put("size_mismatch", 0L);
+        manifestReasons.put("checksum_mismatch", 0L);
+        manifestReasons.put("other", 0L);
+        manifestStats.put("failureReasons", manifestReasons);
+        manifestStats.put("lastFailureReason", "file_missing");
         manifestStats.put("lastFailureMessage", "checksum mismatch");
 
         Map<String, Object> transferTableStats = new LinkedHashMap<>();
@@ -109,7 +126,11 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(1L, ((Number) transferManifestVerification.get("duplicateAcks")).longValue());
         Assertions.assertEquals(111L, ((Number) transferManifestVerification.get("lastSuccessTs")).longValue());
         Assertions.assertEquals(123L, ((Number) transferManifestVerification.get("lastFailureTs")).longValue());
+        Assertions.assertEquals("file_missing", transferManifestVerification.get("lastFailureReason"));
         Assertions.assertEquals("checksum mismatch", transferManifestVerification.get("lastFailureMessage"));
+        Map<?, ?> manifestFailureReasons = (Map<?, ?>) transferManifestVerification.get("failureReasons");
+        Assertions.assertEquals(1L, ((Number) manifestFailureReasons.get("invalid_manifest")).longValue());
+        Assertions.assertEquals(1L, ((Number) manifestFailureReasons.get("file_missing")).longValue());
 
             Assertions.assertEquals(7L, ((Number) transferTable.get("total")).longValue());
             Assertions.assertEquals(4L, ((Number) transferTable.get("success")).longValue());
