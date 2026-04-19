@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.CRC32;
 
 /**
  * RegionAdminService implementation.
@@ -479,6 +481,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 Map<String, Object> item = new ConcurrentHashMap<>();
                 item.put("fileName", file.getName());
                 item.put("size", file.length());
+                item.put("crc32", computeCrc32(resolveDataPath(file.getName())));
                 files.add(item);
             }
         }
@@ -547,6 +550,12 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                     r.setMessage("transfer manifest has invalid size for " + fileName);
                     return r;
                 }
+                long expectedCrc32 = toLong(fileItem.get("crc32"), -1L);
+                if (expectedCrc32 < 0L) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest has invalid crc32 for " + fileName);
+                    return r;
+                }
 
                 Path filePath = resolveDataPath(fileName);
                 if (!Files.exists(filePath)) {
@@ -560,6 +569,14 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                     Response r = new Response(StatusCode.ERROR);
                     r.setMessage("transfer manifest verification failed: size mismatch for "
                             + fileName + " expected=" + expectedSize + " actual=" + actualSize);
+                    return r;
+                }
+
+                long actualCrc32 = computeCrc32(filePath);
+                if (actualCrc32 != expectedCrc32) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest verification failed: checksum mismatch for "
+                            + fileName + " expected=" + expectedCrc32 + " actual=" + actualCrc32);
                     return r;
                 }
             }
@@ -638,6 +655,18 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         } catch (NumberFormatException e) {
             return fallback;
         }
+    }
+
+    private static long computeCrc32(Path filePath) throws IOException {
+        CRC32 crc32 = new CRC32();
+        byte[] buffer = new byte[8192];
+        try (InputStream in = Files.newInputStream(filePath)) {
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                crc32.update(buffer, 0, read);
+            }
+        }
+        return crc32.getValue();
     }
 
     private static Map<String, Object> copyToStringObjectMap(Map<?, ?> source) {

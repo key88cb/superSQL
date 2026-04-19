@@ -28,6 +28,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.CRC32;
 
 /**
  * Unit tests for RegionAdminServiceImpl.
@@ -421,6 +422,10 @@ class RegionAdminServiceImplTest {
             Assertions.assertEquals("orders", String.valueOf(manifest.get("tableName")));
             List<?> files = (List<?>) manifest.get("files");
             Assertions.assertEquals(1, files.size());
+            java.util.Map<?, ?> item = (java.util.Map<?, ?>) files.get(0);
+            Assertions.assertEquals("orders_data", String.valueOf(item.get("fileName")));
+            Assertions.assertEquals(crc32("payload".getBytes(StandardCharsets.UTF_8)),
+                    ((Number) item.get("crc32")).longValue());
         } finally {
             server.stop();
             pool.shutdownNow();
@@ -429,7 +434,7 @@ class RegionAdminServiceImplTest {
 
     @Test
     void copyTableDataShouldRejectTransferManifestWhenFileMissing() throws Exception {
-        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing\",\"size\":1}]}"
+        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing\",\"size\":1,\"crc32\":0}]}"
                 .getBytes(StandardCharsets.UTF_8);
         Response r = service.copyTableData(new DataChunk(
                 "orders",
@@ -445,7 +450,7 @@ class RegionAdminServiceImplTest {
     @Test
     void copyTableDataShouldRejectTransferManifestWithStagingEntry() throws Exception {
         Files.writeString(dataDir.resolve("orders_data.part"), "staging");
-        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data.part\",\"size\":7}]}"
+        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data.part\",\"size\":7,\"crc32\":0}]}"
                 .getBytes(StandardCharsets.UTF_8);
 
         Response r = service.copyTableData(new DataChunk(
@@ -462,6 +467,7 @@ class RegionAdminServiceImplTest {
     @Test
     void copyTableDataShouldAcceptTransferManifestWhenFilesMatch() throws Exception {
         byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+        long crc32 = crc32(data);
         Response dataResp = service.copyTableData(new DataChunk(
                 "orders",
                 "orders_data",
@@ -470,7 +476,8 @@ class RegionAdminServiceImplTest {
                 true));
         Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
 
-        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data\",\"size\":7}]}"
+        byte[] manifest = ("{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data\",\"size\":7,\"crc32\":"
+            + crc32 + "}]}")
                 .getBytes(StandardCharsets.UTF_8);
         Response manifestResp = service.copyTableData(new DataChunk(
                 "orders",
@@ -482,6 +489,30 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(StatusCode.OK, manifestResp.getCode());
         Assertions.assertTrue(manifestResp.getMessage().contains("verified"));
     }
+
+        @Test
+        void copyTableDataShouldRejectTransferManifestWhenChecksumMismatch() throws Exception {
+        byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+        Response dataResp = service.copyTableData(new DataChunk(
+            "orders",
+            "orders_data",
+            0L,
+            ByteBuffer.wrap(data),
+            true));
+        Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+
+        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data\",\"size\":7,\"crc32\":1}]}"
+            .getBytes(StandardCharsets.UTF_8);
+        Response manifestResp = service.copyTableData(new DataChunk(
+            "orders",
+            "__supersql_transfer_manifest__.orders.json",
+            0L,
+            ByteBuffer.wrap(manifest),
+            true));
+
+        Assertions.assertEquals(StatusCode.ERROR, manifestResp.getCode());
+        Assertions.assertTrue(manifestResp.getMessage().contains("checksum mismatch"));
+        }
 
     @Test
     void transferTableShouldReturnTableNotFoundWhenOnlyStagingFilesExist() throws Exception {
@@ -667,5 +698,11 @@ class RegionAdminServiceImplTest {
         private static Response ok() {
             return new Response(StatusCode.OK);
         }
+    }
+
+    private static long crc32(byte[] data) {
+        CRC32 crc32 = new CRC32();
+        crc32.update(data, 0, data.length);
+        return crc32.getValue();
     }
 }
