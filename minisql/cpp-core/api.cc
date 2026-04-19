@@ -31,16 +31,25 @@ Table API::selectRecord(std::string table_name, std::vector<std::string> target_
         return record.selectRecord(table_name);
     }
 
-    Table source = record.selectRecord(table_name);
+    size_t condition_count = std::min(target_attr.size(), where.size());
+    if (condition_count == 0) {
+        return record.selectRecord(table_name);
+    }
+    if (condition_count == 1) {
+        return record.selectRecord(table_name, target_attr[0], where[0]);
+    }
+
+    bool is_and = (operation != 0);
+
+    Table source = is_and
+            ? record.selectRecord(table_name, target_attr[0], where[0])
+            : record.selectRecord(table_name);
+
     Table result_table(source);
     std::vector<Tuple>& result_tuple = result_table.getTuple();
     result_tuple.clear();
 
     Attribute attr = source.getAttr();
-    size_t condition_count = std::min(target_attr.size(), where.size());
-    if (condition_count == 0) {
-        return source;
-    }
     std::vector<int> target_index;
     target_index.reserve(condition_count);
     for (size_t i = 0; i < condition_count; i++) {
@@ -57,11 +66,11 @@ Table API::selectRecord(std::string table_name, std::vector<std::string> target_
         target_index.push_back(index);
     }
 
-    bool is_and = (operation != 0);
     std::vector<Tuple> tuple = source.getTuple();
     for (size_t i = 0; i < tuple.size(); i++) {
         bool matched = is_and;
-        for (size_t j = 0; j < target_index.size(); j++) {
+        size_t start = is_and ? 1 : 0;
+        for (size_t j = start; j < target_index.size(); j++) {
             bool current = isSatisfied(tuple[i], target_index[j], where[j]);
             if (is_and && !current) {
                 matched = false;
