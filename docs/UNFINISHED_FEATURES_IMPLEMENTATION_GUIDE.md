@@ -106,6 +106,7 @@
 - `copyTableData` 已补充 fileName 安全校验，禁止路径穿越写入目标 dataDir 之外。
 - `transferTable` 已覆盖空文件场景：会发送最终完成块，确保目标端能正确落地空文件。
 - `transferTable` 已补充分块发送有界重试（默认 3 次），提升目标端短暂错误下的迁移稳定性。
+- `transferTable` 已补充完成 manifest 确认：分块结束后会发送文件清单与大小，目标端校验一致后再确认迁移完成。
 - `copyTableData` 在 offset 不匹配时会重置该文件传输状态（清理 `.part` 与偏移记录），支持干净重试。
 - `copyTableData` 的传输偏移跟踪已按 `tableName + fileName` 隔离，避免跨表同名文件迁移时状态串扰。
 - `copyTableData` 已支持重复 chunk 幂等确认：目标端已写入同偏移同内容时会直接确认成功，降低网络抖动下重试误失败概率。

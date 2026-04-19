@@ -37,6 +37,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private static final int CHUNK_SIZE = 4096;
     private static final int COPY_CHUNK_MAX_RETRIES = 3;
     private static final String STAGING_SUFFIX = ".part";
+    private static final String TRANSFER_MANIFEST_PREFIX = "__supersql_transfer_manifest__.";
 
     private final WriteGuard writeGuard;
     private final CuratorFramework zkClient;
@@ -220,6 +221,8 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 for (File file : tableFiles) {
                     streamFile(client, tableName, file);
                 }
+
+                sendTransferManifest(client, tableName, tableFiles);
             } finally {
                 transport.close();
             }
@@ -247,6 +250,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             r.setMessage("Invalid chunk: negative offset");
             return r;
         }
+
+        if (isTransferManifestChunk(chunk)) {
+            return validateTransferManifestChunk(chunk);
+        }
+
         try {
             Path targetPath = resolveDataPath(chunk.getFileName());
             Path stagingPath = resolveDataPath(chunk.getFileName() + STAGING_SUFFIX);
@@ -456,6 +464,105 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         }
     }
 
+    private void sendTransferManifest(RegionAdminService.Client client,
+                                      String tableName,
+                                      File[] tableFiles) throws Exception {
+        List<Map<String, Object>> files = new ArrayList<>();
+        if (tableFiles != null) {
+            for (File file : tableFiles) {
+                Map<String, Object> item = new ConcurrentHashMap<>();
+                item.put("fileName", file.getName());
+                item.put("size", file.length());
+                files.add(item);
+            }
+        }
+        Map<String, Object> manifest = new ConcurrentHashMap<>();
+        manifest.put("tableName", tableName);
+        manifest.put("files", files);
+        byte[] payload = MAPPER.writeValueAsBytes(manifest);
+        sendChunkWithRetry(client,
+                tableName,
+                transferManifestFileName(tableName),
+                0L,
+                payload,
+                true);
+    }
+
+    private Response validateTransferManifestChunk(DataChunk chunk) {
+        if (chunk.getOffset() != 0L || !chunk.isIsLast()) {
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("Invalid transfer manifest chunk metadata");
+            return r;
+        }
+
+        try {
+            ByteBuffer dataBuf = chunk.bufferForData();
+            byte[] manifestBytes = new byte[dataBuf.remaining()];
+            dataBuf.get(manifestBytes);
+
+            Map<?, ?> manifest = MAPPER.readValue(manifestBytes, Map.class);
+            String manifestTable = String.valueOf(manifest.get("tableName"));
+            if (chunk.isSetTableName() && manifestTable != null
+                    && !manifestTable.isBlank()
+                    && !manifestTable.equals(chunk.getTableName())) {
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("transfer manifest table mismatch");
+                return r;
+            }
+
+            Object rawFiles = manifest.get("files");
+            if (!(rawFiles instanceof List<?> files)) {
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("transfer manifest missing files list");
+                return r;
+            }
+
+            for (Object raw : files) {
+                if (!(raw instanceof Map<?, ?> fileItem)) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest has invalid file item");
+                    return r;
+                }
+                String fileName = String.valueOf(fileItem.get("fileName"));
+                if (fileName == null || fileName.isBlank()) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest has empty fileName");
+                    return r;
+                }
+                long expectedSize = toLong(fileItem.get("size"), -1L);
+                if (expectedSize < 0L) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest has invalid size for " + fileName);
+                    return r;
+                }
+
+                Path filePath = resolveDataPath(fileName);
+                if (!Files.exists(filePath)) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest verification failed: missing " + fileName);
+                    return r;
+                }
+
+                long actualSize = Files.size(filePath);
+                if (actualSize != expectedSize) {
+                    Response r = new Response(StatusCode.ERROR);
+                    r.setMessage("transfer manifest verification failed: size mismatch for "
+                            + fileName + " expected=" + expectedSize + " actual=" + actualSize);
+                    return r;
+                }
+            }
+
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("transfer manifest verified files=" + files.size());
+            return r;
+        } catch (Exception e) {
+            log.error("transfer manifest verification failed for table={}", chunk.getTableName(), e);
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("transfer manifest verification failed: " + e.getMessage());
+            return r;
+        }
+    }
+
     private void sendChunkWithRetry(RegionAdminService.Client client,
                                     String tableName,
                                     String fileName,
@@ -564,6 +671,16 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     private String transferKey(String tableName, String fileName) {
         return (tableName == null ? "" : tableName) + "::" + fileName;
+    }
+
+    private static boolean isTransferManifestChunk(DataChunk chunk) {
+        return chunk != null
+                && chunk.isSetFileName()
+                && chunk.getFileName().startsWith(TRANSFER_MANIFEST_PREFIX);
+    }
+
+    private static String transferManifestFileName(String tableName) {
+        return TRANSFER_MANIFEST_PREFIX + tableName + ".json";
     }
 
     private void resetTransferState(String tableName, String fileName) {

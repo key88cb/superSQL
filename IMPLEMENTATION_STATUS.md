@@ -82,6 +82,7 @@
 - `transferTable` 已增加逐块响应校验：`copyTableData` 若返回非 OK 会立即中断并返回 ERROR，避免静默迁移失败。
 - `copyTableData` 已增加 per-file 连续 offset 约束：拒绝乱序/跳跃 chunk，降低迁移文件损坏风险。
 - `copyTableData` 已改为先写入临时分块文件，只有在最后一块（`isLast=true`）时才原子发布正式文件，避免半传输数据被误读。
+- `transferTable` 已补充迁移完成 manifest 确认：源端在分块传输结束后发送文件清单与大小，目标端逐项校验后才确认完成。
 - `transferTable` 对 0 字节文件已支持发送最终完成块，保证空文件迁移也能触发目标端发布。
 - `copyTableData` 已增加 fileName 安全约束，禁止路径穿越写入 dataDir 外部文件。
 - `transferTable` 发送分块时已支持有界重试（默认 3 次），可吸收短暂目标端抖动导致的单次 chunk 失败。

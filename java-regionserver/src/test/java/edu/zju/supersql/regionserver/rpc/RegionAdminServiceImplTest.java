@@ -1,5 +1,6 @@
 package edu.zju.supersql.regionserver.rpc;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.zju.supersql.regionserver.WriteGuard;
 import edu.zju.supersql.rpc.DataChunk;
 import edu.zju.supersql.rpc.RegionAdminService;
@@ -33,6 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * ZkClient is null for all tests (no ZK cluster needed).
  */
 class RegionAdminServiceImplTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @TempDir
     Path dataDir;
@@ -309,8 +312,11 @@ class RegionAdminServiceImplTest {
         try {
             Response r = service.transferTable("orders", "127.0.0.1", port);
             Assertions.assertEquals(StatusCode.OK, r.getCode());
-            Assertions.assertEquals(1, recording.chunks.size());
-            DataChunk chunk = recording.chunks.get(0);
+            Assertions.assertEquals(2, recording.chunks.size());
+            DataChunk chunk = recording.chunks.stream()
+                    .filter(c -> c.getFileName().equals("orders_empty"))
+                    .findFirst()
+                    .orElseThrow();
             Assertions.assertEquals("orders_empty", chunk.getFileName());
             Assertions.assertEquals(0L, chunk.getOffset());
             Assertions.assertTrue(chunk.isIsLast());
@@ -335,7 +341,7 @@ class RegionAdminServiceImplTest {
         try {
             Response r = service.transferTable("orders", "127.0.0.1", port);
             Assertions.assertEquals(StatusCode.OK, r.getCode());
-            Assertions.assertEquals(2, flaky.attemptCount.get());
+            Assertions.assertEquals(3, flaky.attemptCount.get());
         } finally {
             server.stop();
             pool.shutdownNow();
@@ -359,11 +365,83 @@ class RegionAdminServiceImplTest {
             Assertions.assertEquals(StatusCode.OK, r.getCode());
             Assertions.assertFalse(recording.chunks.isEmpty());
             Assertions.assertTrue(recording.chunks.stream().noneMatch(c -> c.getFileName().endsWith(".part")));
-            Assertions.assertTrue(recording.chunks.stream().allMatch(c -> c.getFileName().equals("orders_data")));
+            Assertions.assertTrue(recording.chunks.stream().anyMatch(c -> c.getFileName().equals("orders_data")));
+            Assertions.assertTrue(recording.chunks.stream().anyMatch(c -> c.getFileName().startsWith("__supersql_transfer_manifest__.")));
         } finally {
             server.stop();
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    void transferTableShouldSendManifestAfterDataChunks() throws Exception {
+        Files.writeString(dataDir.resolve("orders_data"), "payload");
+
+        int port = freePort();
+        RecordingCopyService recording = new RecordingCopyService();
+        TServer server = buildServer(port, recording);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        pool.submit(server::serve);
+        Thread.sleep(200);
+
+        try {
+            Response r = service.transferTable("orders", "127.0.0.1", port);
+            Assertions.assertEquals(StatusCode.OK, r.getCode());
+            Assertions.assertFalse(recording.chunks.isEmpty());
+
+            DataChunk lastChunk = recording.chunks.get(recording.chunks.size() - 1);
+            Assertions.assertTrue(lastChunk.getFileName().startsWith("__supersql_transfer_manifest__."));
+            Assertions.assertTrue(lastChunk.isIsLast());
+
+            byte[] manifestBytes = new byte[lastChunk.bufferForData().remaining()];
+            lastChunk.bufferForData().get(manifestBytes);
+            java.util.Map<?, ?> manifest = MAPPER.readValue(manifestBytes, java.util.Map.class);
+            Assertions.assertEquals("orders", String.valueOf(manifest.get("tableName")));
+            List<?> files = (List<?>) manifest.get("files");
+            Assertions.assertEquals(1, files.size());
+        } finally {
+            server.stop();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void copyTableDataShouldRejectTransferManifestWhenFileMissing() throws Exception {
+        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing\",\"size\":1}]}"
+                .getBytes(StandardCharsets.UTF_8);
+        Response r = service.copyTableData(new DataChunk(
+                "orders",
+                "__supersql_transfer_manifest__.orders.json",
+                0L,
+                ByteBuffer.wrap(manifest),
+                true));
+
+        Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+        Assertions.assertTrue(r.getMessage().contains("missing"));
+    }
+
+    @Test
+    void copyTableDataShouldAcceptTransferManifestWhenFilesMatch() throws Exception {
+        byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+        Response dataResp = service.copyTableData(new DataChunk(
+                "orders",
+                "orders_data",
+                0L,
+                ByteBuffer.wrap(data),
+                true));
+        Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+
+        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data\",\"size\":7}]}"
+                .getBytes(StandardCharsets.UTF_8);
+        Response manifestResp = service.copyTableData(new DataChunk(
+                "orders",
+                "__supersql_transfer_manifest__.orders.json",
+                0L,
+                ByteBuffer.wrap(manifest),
+                true));
+
+        Assertions.assertEquals(StatusCode.OK, manifestResp.getCode());
+        Assertions.assertTrue(manifestResp.getMessage().contains("verified"));
     }
 
     @Test
