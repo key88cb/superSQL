@@ -649,15 +649,19 @@ public class MasterServiceImpl implements MasterService.Iface {
                 }
             }
             String ddl = "drop table " + tableName + ";";
+            List<String> failedReplicas = new ArrayList<>();
             for (RegionServerInfo replica : replicas) {
                 Response ddlResponse = regionDdlExecutor.execute(replica, tableName, ddl);
                 if (ddlResponse.getCode() != StatusCode.OK
                         && ddlResponse.getCode() != StatusCode.TABLE_NOT_FOUND) {
-                    Response error = new Response(StatusCode.ERROR);
-                    error.setMessage("Failed to drop table on replica " + replica.getId()
-                            + ": " + ddlResponse.getMessage());
-                    return error;
+                    failedReplicas.add(replica.getId() + "(" + ddlResponse.getCode() + ")");
                 }
+            }
+            if (!failedReplicas.isEmpty()) {
+                Response error = new Response(StatusCode.ERROR);
+                error.setMessage("Failed to drop table on replicas " + failedReplicas
+                        + "; metadata retained for retry");
+                return error;
             }
             metaManager.deleteTableLocation(tableName);
             assignmentManager.deleteAssignment(tableName);

@@ -243,6 +243,28 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void dropTableShouldAttemptAllReplicasBeforeReturningFailure() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 1);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 2);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 3);
+
+        Response create = service.createTable("create table t_drop_partial(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        ddlExecutor.failOnReplica("rs-2", StatusCode.ERROR, "drop failed on rs-2");
+        Response drop = service.dropTable("t_drop_partial");
+
+        Assertions.assertEquals(StatusCode.ERROR, drop.getCode());
+        Assertions.assertTrue(drop.getMessage().contains("rs-2"));
+        long dropAttempts = ddlExecutor.commands.stream()
+                .filter(cmd -> cmd.sql().startsWith("drop table t_drop_partial"))
+                .count();
+        Assertions.assertEquals(3L, dropAttempts);
+        Assertions.assertNotNull(zkClient.checkExists().forPath("/meta/tables/t_drop_partial"));
+        Assertions.assertNotNull(zkClient.checkExists().forPath("/assignments/t_drop_partial"));
+    }
+
+    @Test
     void getActiveMasterShouldReturnAddressFromZooKeeper() throws Exception {
         writeActiveMaster("master-9", "master-9:8090");
         Assertions.assertEquals("master-9:8090", service.getActiveMaster());
