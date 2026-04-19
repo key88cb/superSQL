@@ -459,8 +459,8 @@ public class ReplicaManager {
                 candidate.put("attempts", pendingCommit.attempts.get());
                 candidate.put("consecutiveTransportFailures", pendingCommit.consecutiveTransportFailures.get());
                 candidate.put("ageMs", pendingCommit.ageMs(now));
-                    candidate.put("nextRetryAtMs", pendingCommit.nextRetryAtMs);
-                    candidate.put("decisionReady", pendingCommit.decisionReadyMarked);
+                candidate.put("nextRetryAtMs", pendingCommit.nextRetryAtMs);
+                candidate.put("decisionReady", pendingCommit.decisionReadyMarked);
                 return candidate;
             })
             .toList();
@@ -679,25 +679,25 @@ public class ReplicaManager {
                     true,
                     decisionId,
                     System.currentTimeMillis());
-                if (resp.getCode() == StatusCode.OK) {
+            if (resp.getCode() == StatusCode.OK) {
                 log.debug("finalizeLogDecision(commit) to {} for table={} lsn={}: code={} attempt=success",
-                    address, tableName, lsn, resp.getCode());
+                        address, tableName, lsn, resp.getCode());
                 return new CommitAttempt(true, "");
-                }
-                log.warn("finalizeLogDecision(commit) to {} for table={} lsn={} returned code={} msg={}",
+            }
+            log.warn("finalizeLogDecision(commit) to {} for table={} lsn={} returned code={} msg={}",
                     address, tableName, lsn, resp.getCode(), resp.getMessage());
-                if (resp.getCode() == StatusCode.TABLE_NOT_FOUND) {
-                    return new CommitAttempt(false, COMMIT_ERR_TABLE_NOT_FOUND);
-                }
-                if (resp.getMessage() != null && resp.getMessage().toLowerCase().contains("conflict")) {
-                    return new CommitAttempt(false, COMMIT_ERR_DECISION_CONFLICT + ": " + resp.getMessage());
-                }
-                return new CommitAttempt(false,
-                        COMMIT_ERR_RESPONSE + ": " + resp.getCode() + " msg=" + resp.getMessage());
+            if (resp.getCode() == StatusCode.TABLE_NOT_FOUND) {
+                return new CommitAttempt(false, COMMIT_ERR_TABLE_NOT_FOUND);
+            }
+            if (resp.getMessage() != null && resp.getMessage().toLowerCase().contains("conflict")) {
+                return new CommitAttempt(false, COMMIT_ERR_DECISION_CONFLICT + ": " + resp.getMessage());
+            }
+            return new CommitAttempt(false,
+                    COMMIT_ERR_RESPONSE + ": " + resp.getCode() + " msg=" + resp.getMessage());
         } catch (Exception e) {
             log.warn("finalizeLogDecision(commit) to {} failed for table={} lsn={}: {}",
                     address, tableName, lsn, e.getMessage());
-                return new CommitAttempt(false, COMMIT_ERR_TRANSPORT + ": " + e.getMessage());
+            return new CommitAttempt(false, COMMIT_ERR_TRANSPORT + ": " + e.getMessage());
         }
     }
 
@@ -780,7 +780,7 @@ public class ReplicaManager {
                 tableName,
                 lsn,
                 address,
-            sanitizeReplicaAddresses(replicaAddresses),
+                sanitizeReplicaAddresses(replicaAddresses),
                 System.currentTimeMillis(),
                 initialError);
         PendingCommit existing = pendingCommits.putIfAbsent(key, pendingCommit);

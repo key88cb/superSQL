@@ -120,12 +120,12 @@ public class SqlClient {
 
         try {
             metricsHttpServer = ClientMetricsHttpServer.startFromEnv(
-                System.getenv(),
-                () -> formatRoutingMetricsPrometheus(snapshotRoutingMetrics()),
-                () -> formatRoutingMetricsJson(snapshotRoutingMetrics()));
+                    System.getenv(),
+                    () -> formatRoutingMetricsPrometheus(snapshotRoutingMetrics()),
+                    () -> formatRoutingMetricsJson(snapshotRoutingMetrics()));
             if (metricsHttpServer != null) {
-            log.info("Client routing metrics endpoint started at /metrics on port {}",
-                metricsHttpServer.getPort());
+                log.info("Client routing metrics endpoint started at /metrics on port {}",
+                        metricsHttpServer.getPort());
             }
         } catch (Exception e) {
             log.warn("Client metrics endpoint init failed: {}", e.getMessage());
@@ -698,8 +698,10 @@ public class SqlClient {
         return new ArrayList<>(targetsById.values());
     }
 
-    private static TableLocation resolveLocation(String tableName, String activeMaster,
-                                                   RouteCache routeCache, ClientConfig config) throws Exception {
+    private static TableLocation resolveLocation(String tableName,
+                                                 String activeMaster,
+                                                 RouteCache routeCache,
+                                                 ClientConfig config) throws Exception {
         TableLocation loc = routeCache.get(tableName);
         if (loc == null) {
             loc = fetchTableLocationWithRedirect(activeMaster, tableName, config);

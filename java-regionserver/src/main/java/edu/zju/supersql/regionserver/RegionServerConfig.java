@@ -14,8 +14,8 @@ public record RegionServerConfig(
         String dataDir,
         String walDir,
         String miniSqlBin,
-    long heartbeatIntervalMs,
-    int minReplicaAcks
+        long heartbeatIntervalMs,
+        int minReplicaAcks
 ) {
 
     public static RegionServerConfig fromSystemEnv() {

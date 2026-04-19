@@ -47,8 +47,8 @@ public final class RebalanceScheduler implements AutoCloseable {
                  long lastAttemptAtMs,
                  long lastSuccessAtMs,
                  long lastFailureAtMs,
-                  String lastError,
-                  String lastTriggerReason) {
+                     String lastError,
+                     String lastTriggerReason) {
             this.enabled = enabled;
             this.intervalMs = intervalMs;
             this.minGapMs = minGapMs;

@@ -80,15 +80,54 @@ void test_api_full_flow() {
     ASSERT_EQ(res2.getTuple().size(), 1);
     ASSERT_EQ(res2.getTuple()[0].getData()[1].datas, "bob");
 
-    // 6. Delete Record
-    api.deleteRecord(table_name, "id", w1);
-    Table res3 = api.selectRecord(table_name, {}, {}, 'a');
-    ASSERT_EQ(res3.getTuple().size(), 1);
+    // 6. Select with 3 conditions (AND)
+    std::vector<std::string> cond_attrs3 = {"id", "score", "name"};
+    std::vector<Where> wheres3;
+    Where w3_id;
+    w3_id.data.type = -1; w3_id.data.datai = 0;
+    w3_id.relation_character = GREATER;
+    wheres3.push_back(w3_id);
+    Where w3_score;
+    w3_score.data.type = 0; w3_score.data.dataf = 90.0f;
+    w3_score.relation_character = GREATER;
+    wheres3.push_back(w3_score);
+    Where w3_name;
+    w3_name.data.type = 10; w3_name.data.datas = "alice";
+    w3_name.relation_character = EQUAL;
+    wheres3.push_back(w3_name);
 
-    // 7. Drop Index
+    Table res3 = api.selectRecord(table_name, cond_attrs3, wheres3, 'a');
+    ASSERT_EQ(res3.getTuple().size(), 1);
+    ASSERT_EQ(res3.getTuple()[0].getData()[1].datas, "alice");
+
+    // 7. Select with 3 conditions (OR)
+    std::vector<std::string> cond_attrs4 = {"id", "score", "name"};
+    std::vector<Where> wheres4;
+    Where w4_id;
+    w4_id.data.type = -1; w4_id.data.datai = 2;
+    w4_id.relation_character = EQUAL;
+    wheres4.push_back(w4_id);
+    Where w4_score;
+    w4_score.data.type = 0; w4_score.data.dataf = 95.0f;
+    w4_score.relation_character = GREATER;
+    wheres4.push_back(w4_score);
+    Where w4_name;
+    w4_name.data.type = 10; w4_name.data.datas = "nobody";
+    w4_name.relation_character = EQUAL;
+    wheres4.push_back(w4_name);
+
+    Table res4 = api.selectRecord(table_name, cond_attrs4, wheres4, 0);
+    ASSERT_EQ(res4.getTuple().size(), 2);
+
+    // 8. Delete Record
+    api.deleteRecord(table_name, "id", w1);
+    Table res5 = api.selectRecord(table_name, {}, {}, 'a');
+    ASSERT_EQ(res5.getTuple().size(), 1);
+
+    // 9. Drop Index
     ASSERT_TRUE(api.dropIndex(table_name, "name_idx"));
 
-    // 8. Drop Table
+    // 10. Drop Table
     ASSERT_TRUE(api.dropTable(table_name));
 }
 

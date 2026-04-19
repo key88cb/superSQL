@@ -27,19 +27,60 @@ API::~API(){}
 //如果Where条件中的两个数据类型不匹配，抛出data_type_conflict异常
 Table API::selectRecord(std::string table_name, std::vector<std::string> target_attr, std::vector<Where> where, char operation)
 {
-	if (target_attr.size() == 0) {
-		return record.selectRecord(table_name);
-	} else if (target_attr.size() == 1) {
-        return record.selectRecord(table_name, target_attr[0], where[0]);
-    } else {
-		Table table1 = record.selectRecord(table_name, target_attr[0], where[0]);
-		Table table2 = record.selectRecord(table_name, target_attr[1], where[1]);
+    if (target_attr.empty() || where.empty()) {
+        return record.selectRecord(table_name);
+    }
 
-		if (operation)
-			return joinTable(table1, table2, target_attr[0], where[0]);
-		else
-			return unionTable(table1, table2, target_attr[0], where[0]);
-	}
+    Table source = record.selectRecord(table_name);
+    Table result_table(source);
+    std::vector<Tuple>& result_tuple = result_table.getTuple();
+    result_tuple.clear();
+
+    Attribute attr = source.getAttr();
+    size_t condition_count = std::min(target_attr.size(), where.size());
+    if (condition_count == 0) {
+        return source;
+    }
+    std::vector<int> target_index;
+    target_index.reserve(condition_count);
+    for (size_t i = 0; i < condition_count; i++) {
+        int index = -1;
+        for (int j = 0; j < attr.num; j++) {
+            if (attr.name[j] == target_attr[i]) {
+                index = j;
+                break;
+            }
+        }
+        if (index < 0) {
+            throw attribute_not_exist();
+        }
+        target_index.push_back(index);
+    }
+
+    bool is_and = (operation != 0);
+    std::vector<Tuple> tuple = source.getTuple();
+    for (size_t i = 0; i < tuple.size(); i++) {
+        bool matched = is_and;
+        for (size_t j = 0; j < target_index.size(); j++) {
+            bool current = isSatisfied(tuple[i], target_index[j], where[j]);
+            if (is_and && !current) {
+                matched = false;
+                break;
+            }
+            if (!is_and && current) {
+                matched = true;
+                break;
+            }
+            if (!is_and) {
+                matched = false;
+            }
+        }
+        if (matched) {
+            result_tuple.push_back(tuple[i]);
+        }
+    }
+
+    return result_table;
 }
 //输入：表名、Where条件属性名、Where条件值域
 //输出：void
@@ -151,8 +192,7 @@ bool API::dropIndex(std::string table_name, std::string index_name)
 	IndexManager* im = record.getIndexManager(table_name);
 	im->dropIndex(file_path, type);
 	catalog.dropIndex(table_name, index_name);
-	
-	file_path = "./database/index/" + file_path;
+
 	return true;
 }
 
@@ -284,17 +324,17 @@ bool calcmp(const Tuple &tuple1, const Tuple &tuple2)
 
     for (i = 0; i < data1.size(); i++) {
         bool flag = false;
-        switch (data1[0].type) {
+        switch (data1[i].type) {
             case -1: {
-                if (data1[0].datai != data2[0].datai)
+                if (data1[i].datai != data2[i].datai)
                     flag = true;
             }break;
             case 0: {
-                if (data1[0].dataf != data2[0].dataf)
+                if (data1[i].dataf != data2[i].dataf)
                     flag = true;
             }break;
             default: {
-                if (data1[0].datas != data2[0].datas)
+                if (data1[i].datas != data2[i].datas)
                     flag = true;
             }break;
         }

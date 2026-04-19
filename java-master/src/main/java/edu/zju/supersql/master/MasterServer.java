@@ -89,12 +89,12 @@ public class MasterServer {
                                      RebalanceScheduler rebalanceScheduler,
                                      MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot) {
         return buildStatusPayload(thriftPort,
-            httpPort,
-            zkConnect,
-            rebalanceScheduler,
-            routeRepairSnapshot,
-            null,
-            null);
+                httpPort,
+                zkConnect,
+                rebalanceScheduler,
+                routeRepairSnapshot,
+                null,
+                null);
     }
 
     static byte[] buildStatusPayload(int thriftPort,
@@ -102,23 +102,23 @@ public class MasterServer {
                                      String zkConnect,
                                      RebalanceScheduler rebalanceScheduler,
                                      MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot,
-                         RegionMigrator.MigrationSnapshot migrationSnapshot) {
+                                     RegionMigrator.MigrationSnapshot migrationSnapshot) {
         return buildStatusPayload(thriftPort,
-            httpPort,
-            zkConnect,
-            rebalanceScheduler,
-            routeRepairSnapshot,
-            migrationSnapshot,
-            null);
-        }
+                httpPort,
+                zkConnect,
+                rebalanceScheduler,
+                routeRepairSnapshot,
+                migrationSnapshot,
+                null);
+    }
 
-        static byte[] buildStatusPayload(int thriftPort,
-                         int httpPort,
-                         String zkConnect,
-                         RebalanceScheduler rebalanceScheduler,
-                         MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot,
-                         RegionMigrator.MigrationSnapshot migrationSnapshot,
-                         MasterServiceImpl.ReplicaDecisionSnapshot replicaDecisionSnapshot) {
+    static byte[] buildStatusPayload(int thriftPort,
+                                     int httpPort,
+                                     String zkConnect,
+                                     RebalanceScheduler rebalanceScheduler,
+                                     MasterServiceImpl.RouteRepairSnapshot routeRepairSnapshot,
+                                     RegionMigrator.MigrationSnapshot migrationSnapshot,
+                                     MasterServiceImpl.ReplicaDecisionSnapshot replicaDecisionSnapshot) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("status", "ok");
         payload.put("role", resolveRole());
@@ -347,21 +347,21 @@ public class MasterServer {
             leaderElector = new LeaderElector(zkClient, masterId, masterId + ":" + thriftPort);
             leaderElector.start();
             preloadMetadataFromZk(zkClient);
-                scheduledService = new MasterServiceImpl();
+            scheduledService = new MasterServiceImpl();
             rebalanceScheduler = new RebalanceScheduler(
                     config.rebalanceSchedulerEnabled(),
                     config.rebalanceIntervalMs(),
                     config.rebalanceMinGapMs(),
                     composeScheduledTrigger(
-                        scheduledService::repairTableRoutesWithConfirmation,
-                        scheduledService::triggerRebalance));
+                            scheduledService::repairTableRoutesWithConfirmation,
+                            scheduledService::triggerRebalance));
             rebalanceScheduler.start();
-                regionServerWatcher = new RegionServerWatcher(zkClient,
+            regionServerWatcher = new RegionServerWatcher(zkClient,
                     buildMembershipRebalanceListener(
                             rebalanceScheduler,
                             scheduledService::repairTableRoutesWithConfirmation,
                             scheduledService::repairTableRoutesForRegionServerWithConfirmation));
-                regionServerWatcher.start();
+            regionServerWatcher.start();
             LeaderElector finalLeaderElector = leaderElector;
             RegionServerWatcher finalRegionServerWatcher = regionServerWatcher;
             RebalanceScheduler finalRebalanceScheduler = rebalanceScheduler;
@@ -388,9 +388,9 @@ public class MasterServer {
                     httpPort,
                     zkConnect,
                     statusScheduler,
-                statusService == null ? null : statusService.routeRepairSnapshot(),
-                statusService == null ? null : statusService.migrationSnapshot(),
-                statusService == null ? null : statusService.replicaDecisionSnapshot());
+                    statusService == null ? null : statusService.routeRepairSnapshot(),
+                    statusService == null ? null : statusService.migrationSnapshot(),
+                    statusService == null ? null : statusService.replicaDecisionSnapshot());
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }

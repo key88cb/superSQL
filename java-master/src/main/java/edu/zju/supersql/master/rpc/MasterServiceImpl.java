@@ -112,37 +112,37 @@ public class MasterServiceImpl implements MasterService.Iface {
                              RegionDdlExecutor regionDdlExecutor,
                              RegionAdminExecutor regionAdminExecutor) {
         this(metaManager,
-            assignmentManager,
-            loadBalancer,
-            regionDdlExecutor,
-            regionAdminExecutor,
-            DEFAULT_MIGRATION_STUCK_TIMEOUT_MS);
-        }
+                assignmentManager,
+                loadBalancer,
+                regionDdlExecutor,
+                regionAdminExecutor,
+                DEFAULT_MIGRATION_STUCK_TIMEOUT_MS);
+    }
 
-        public MasterServiceImpl(MetaManager metaManager,
-                     AssignmentManager assignmentManager,
-                     LoadBalancer loadBalancer,
-                     RegionDdlExecutor regionDdlExecutor,
-                     RegionAdminExecutor regionAdminExecutor,
-                     long migrationStuckTimeoutMs) {
+    public MasterServiceImpl(MetaManager metaManager,
+                             AssignmentManager assignmentManager,
+                             LoadBalancer loadBalancer,
+                             RegionDdlExecutor regionDdlExecutor,
+                             RegionAdminExecutor regionAdminExecutor,
+                             long migrationStuckTimeoutMs) {
         this(metaManager,
                 assignmentManager,
                 loadBalancer,
                 regionDdlExecutor,
                 regionAdminExecutor,
                 System::currentTimeMillis,
-            DEFAULT_ROUTE_HEAL_MIN_GAP_MS,
-            DEFAULT_ROUTE_REPAIR_WINDOW_SIZE,
-            migrationStuckTimeoutMs);
+                DEFAULT_ROUTE_HEAL_MIN_GAP_MS,
+                DEFAULT_ROUTE_REPAIR_WINDOW_SIZE,
+                migrationStuckTimeoutMs);
     }
 
     MasterServiceImpl(MetaManager metaManager,
-                             AssignmentManager assignmentManager,
-                             LoadBalancer loadBalancer,
-                             RegionDdlExecutor regionDdlExecutor,
-                             RegionAdminExecutor regionAdminExecutor,
-                             LongSupplier clockMs,
-                             long routeHealMinGapMs) {
+                      AssignmentManager assignmentManager,
+                      LoadBalancer loadBalancer,
+                      RegionDdlExecutor regionDdlExecutor,
+                      RegionAdminExecutor regionAdminExecutor,
+                      LongSupplier clockMs,
+                      long routeHealMinGapMs) {
         this(metaManager,
                 assignmentManager,
                 loadBalancer,
@@ -150,18 +150,18 @@ public class MasterServiceImpl implements MasterService.Iface {
                 regionAdminExecutor,
                 clockMs,
                 routeHealMinGapMs,
-            DEFAULT_ROUTE_REPAIR_WINDOW_SIZE,
-            DEFAULT_MIGRATION_STUCK_TIMEOUT_MS);
+                DEFAULT_ROUTE_REPAIR_WINDOW_SIZE,
+                DEFAULT_MIGRATION_STUCK_TIMEOUT_MS);
     }
 
     MasterServiceImpl(MetaManager metaManager,
-                             AssignmentManager assignmentManager,
-                             LoadBalancer loadBalancer,
-                             RegionDdlExecutor regionDdlExecutor,
-                             RegionAdminExecutor regionAdminExecutor,
-                             LongSupplier clockMs,
-                             long routeHealMinGapMs,
-                             int routeRepairWindowSize) {
+                      AssignmentManager assignmentManager,
+                      LoadBalancer loadBalancer,
+                      RegionDdlExecutor regionDdlExecutor,
+                      RegionAdminExecutor regionAdminExecutor,
+                      LongSupplier clockMs,
+                      long routeHealMinGapMs,
+                      int routeRepairWindowSize) {
         this(metaManager,
                 assignmentManager,
                 loadBalancer,
@@ -189,13 +189,13 @@ public class MasterServiceImpl implements MasterService.Iface {
         this.regionAdminExecutor = regionAdminExecutor;
         this.clockMs = clockMs;
         this.regionMigrator = new RegionMigrator(
-            metaManager,
-            assignmentManager,
-            regionAdminExecutor,
-            clockMs,
-            this::setMigrationContext,
-            this::clearMigrationContext,
-            this::touchStatusUpdatedAtBestEffort);
+                metaManager,
+                assignmentManager,
+                regionAdminExecutor,
+                clockMs,
+                this::setMigrationContext,
+                this::clearMigrationContext,
+                this::touchStatusUpdatedAtBestEffort);
         this.routeHealMinGapMs = Math.max(0L, routeHealMinGapMs);
         this.routeRepairWindowSize = Math.max(1, routeRepairWindowSize);
         this.migrationStuckTimeoutMs = Math.max(0L, migrationStuckTimeoutMs);
@@ -1314,10 +1314,10 @@ public class MasterServiceImpl implements MasterService.Iface {
             Object existingAttempt = root.get("migrationAttemptId");
             Object existingSource = root.get("migrationSourceReplicaId");
             Object existingTarget = root.get("migrationTargetReplicaId");
-                Object existingCompensationRole = root.get("migrationCompensationRole");
-                Object existingCompensationBlocked = root.get("migrationCompensationBlocked");
-                Object existingCompensationError = root.get("migrationCompensationLastError");
-                Object existingCompensationUpdatedAt = root.get("migrationCompensationUpdatedAtMs");
+            Object existingCompensationRole = root.get("migrationCompensationRole");
+            Object existingCompensationBlocked = root.get("migrationCompensationBlocked");
+            Object existingCompensationError = root.get("migrationCompensationLastError");
+            Object existingCompensationUpdatedAt = root.get("migrationCompensationUpdatedAtMs");
             if (!Objects.equals(existingAttempt, migrationAttemptId)
                     || !Objects.equals(existingSource, sourceReplicaId)
                     || !Objects.equals(existingTarget, targetReplicaId)

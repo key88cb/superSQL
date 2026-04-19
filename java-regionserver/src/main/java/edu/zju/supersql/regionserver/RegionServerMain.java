@@ -329,9 +329,9 @@ public class RegionServerMain {
                 t.setDaemon(true);
                 return t;
             });
-                heartbeatExecutor.scheduleAtFixedRate(() -> {
-                    int tableCount = countAssignedTablesForRegionServer(finalZkClient, finalRsId);
-                    finalRegistrar.heartbeat(
+            heartbeatExecutor.scheduleAtFixedRate(() -> {
+                int tableCount = countAssignedTablesForRegionServer(finalZkClient, finalRsId);
+                finalRegistrar.heartbeat(
                         rsHost,
                         thriftPort,
                         httpPort,
@@ -339,7 +339,7 @@ public class RegionServerMain {
                         0.0,
                         0.0,
                         0.0);
-                    },
+            },
                     config.heartbeatIntervalMs(),
                     config.heartbeatIntervalMs(),
                     TimeUnit.MILLISECONDS);
@@ -375,14 +375,14 @@ public class RegionServerMain {
                     ? adminServiceRef[0].getTransferManifestVerificationStats()
                     : null;
             Map<String, Object> transferTableStats = adminServiceRef[0] != null
-                ? adminServiceRef[0].getTransferTableStats()
-                : null;
+                    ? adminServiceRef[0].getTransferTableStats()
+                    : null;
             Map<String, Object> prepareDecisionStats = replicaSyncRef[0] != null
                     ? replicaSyncRef[0].getPrepareResolutionStats()
                     : null;
             Map<String, Object> replicaCommitRetryStats = replicaManagerRef[0] != null
-                ? replicaManagerRef[0].getCommitRetryStats()
-                : null;
+                    ? replicaManagerRef[0].getCommitRetryStats()
+                    : null;
             byte[] body = buildStatusPayload(
                     rsId,
                     rsHost,
@@ -394,7 +394,7 @@ public class RegionServerMain {
                     miniSql.isAlive(),
                     manifestStats,
                     transferTableStats,
-                        prepareDecisionStats,
+                    prepareDecisionStats,
                     replicaCommitRetryStats);
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);

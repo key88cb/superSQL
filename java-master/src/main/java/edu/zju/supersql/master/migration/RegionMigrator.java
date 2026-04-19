@@ -141,18 +141,18 @@ public final class RegionMigrator {
                 attemptCount.get(),
                 successCount.get(),
                 failureCount.get(),
-            rebalanceAttemptCount.get(),
-            rebalanceSuccessCount.get(),
-            rebalanceFailureCount.get(),
-            recoveryAttemptCount.get(),
-            recoverySuccessCount.get(),
-            recoveryFailureCount.get(),
+                rebalanceAttemptCount.get(),
+                rebalanceSuccessCount.get(),
+                rebalanceFailureCount.get(),
+                recoveryAttemptCount.get(),
+                recoverySuccessCount.get(),
+                recoveryFailureCount.get(),
                 lastAttemptAtMs.get(),
                 lastSuccessAtMs.get(),
                 lastFailureAtMs.get(),
-            lastError,
-            lastRebalanceError,
-            lastRecoveryError);
+                lastError,
+                lastRebalanceError,
+                lastRecoveryError);
     }
 
     public Response rebalanceReplica(TableLocation location,
@@ -331,7 +331,7 @@ public final class RegionMigrator {
             intermediate.setVersion(clockMs.getAsLong());
             metaManager.saveTableLocation(intermediate);
             touchStatusUpdatedAtBestEffort(tableName);
-                    boolean contextWritten = migrationContextWriter.write(
+            boolean contextWritten = migrationContextWriter.write(
                     tableName,
                     migrationAttemptId,
                     sourceReplicaId,
@@ -340,9 +340,9 @@ public final class RegionMigrator {
                     false,
                     null,
                     clockMs.getAsLong());
-                    if (!contextWritten) {
-                    throw new IllegalStateException("migration context write failed for table=" + tableName);
-                    }
+            if (!contextWritten) {
+                throw new IllegalStateException("migration context write failed for table=" + tableName);
+            }
             log.info("triggerRebalance marked table {} table={} replicas={}",
                     status, tableName, replicas.stream().map(RegionServerInfo::getId).toList());
             return true;
@@ -372,7 +372,7 @@ public final class RegionMigrator {
             metaManager.saveTableLocation(originalLocation);
             assignmentManager.saveAssignment(tableName, originalReplicas);
             touchStatusUpdatedAtBestEffort(tableName);
-                clearMigrationContextRequired(tableName);
+            clearMigrationContextRequired(tableName);
             log.info("triggerRebalance metadata rollback completed table={} replicasRestored={}",
                     tableName,
                     originalReplicas.stream().map(RegionServerInfo::getId).toList());
@@ -754,7 +754,7 @@ public final class RegionMigrator {
             metaManager.saveTableLocation(compensating);
             assignmentManager.saveAssignment(compensating.getTableName(), compensating.getReplicas());
             touchStatusUpdatedAtBestEffort(compensating.getTableName());
-                boolean contextWritten = migrationContextWriter.write(
+            boolean contextWritten = migrationContextWriter.write(
                     compensating.getTableName(),
                     attemptId,
                     sourceReplicaId,
@@ -763,9 +763,9 @@ public final class RegionMigrator {
                     true,
                     compensationError,
                     now);
-                if (!contextWritten) {
+            if (!contextWritten) {
                 throw new IllegalStateException("write compensating context failed for table=" + compensating.getTableName());
-                }
+            }
             log.warn("recoverStuckMigration entered COMPENSATING table={} attemptId={} role={} error={}",
                     compensating.getTableName(),
                     attemptId,

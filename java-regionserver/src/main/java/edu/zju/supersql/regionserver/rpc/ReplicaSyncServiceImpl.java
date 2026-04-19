@@ -41,11 +41,11 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
     static final Map<String, ConcurrentSkipListMap<Long, WalEntry>> WAL_BY_TABLE =
             new ConcurrentHashMap<>();
     static final Map<String, Set<Long>> COMMITTED_LSNS = new ConcurrentHashMap<>();
-        static final Map<String, ConcurrentHashMap<Long, DecisionRecord>> FINAL_DECISIONS_BY_TABLE =
+    static final Map<String, ConcurrentHashMap<Long, DecisionRecord>> FINAL_DECISIONS_BY_TABLE =
             new ConcurrentHashMap<>();
 
-        private record DecisionRecord(boolean committed, String decisionId, long decidedAtMs) {
-        }
+    private record DecisionRecord(boolean committed, String decisionId, long decidedAtMs) {
+    }
 
     private final MiniSqlProcess miniSql;
     private final WalManager walManager;
