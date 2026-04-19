@@ -529,6 +529,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             if (!(rawFiles instanceof List<?> files)) {
                 return manifestVerificationFailed("transfer manifest missing files list");
             }
+            if (files.isEmpty()) {
+                return manifestVerificationFailed("transfer manifest has empty files list");
+            }
 
             String expectedTablePrefix = null;
             if (manifestTable != null && !manifestTable.isBlank()) {

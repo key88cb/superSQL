@@ -449,6 +449,21 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void copyTableDataShouldRejectTransferManifestWithEmptyFilesList() throws Exception {
+        byte[] manifest = "{\"tableName\":\"orders\",\"files\":[]}"
+                .getBytes(StandardCharsets.UTF_8);
+        Response r = service.copyTableData(new DataChunk(
+                "orders",
+                "__supersql_transfer_manifest__.orders.json",
+                0L,
+                ByteBuffer.wrap(manifest),
+                true));
+
+        Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+        Assertions.assertTrue(r.getMessage().contains("empty files list"));
+    }
+
+    @Test
     void copyTableDataShouldRejectTransferManifestWithStagingEntry() throws Exception {
         Files.writeString(dataDir.resolve("orders_data.part"), "staging");
         byte[] manifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data.part\",\"size\":7,\"crc32\":0}]}"

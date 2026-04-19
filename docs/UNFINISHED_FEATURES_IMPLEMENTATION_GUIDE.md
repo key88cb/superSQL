@@ -111,6 +111,7 @@
 - manifest 校验已拒绝 `.part` 临时文件和 manifest 控制文件自身作为数据项，降低异常输入误确认风险。
 - manifest 数据项已增加 `crc32`，目标端会执行“size + crc32”双重校验，降低静默损坏风险。
 - manifest 校验已拒绝跨表文件项与重复文件项，降低错误清单导致的误确认风险。
+- manifest 校验会拒绝空文件列表，避免异常空清单导致误确认。
 - `copyTableData` 在 offset 不匹配时会重置该文件传输状态（清理 `.part` 与偏移记录），支持干净重试。
 - `copyTableData` 的传输偏移跟踪已按 `tableName + fileName` 隔离，避免跨表同名文件迁移时状态串扰。
 - `copyTableData` 在内存偏移状态缺失时可从磁盘 `.part` 文件长度恢复期望 offset，支持目标端重启后的续传。
