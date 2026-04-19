@@ -91,7 +91,10 @@ class RegionServerRegistrarIntegrationTest {
         byte[] bytes = zkClient.getData().forPath("/region_servers/rs-reregister");
         Map<?, ?> payload = MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), Map.class);
         Assertions.assertEquals("rs-reregister", payload.get("id"));
-        Assertions.assertEquals(0, ((Number) payload.get("tableCount")).intValue());
+        Assertions.assertEquals(9, ((Number) payload.get("tableCount")).intValue());
+        Assertions.assertEquals(1.0, ((Number) payload.get("qps1min")).doubleValue(), 0.0001);
+        Assertions.assertEquals(2.0, ((Number) payload.get("cpuUsage")).doubleValue(), 0.0001);
+        Assertions.assertEquals(3.0, ((Number) payload.get("memUsage")).doubleValue(), 0.0001);
     }
 
 }

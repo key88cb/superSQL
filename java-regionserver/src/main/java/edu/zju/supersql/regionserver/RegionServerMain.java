@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -40,6 +41,48 @@ public class RegionServerMain {
 
     private static final Logger log = LoggerFactory.getLogger(RegionServerMain.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    static int countAssignedTablesForRegionServer(CuratorFramework zkClient, String rsId) {
+        if (zkClient == null || rsId == null || rsId.isBlank()) {
+            return 0;
+        }
+        try {
+            String basePath = "/assignments";
+            if (zkClient.checkExists().forPath(basePath) == null) {
+                return 0;
+            }
+            List<String> tables = zkClient.getChildren().forPath(basePath);
+            int assigned = 0;
+            for (String table : tables) {
+                byte[] data = zkClient.getData().forPath(basePath + "/" + table);
+                if (data == null || data.length == 0) {
+                    continue;
+                }
+                Map<?, ?> assignment = MAPPER.readValue(data, Map.class);
+                Object replicasRaw = assignment.get("replicas");
+                if (!(replicasRaw instanceof List<?> replicas)) {
+                    continue;
+                }
+                boolean found = false;
+                for (Object item : replicas) {
+                    if (item instanceof Map<?, ?> replica) {
+                        Object id = replica.get("id");
+                        if (id != null && rsId.equals(String.valueOf(id))) {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (found) {
+                    assigned++;
+                }
+            }
+            return assigned;
+        } catch (Exception e) {
+            log.warn("Failed to count assignments for rsId={}: {}", rsId, e.getMessage());
+            return 0;
+        }
+    }
 
     static byte[] buildStatusPayload(String rsId,
                                      String rsHost,
@@ -279,17 +322,20 @@ public class RegionServerMain {
             registrar.register(rsHost, thriftPort, httpPort);
 
             RegionServerRegistrar finalRegistrar = registrar;
+            CuratorFramework finalZkClient = zkClient;
+            String finalRsId = rsId;
             heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "RS-Heartbeat");
                 t.setDaemon(true);
                 return t;
             });
                 heartbeatExecutor.scheduleAtFixedRate(() -> {
+                    int tableCount = countAssignedTablesForRegionServer(finalZkClient, finalRsId);
                     finalRegistrar.heartbeat(
                         rsHost,
                         thriftPort,
                         httpPort,
-                        0,
+                        tableCount,
                         0.0,
                         0.0,
                         0.0);

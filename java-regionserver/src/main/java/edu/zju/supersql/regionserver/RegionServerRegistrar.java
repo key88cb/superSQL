@@ -77,14 +77,15 @@ public class RegionServerRegistrar {
             info.setCpuUsage(cpuUsage);
             info.setMemUsage(memUsage);
             info.setLastHeartbeat(System.currentTimeMillis());
+            byte[] payload = toPayload(info, httpPort);
 
             if (zkClient.checkExists().forPath(path) == null) {
-                register(host, port, httpPort);
+                zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
+                        .forPath(path, payload);
                 return;
             }
 
-            zkClient.setData().forPath(path,
-                    toPayload(info, httpPort));
+            zkClient.setData().forPath(path, payload);
         } catch (Exception e) {
             log.warn("Heartbeat update failed for {}: {}", rsId, e.getMessage());
         }
