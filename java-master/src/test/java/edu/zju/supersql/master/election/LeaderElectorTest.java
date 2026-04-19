@@ -131,6 +131,72 @@ class LeaderElectorTest {
         }
     }
 
+    @Test
+    void shouldKeepMonotonicEpochAndSingleLeaderUnderRepeatedFlapping() throws Exception {
+        LeaderElector[] electors = new LeaderElector[] {
+                new LeaderElector(zk1, "master-1", "master-1:8080"),
+                new LeaderElector(zk2, "master-2", "master-2:8081")
+        };
+        try {
+            electors[0].start();
+            electors[1].start();
+
+            waitUntil(Duration.ofSeconds(5), () -> electors[0].isLeader() ^ electors[1].isLeader());
+            waitUntil(Duration.ofSeconds(5), () -> activeMasterMatchesLeader(zk1, electors[0], electors[1]));
+            long previousEpoch = ((Number) readActiveMaster(zk1).get("epoch")).longValue();
+
+            for (int round = 0; round < 4; round++) {
+                boolean closeE1 = electors[0].isLeader();
+                if (closeE1) {
+                    electors[0].close();
+                    electors[0] = new LeaderElector(zk1, "master-1", "master-1:8080");
+                    electors[0].start();
+                } else {
+                    electors[1].close();
+                    electors[1] = new LeaderElector(zk2, "master-2", "master-2:8081");
+                    electors[1].start();
+                }
+
+                waitUntil(Duration.ofSeconds(8), () -> electors[0].isLeader() ^ electors[1].isLeader());
+                waitUntil(Duration.ofSeconds(8), () -> activeMasterMatchesLeader(zk1, electors[0], electors[1]));
+
+                Map<?, ?> active = readActiveMaster(zk1);
+                long currentEpoch = ((Number) active.get("epoch")).longValue();
+                Assertions.assertTrue(currentEpoch > previousEpoch,
+                        "epoch should be monotonic under master flapping");
+                previousEpoch = currentEpoch;
+
+                String activeId = String.valueOf(active.get("masterId"));
+                if (electors[0].isLeader()) {
+                    Assertions.assertEquals("master-1", activeId);
+                } else {
+                    Assertions.assertEquals("master-2", activeId);
+                }
+            }
+        } finally {
+            electors[0].close();
+            electors[1].close();
+        }
+    }
+
+    private static boolean activeMasterMatchesLeader(CuratorFramework client,
+                                                     LeaderElector e1,
+                                                     LeaderElector e2) {
+        try {
+            Map<?, ?> active = readActiveMaster(client);
+            String activeId = String.valueOf(active.get("masterId"));
+            if (e1.isLeader() && !e2.isLeader()) {
+                return "master-1".equals(activeId);
+            }
+            if (e2.isLeader() && !e1.isLeader()) {
+                return "master-2".equals(activeId);
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private CuratorFramework buildClient() {
         CuratorFramework client = CuratorFrameworkFactory.builder()
                 .connectString(server.getConnectString())

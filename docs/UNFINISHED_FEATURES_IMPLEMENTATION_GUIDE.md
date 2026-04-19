@@ -58,6 +58,7 @@
 - 对历史残留且缺失 target 上下文的 `MOVING/PREPARING/ROLLBACK` 状态，保留安全兜底恢复路径，避免永久卡死；其它场景继续坚持“补偿确认后完成”的强约束。
 - 卡死迁移恢复逻辑已从 `MasterServiceImpl` 下沉到 `RegionMigrator`，迁移主流程与超时恢复已收敛到同一编排组件；Master 侧仅保留上下文读写与副本解析回调。
 - `RegionMigrator` 已补充跨节点补偿恢复策略：当 source/target 补偿副本缺失或不可解析时，会尝试在“非 assignment 在线节点”执行补偿清理确认并收敛回 `ACTIVE`。
+- Leader 选举已补充“重复主节点抖动（flapping）”混沌验证：连续触发多轮主备切换，验证 `active-master` 收敛一致且 `epoch` 严格单调递增。
 - 迁移补偿链路相关命名已对齐“确认完成协议”语义：`set/clear/readMigrationContext` 与 `recoverStuckMigrationsForRebalanceWithConfirmation` 不再沿用 `best-effort` 命名。
 - `triggerRebalance()` 调度入口也会执行卡死迁移预恢复：即使本次调度因“集群已平衡”被跳过，也能先回收超时状态。
 - `triggerRebalance()` 在“跳过调度”响应中会附带本轮卡死迁移回收数量，便于外部调度器做轻量观测而不依赖日志解析。
@@ -86,7 +87,7 @@
 
 ### 仍待实现
 
-- 混沌与分区场景验证：确保 epoch/主从切换在网络抖动下行为可预测。
+- 无（本轮已补齐主从切换抖动场景的混沌验证；Master 侧该项收口）。
 
 ## 2.2 RegionServer
 
