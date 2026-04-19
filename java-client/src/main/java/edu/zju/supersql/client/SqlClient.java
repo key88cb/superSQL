@@ -40,6 +40,7 @@ public class SqlClient {
             Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final ClientRoutingMetrics ROUTING_METRICS = new ClientRoutingMetrics();
+        private static final long PROCESS_START_MS = System.currentTimeMillis();
     private static final String ROUTING_METRICS_EXPORT_PREFIX = "show routing metrics export";
 
     enum SqlKind { DDL, DML, SHOW_TABLES, SHOW_ROUTING_METRICS, EXECFILE, UNKNOWN }
@@ -770,7 +771,13 @@ public class SqlClient {
         sb.append("# TYPE supersql_client_routing_exception_retry_all_total counter\n");
         sb.append("# TYPE supersql_client_routing_location_fetch_all_total counter\n");
         sb.append("# TYPE supersql_client_routing_read_fallback_all_total counter\n");
+        sb.append("# TYPE supersql_client_process_start_time_seconds gauge\n");
+        sb.append("# TYPE supersql_client_process_uptime_seconds gauge\n");
         ClientRoutingMetrics.MetricsSnapshot totals = aggregateRoutingMetrics(snapshot);
+        long processStartSeconds = PROCESS_START_MS / 1000L;
+        long uptimeSeconds = Math.max(0L, (System.currentTimeMillis() - PROCESS_START_MS) / 1000L);
+        sb.append(String.format("supersql_client_process_start_time_seconds %d%n", processStartSeconds));
+        sb.append(String.format("supersql_client_process_uptime_seconds %d%n", uptimeSeconds));
 
         if (snapshot == null || snapshot.isEmpty()) {
             sb.append("supersql_client_routing_redirect_all_total 0\n");

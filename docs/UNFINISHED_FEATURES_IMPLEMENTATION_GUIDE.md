@@ -131,6 +131,7 @@
 - 已支持 `SHOW ROUTING METRICS JSON` 输出结构化指标快照，便于外部脚本/采集端读取。
 - 已支持 `SHOW ROUTING METRICS PROMETHEUS` 输出 Prometheus 文本格式指标，便于外部抓取系统接入。
 - 路由指标输出（文本/JSON/Prometheus）已支持全表汇总总量计数，降低统一监控侧的聚合成本。
+- Prometheus 输出已支持客户端进程级 gauge（启动时间、运行时长），便于监控侧做重启识别与窗口聚合。
 - 已支持 `SHOW ROUTING METRICS EXPORT <path>` 将路由指标快照导出到 JSON 文件。
 - 已支持可选 HTTP `/metrics` 端点（`CLIENT_METRICS_HTTP_ENABLED=true`），便于 Prometheus 持续抓取而非依赖手动命令触发。
 - 已支持 `/healthz` 探活端点，可用于容器探针/进程健康检查。

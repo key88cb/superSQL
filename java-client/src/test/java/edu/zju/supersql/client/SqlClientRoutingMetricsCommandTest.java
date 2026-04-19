@@ -85,6 +85,8 @@ class SqlClientRoutingMetricsCommandTest {
 
         Assertions.assertTrue(text.contains("supersql_client_routing_redirect_total{table=\"accounts\"} 10"));
         Assertions.assertTrue(text.contains("supersql_client_routing_moving_retry_total{table=\"orders\"} 3"));
+        Assertions.assertTrue(text.contains("supersql_client_process_start_time_seconds "));
+        Assertions.assertTrue(text.contains("supersql_client_process_uptime_seconds "));
         Assertions.assertTrue(text.contains("supersql_client_routing_redirect_all_total 12"));
         Assertions.assertTrue(text.contains("supersql_client_routing_read_fallback_all_total 20"));
         Assertions.assertTrue(text.contains("supersql_client_routing_table_count 2"));
@@ -93,6 +95,8 @@ class SqlClientRoutingMetricsCommandTest {
     @Test
     void formatRoutingMetricsPrometheusShouldHandleEmptySnapshot() {
         String text = SqlClient.formatRoutingMetricsPrometheus(Map.of());
+        Assertions.assertTrue(text.contains("supersql_client_process_start_time_seconds "));
+        Assertions.assertTrue(text.contains("supersql_client_process_uptime_seconds "));
         Assertions.assertTrue(text.contains("supersql_client_routing_redirect_all_total 0"));
         Assertions.assertTrue(text.contains("supersql_client_routing_read_fallback_all_total 0"));
         Assertions.assertTrue(text.contains("supersql_client_routing_table_count 0"));
