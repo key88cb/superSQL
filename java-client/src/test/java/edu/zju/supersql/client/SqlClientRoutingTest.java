@@ -78,6 +78,16 @@ class SqlClientRoutingTest {
         Assertions.assertEquals("t_order", SqlClient.extractTableName("insert into t_order values (1);"));
         Assertions.assertEquals("t_order", SqlClient.extractTableName("select * from t_order where id = 1;"));
         Assertions.assertEquals("t_order", SqlClient.extractTableName("update t_order set id = 2 where id = 1;"));
+        Assertions.assertEquals("t_order", SqlClient.extractTableName("create index idx_t_order on t_order(id);"));
+        Assertions.assertEquals("t_order", SqlClient.extractTableName("drop index idx_t_order on t_order;"));
+    }
+
+    @Test
+    void classifyDdlActionShouldKeepIndexStatementsSupported() {
+        Assertions.assertEquals(SqlClient.DdlAction.CREATE_INDEX,
+                SqlClient.classifyDdlAction("create index idx_t_order on t_order(id);"));
+        Assertions.assertEquals(SqlClient.DdlAction.DROP_INDEX,
+                SqlClient.classifyDdlAction("drop index idx_t_order on t_order;"));
     }
 
     @Test

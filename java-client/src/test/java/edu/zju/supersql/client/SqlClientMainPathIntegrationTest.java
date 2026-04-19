@@ -267,6 +267,69 @@ class SqlClientMainPathIntegrationTest {
         Assertions.assertTrue(metrics.get(table).readFallbackCount() >= 1);
     }
 
+    @Test
+    void indexDdlShouldRouteToRegionIndexApis() throws Exception {
+        String table = "orders_index";
+
+        int rsPort = freePort();
+        RegionServerInfo rs = new RegionServerInfo("rs-1", "127.0.0.1", rsPort);
+        AtomicReference<TableLocation> locationRef = new AtomicReference<>(
+                tableLocation(table, rs, List.of(rs)));
+        int masterPort = startMasterServer(new DynamicMasterService(locationRef));
+
+        AtomicInteger createIndexCalls = new AtomicInteger(0);
+        AtomicInteger dropIndexCalls = new AtomicInteger(0);
+        AtomicReference<String> lastDropIndexName = new AtomicReference<>("");
+
+        startRegionServer(rsPort, new RegionService.Iface() {
+            @Override
+            public QueryResult execute(String tableName, String sql) {
+                return statusResult(StatusCode.OK, "ok");
+            }
+
+            @Override
+            public QueryResult executeBatch(String tableName, List<String> sqls) {
+                return execute(tableName, sqls.get(0));
+            }
+
+            @Override
+            public Response createIndex(String tableName, String ddl) {
+                createIndexCalls.incrementAndGet();
+                return new Response(StatusCode.OK);
+            }
+
+            @Override
+            public Response dropIndex(String tableName, String indexName) {
+                dropIndexCalls.incrementAndGet();
+                lastDropIndexName.set(indexName);
+                return new Response(StatusCode.OK);
+            }
+
+            @Override
+            public Response ping() {
+                return new Response(StatusCode.OK);
+            }
+        });
+
+        RouteCache cache = new RouteCache(30_000);
+        ClientConfig config = configFor("127.0.0.1:" + masterPort, 3, 10, 10, ClientConfig.ReadConsistency.STRONG);
+
+        SqlClient.handleSql(
+                "create index idx_orders_index on orders_index(id);",
+                "127.0.0.1:" + masterPort,
+                cache,
+                config);
+        SqlClient.handleSql(
+                "drop index idx_orders_index on orders_index;",
+                "127.0.0.1:" + masterPort,
+                cache,
+                config);
+
+        Assertions.assertEquals(1, createIndexCalls.get());
+        Assertions.assertEquals(1, dropIndexCalls.get());
+        Assertions.assertEquals("idx_orders_index", lastDropIndexName.get());
+    }
+
     private int startMasterServer(MasterService.Iface masterService) throws Exception {
         int port = freePort();
         TMultiplexedProcessor processor = new TMultiplexedProcessor();

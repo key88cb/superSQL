@@ -37,10 +37,10 @@ public class SqlClient {
 
     private static final Logger log = LoggerFactory.getLogger(SqlClient.class);
     private static final Pattern TABLE_NAME_PATTERN =
-            Pattern.compile("(?i)\\b(from|into|table|update)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
+            Pattern.compile("(?i)\\b(from|into|table|update|on)\\s+([a-zA-Z_][a-zA-Z0-9_]*)");
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final ClientRoutingMetrics ROUTING_METRICS = new ClientRoutingMetrics();
-        private static final long PROCESS_START_MS = System.currentTimeMillis();
+    private static final long PROCESS_START_MS = System.currentTimeMillis();
     private static final String ROUTING_METRICS_EXPORT_PREFIX = "show routing metrics export";
 
     enum SqlKind { DDL, DML, SHOW_TABLES, SHOW_ROUTING_METRICS, EXECFILE, UNKNOWN }
