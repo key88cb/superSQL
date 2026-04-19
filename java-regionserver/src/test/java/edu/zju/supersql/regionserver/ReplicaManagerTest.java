@@ -33,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Integration test for ReplicaManager using embedded Thrift servers.
@@ -143,6 +144,26 @@ class ReplicaManagerTest {
         Assertions.assertTrue(((Number) stats.get("pendingCount")).longValue() >= 1L);
         Assertions.assertTrue(((Number) stats.get("enqueuedCount")).longValue() >= 1L);
         Assertions.assertFalse(String.valueOf(stats.get("lastError")).isBlank());
+    }
+
+    @Test
+    void commitQueueOverflowShouldEvictOldestAndKeepLatestPending() throws Exception {
+        ReplicaManager manager = new ReplicaManager(false, TimeUnit.MINUTES.toMillis(30), 1);
+
+        manager.commitOnReplicas("orders", 7001L, List.of("127.0.0.1:1"));
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        manager.commitOnReplicas("orders", 7002L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("enqueuedCount")).longValue() >= 2L,
+                4_000L);
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertEquals(1L, ((Number) stats.get("pendingCount")).longValue());
+        Assertions.assertEquals(1L, ((Number) stats.get("maxQueueSize")).longValue());
+        Assertions.assertTrue(((Number) stats.get("evictedCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("enqueuedCount")).longValue() >= 2L);
     }
 
     @Test

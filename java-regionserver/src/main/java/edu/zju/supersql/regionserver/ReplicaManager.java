@@ -52,7 +52,7 @@ public class ReplicaManager {
     private static final long COMMIT_RETRY_BACKOFF_MS = 200L;
     private static final long PENDING_COMMIT_RETRY_INTERVAL_MS = 1_000L;
     private static final long PENDING_COMMIT_MAX_AGE_MS = TimeUnit.MINUTES.toMillis(30);
-    private static final int PENDING_COMMIT_MAX_QUEUE_SIZE = 50_000;
+    private static final int DEFAULT_PENDING_COMMIT_MAX_QUEUE_SIZE = 50_000;
     private static final long PENDING_COMMIT_MIN_BACKOFF_MS = 500L;
     private static final long PENDING_COMMIT_MAX_BACKOFF_MS = 30_000L;
     private static final long PENDING_COMMIT_STALLED_ATTEMPTS = 20L;
@@ -188,11 +188,13 @@ public class ReplicaManager {
                 return t;
             });
     private final ConcurrentHashMap<String, PendingCommit> pendingCommits = new ConcurrentHashMap<>();
+    private final int pendingCommitMaxQueueSize;
     private volatile long pendingCommitMaxAgeMs;
     private final AtomicLong pendingCommitEnqueuedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRecoveredCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitRetryAttemptCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitDroppedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitEvictedCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitThrottledSkipCount = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastSuccessAtMs = new AtomicLong(0L);
     private final AtomicLong pendingCommitLastFailureAtMs = new AtomicLong(0L);
@@ -222,14 +224,19 @@ public class ReplicaManager {
     private volatile String pendingCommitLastError = "";
 
     public ReplicaManager() {
-        this(true, PENDING_COMMIT_MAX_AGE_MS);
+        this(true, PENDING_COMMIT_MAX_AGE_MS, DEFAULT_PENDING_COMMIT_MAX_QUEUE_SIZE);
     }
 
     ReplicaManager(boolean startRetryWorker) {
-        this(startRetryWorker, PENDING_COMMIT_MAX_AGE_MS);
+        this(startRetryWorker, PENDING_COMMIT_MAX_AGE_MS, DEFAULT_PENDING_COMMIT_MAX_QUEUE_SIZE);
     }
 
     ReplicaManager(boolean startRetryWorker, long pendingCommitMaxAgeMs) {
+        this(startRetryWorker, pendingCommitMaxAgeMs, DEFAULT_PENDING_COMMIT_MAX_QUEUE_SIZE);
+    }
+
+    ReplicaManager(boolean startRetryWorker, long pendingCommitMaxAgeMs, int pendingCommitMaxQueueSize) {
+        this.pendingCommitMaxQueueSize = Math.max(1, pendingCommitMaxQueueSize);
         this.pendingCommitMaxAgeMs = Math.max(1L, pendingCommitMaxAgeMs);
         if (startRetryWorker) {
             pendingCommitRetryExecutor.scheduleWithFixedDelay(
@@ -357,6 +364,8 @@ public class ReplicaManager {
         stats.put("recoveredCount", pendingCommitRecoveredCount.get());
         stats.put("retryAttemptCount", pendingCommitRetryAttemptCount.get());
         stats.put("droppedCount", pendingCommitDroppedCount.get());
+        stats.put("evictedCount", pendingCommitEvictedCount.get());
+        stats.put("maxQueueSize", pendingCommitMaxQueueSize);
         stats.put("throttledSkipCount", pendingCommitThrottledSkipCount.get());
         stats.put("escalatedCount", pendingCommitEscalatedCount.get());
         stats.put("decisionCandidateCount", pendingCommitDecisionCandidateCount.get());
@@ -741,11 +750,29 @@ public class ReplicaManager {
         if (tableName == null || tableName.isBlank() || address == null || address.isBlank()) {
             return;
         }
-        if (pendingCommits.size() >= PENDING_COMMIT_MAX_QUEUE_SIZE) {
-            pendingCommitDroppedCount.incrementAndGet();
-            pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
-            pendingCommitLastError = "pending commit queue overflow";
-            return;
+        if (pendingCommits.size() >= pendingCommitMaxQueueSize) {
+            PendingCommit evicted = evictOldestPendingCommit();
+            if (evicted != null) {
+                pendingCommitEvictedCount.incrementAndGet();
+                long now = System.currentTimeMillis();
+                boolean finalized = tryFinalizeCommitByQuorum(evicted, now, "queue_overflow");
+                if (finalized) {
+                    pendingCommitRecoveredCount.incrementAndGet();
+                    pendingCommitLastSuccessAtMs.set(now);
+                } else {
+                    pendingCommitDroppedCount.incrementAndGet();
+                    pendingCommitLastFailureAtMs.set(now);
+                    pendingCommitLastError = "pending commit queue overflow: evicted oldest";
+                    recordCommitError("queue_overflow_evicted_oldest");
+                }
+            }
+            if (pendingCommits.size() >= pendingCommitMaxQueueSize) {
+                pendingCommitDroppedCount.incrementAndGet();
+                pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
+                pendingCommitLastError = "pending commit queue overflow";
+                recordCommitError("queue_overflow");
+                return;
+            }
         }
 
         String key = pendingCommitKey(tableName, lsn, address);
@@ -1033,6 +1060,70 @@ public class ReplicaManager {
                 task.tableName,
                 task.lsn,
                 task.address,
+                committedVotes,
+                replicaCount);
+        return true;
+    }
+
+    private PendingCommit evictOldestPendingCommit() {
+        String oldestKey = null;
+        PendingCommit oldestTask = null;
+        for (Map.Entry<String, PendingCommit> entry : pendingCommits.entrySet()) {
+            PendingCommit candidate = entry.getValue();
+            if (candidate == null) {
+                continue;
+            }
+            if (oldestTask == null || candidate.firstQueuedAtMs < oldestTask.firstQueuedAtMs) {
+                oldestTask = candidate;
+                oldestKey = entry.getKey();
+            }
+        }
+        if (oldestTask == null || oldestKey == null) {
+            return null;
+        }
+        return pendingCommits.remove(oldestKey, oldestTask) ? oldestTask : null;
+    }
+
+    private boolean tryFinalizeCommitByQuorum(PendingCommit task, long nowMs, String reason) {
+        pendingCommitFinalDecisionEvaluatedCount.incrementAndGet();
+        int replicaCount = task.replicaAddresses.size() + 1;
+        int quorum = replicaCount / 2 + 1;
+        int committedVotes = 1;
+        int abortedVotes = 0;
+
+        for (String replica : task.replicaAddresses) {
+            LogDecisionState decisionState = getLogDecisionState(task.tableName, task.lsn, replica);
+            if (decisionState != null && decisionState.isDecided()) {
+                if (decisionState.isSetCommitted() && decisionState.isCommitted()) {
+                    committedVotes++;
+                    continue;
+                }
+                if (decisionState.isSetCommitted() && !decisionState.isCommitted()) {
+                    abortedVotes++;
+                    continue;
+                }
+            }
+            long maxLsn = getMaxLsn(task.tableName, replica);
+            if (maxLsn >= task.lsn) {
+                committedVotes++;
+            }
+        }
+
+        if (abortedVotes > 0 || committedVotes < quorum) {
+            return false;
+        }
+
+        if (task.consecutiveTransportFailures.getAndSet(0L) >= PENDING_COMMIT_TRANSPORT_ESCALATION_THRESHOLD) {
+            pendingCommitRecoveredFromEscalationCount.incrementAndGet();
+            pendingCommitLastRecoveredFromEscalationAtMs.set(nowMs);
+        }
+        clearSuspectedReplica(task.address, "finalized via " + reason);
+        pendingCommitFinalDecisionCommittedCount.incrementAndGet();
+        pendingCommitLastFinalDecisionAtMs.set(nowMs);
+        log.info("pending commit finalized by quorum table={} lsn={} reason={} votes={}/{}",
+                task.tableName,
+                task.lsn,
+                reason,
                 committedVotes,
                 replicaCount);
         return true;
