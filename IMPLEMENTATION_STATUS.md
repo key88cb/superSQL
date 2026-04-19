@@ -42,6 +42,7 @@
 - RebalanceScheduler 已覆盖外部触发节流测试：连续 membership 事件会受 `minGapMs` 保护，避免抖动时触发风暴。
 - RegionServer membership 事件现会触发后台 `repairTableRoutesWithConfirmation` 扫描，主动修复离线主副本路由并减少对读路径触发修复的依赖。
 - RegionServer membership 事件触发的 route repair 已支持携带 `rsId` 定向扫描受影响表，降低大表量场景下的全表修复开销。
+- RegionServer membership 的 `rs_up` 事件已切换为触发全量 route repair 扫描（`rs_down` 保持按 `rsId` 定向扫描），可在“新节点上线但未被现有 assignment 引用”场景下自动补齐降副本表，避免长期停留在降副本状态。
 - membership 事件链路在 route repair 触发异常时会吞并异常并保留 rebalance 外部触发，避免修复异常阻断调度。
 - 非 Active Master 下，createTable/dropTable 返回 NOT_LEADER 并带 redirectTo。
 - `getTableLocation` 在检测到主副本离线且存在在线副本时，会自动晋升在线副本并回写元数据（lazy failover）。
@@ -52,7 +53,7 @@
 - 路由自愈写回已增加按表去抖节流（相同目标拓扑在最小间隔内不重复写 ZK），降低高频查询下写放大。
 
 当前限制：
-- 当前 rebalance 调度器仍是基础版；虽已形成 `RegionMigrator` 统一迁移/恢复编排并补齐阶段状态与超时回收，但跨节点故障自治恢复闭环仍待完善。
+- 当前 rebalance 调度器仍是基础版；故障自治恢复主链路已打通（membership 触发 + 定时预扫描 + 读路径兜底），后续重点是极端网络分区/抖动场景的混沌验证与参数调优。
 - rebalance 与卡死恢复已形成“补偿确认后完成”协议：必要副本清理采用确认重试，失败时显式进入 `COMPENSATING` 并保留上下文，避免假恢复。
 - 当前选主与脑裂防护已跑通基础路径，尚未补全网络分区/抖动场景下的混沌验证。
 

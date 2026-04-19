@@ -29,7 +29,7 @@
 
 ### 1.2 仍未完成且需继续推进的内容
 
-- Master：完整动态调度与自治恢复闭环仍待完善（基础定时重均衡已落地）。
+- Master：自治恢复闭环主链路已打通，后续重点转向极端网络分区/抖动混沌验证与调度参数优化。
 - RegionServer：WAL/复制/恢复在显式最终决议主链路已落地，后续重点转向极端故障验证与运维自动化。
 - RegionServer：完整迁移协议（包括更可靠的数据校验、幂等补偿与可确认完成语义）。
 - Client：更细粒度可观测能力仍待完善（命令行/JSON/文件导出已落地，但统一监控接入与长期趋势聚合未完成）。
@@ -74,6 +74,7 @@
 - `RebalanceScheduler` 定时 tick 也已接入 route repair 预扫描，可在无读流量/无 membership 事件时周期性执行后台路由自愈。
 - RegionServer 上下线事件已接入后台路由修复扫描（`repairTableRoutesWithConfirmation`），可主动修复离线主副本而非仅依赖读请求触发。
 - membership 事件触发的 route repair 现支持携带 `rsId` 定向扫描受影响表，减少集群规模增大时的无效全表修复扫描。
+- membership `rs_up` 事件已切换为触发全量 route repair 扫描（`rs_down` 保持定向扫描），可在新节点上线后自动补齐与该节点无直接关联的降副本表。
 - Master `/status` 已可查看调度器基础运行统计快照（含最近触发原因）。
 - Master `/status` 已可查看 route repair 运行指标（最近修复时间/修复表/修复次数/最近错误），并包含近 N 次运行窗口统计（成功率、平均修复数）。
 - Master `/status` 的 route repair 指标已支持最近一次扫描范围观测（全表总数/候选表数/过滤 rsId）。
@@ -85,7 +86,6 @@
 ### 仍待实现
 
 - `RegionMigrator`：独立编排组件已覆盖主迁移流程与卡死恢复，后续仍需继续完善更细粒度幂等补偿策略与跨节点恢复策略。
-- 故障闭环：RegionServer 下线后的自动副本修复、主副本晋升、路由稳定切换。
 - 混沌与分区场景验证：确保 epoch/主从切换在网络抖动下行为可预测。
 
 ## 2.2 RegionServer
