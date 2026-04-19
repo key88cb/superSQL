@@ -8,6 +8,7 @@ import edu.zju.supersql.master.MasterRuntimeContext;
 import edu.zju.supersql.master.balance.LoadBalancer;
 import edu.zju.supersql.master.meta.AssignmentManager;
 import edu.zju.supersql.master.meta.MetaManager;
+import edu.zju.supersql.master.migration.RegionMigrator;
 import edu.zju.supersql.rpc.RegionServerInfo;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
@@ -39,6 +40,7 @@ class RebalanceLoggingConsistencyTest {
     private RecordingRegionAdminExecutor adminExecutor;
 
     private Logger logger;
+    private Logger migratorLogger;
     private ListAppender<ILoggingEvent> appender;
 
     @BeforeEach
@@ -72,16 +74,22 @@ class RebalanceLoggingConsistencyTest {
                 adminExecutor);
 
         logger = (Logger) LoggerFactory.getLogger(MasterServiceImpl.class);
+        migratorLogger = (Logger) LoggerFactory.getLogger(RegionMigrator.class);
         appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);
+        migratorLogger.addAppender(appender);
         logger.setLevel(Level.INFO);
+        migratorLogger.setLevel(Level.INFO);
     }
 
     @AfterEach
     void tearDown() throws Exception {
         if (logger != null && appender != null) {
             logger.detachAppender(appender);
+            if (migratorLogger != null) {
+                migratorLogger.detachAppender(appender);
+            }
             appender.stop();
         }
         if (zkClient != null) {
@@ -153,7 +161,7 @@ class RebalanceLoggingConsistencyTest {
         List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
         Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance deleteLocalTable failed table=t_rollback source=rs-2 code=ERROR")));
         Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance metadata rollback completed table=t_rollback")));
-        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cleanup target replica table=t_rollback target=rs-4 reason=source_delete_failed code=OK")));
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cleanup target replica table=t_rollback replica=rs-4 reason=source_delete_failed code=OK")));
     }
 
     @Test
@@ -213,7 +221,7 @@ class RebalanceLoggingConsistencyTest {
         Assertions.assertTrue(adminExecutor.hasOp("delete:rs-4"));
 
         List<String> messages = appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
-        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cleanup target replica table=t_transfer_fail target=rs-4 reason=transfer_failed code=OK")));
+        Assertions.assertTrue(messages.stream().anyMatch(m -> m.contains("triggerRebalance cleanup target replica table=t_transfer_fail replica=rs-4 reason=transfer_failed code=OK")));
     }
 
     @Test
