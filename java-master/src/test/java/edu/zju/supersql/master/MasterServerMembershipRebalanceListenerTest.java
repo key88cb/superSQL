@@ -39,8 +39,9 @@ class MasterServerMembershipRebalanceListenerTest {
     @Test
     void membershipListenerShouldTriggerRouteRepairOnUpAndDown() {
         AtomicInteger schedulerCalls = new AtomicInteger(0);
-        AtomicInteger repairCalls = new AtomicInteger(0);
-        List<String> repairedRsIds = new ArrayList<>();
+        AtomicInteger fullRepairCalls = new AtomicInteger(0);
+        AtomicInteger scopedRepairCalls = new AtomicInteger(0);
+        List<String> scopedRepairRsIds = new ArrayList<>();
 
         RebalanceScheduler scheduler = new RebalanceScheduler(
                 true,
@@ -56,18 +57,23 @@ class MasterServerMembershipRebalanceListenerTest {
 
         RegionServerWatcher.Listener listener = MasterServer.buildMembershipRebalanceListener(
                 scheduler,
+                () -> {
+                    fullRepairCalls.incrementAndGet();
+                    return 2;
+                },
                 rsId -> {
-                    repairCalls.incrementAndGet();
-                    repairedRsIds.add(rsId);
+                    scopedRepairCalls.incrementAndGet();
+                    scopedRepairRsIds.add(rsId);
                     return 1;
                 });
 
         listener.onRegionServerUp("rs-1");
-        listener.onRegionServerDown("rs-1");
+        listener.onRegionServerDown("rs-9");
 
         Assertions.assertEquals(2, schedulerCalls.get());
-        Assertions.assertEquals(2, repairCalls.get());
-        Assertions.assertEquals(List.of("rs-1", "rs-1"), repairedRsIds);
+        Assertions.assertEquals(1, fullRepairCalls.get());
+        Assertions.assertEquals(1, scopedRepairCalls.get());
+        Assertions.assertEquals(List.of("rs-9"), scopedRepairRsIds);
     }
 
     @Test
@@ -89,9 +95,13 @@ class MasterServerMembershipRebalanceListenerTest {
 
         RegionServerWatcher.Listener listener = MasterServer.buildMembershipRebalanceListener(
                 scheduler,
+                () -> {
+                    repairCalls.incrementAndGet();
+                    throw new RuntimeException("global repair failed");
+                },
                 rsId -> {
                     repairCalls.incrementAndGet();
-                    throw new RuntimeException("repair failed");
+                    throw new RuntimeException("scoped repair failed");
                 });
 
         listener.onRegionServerUp("rs-1");

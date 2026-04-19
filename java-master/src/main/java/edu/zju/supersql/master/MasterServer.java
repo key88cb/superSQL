@@ -228,19 +228,28 @@ public class MasterServer {
     }
 
     static RegionServerWatcher.Listener buildMembershipRebalanceListener(RebalanceScheduler rebalanceScheduler) {
-        return buildMembershipRebalanceListener(rebalanceScheduler, rsId -> 0);
+        return buildMembershipRebalanceListener(rebalanceScheduler, () -> 0, rsId -> 0);
     }
 
     static RegionServerWatcher.Listener buildMembershipRebalanceListener(RebalanceScheduler rebalanceScheduler,
                                                                          ToIntFunction<String> routeRepairTrigger) {
+        return buildMembershipRebalanceListener(
+                rebalanceScheduler,
+                () -> routeRepairTrigger.applyAsInt("*"),
+                routeRepairTrigger);
+    }
+
+    static RegionServerWatcher.Listener buildMembershipRebalanceListener(RebalanceScheduler rebalanceScheduler,
+                                                                         IntSupplier fullRouteRepairTrigger,
+                                                                         ToIntFunction<String> scopedRouteRepairTrigger) {
         return new RegionServerWatcher.Listener() {
             @Override
             public void onRegionServerUp(String rsId) {
                 rebalanceScheduler.requestTrigger("rs_up:" + rsId);
                 try {
-                    routeRepairTrigger.applyAsInt(rsId);
+                    fullRouteRepairTrigger.getAsInt();
                 } catch (Exception e) {
-                    log.warn("Membership up repair trigger failed rsId={} cause={}", rsId, e.getMessage());
+                    log.warn("Membership up global repair trigger failed rsId={} cause={}", rsId, e.getMessage());
                 }
             }
 
@@ -248,9 +257,9 @@ public class MasterServer {
             public void onRegionServerDown(String rsId) {
                 rebalanceScheduler.requestTrigger("rs_down:" + rsId);
                 try {
-                    routeRepairTrigger.applyAsInt(rsId);
+                    scopedRouteRepairTrigger.applyAsInt(rsId);
                 } catch (Exception e) {
-                    log.warn("Membership down repair trigger failed rsId={} cause={}", rsId, e.getMessage());
+                    log.warn("Membership down scoped repair trigger failed rsId={} cause={}", rsId, e.getMessage());
                 }
             }
         };
@@ -348,7 +357,9 @@ public class MasterServer {
                         scheduledService::triggerRebalance));
             rebalanceScheduler.start();
                 regionServerWatcher = new RegionServerWatcher(zkClient,
-                    buildMembershipRebalanceListener(rebalanceScheduler,
+                    buildMembershipRebalanceListener(
+                            rebalanceScheduler,
+                            scheduledService::repairTableRoutesWithConfirmation,
                             scheduledService::repairTableRoutesForRegionServerWithConfirmation));
                 regionServerWatcher.start();
             LeaderElector finalLeaderElector = leaderElector;

@@ -465,6 +465,40 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void scopedRepairShouldSkipUnrelatedDegradedTableButGlobalRepairShouldRefillReplicas() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 10);
+
+        Response create = service.createTable("create table t_scope_vs_global(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+
+        int scopedRepaired = service.repairTableRoutesForRegionServerWithConfirmation("rs-4");
+        Assertions.assertEquals(0, scopedRepaired);
+
+        Map<?, ?> scopedMeta = readJson("/meta/tables/t_scope_vs_global");
+        List<?> scopedReplicas = (List<?>) scopedMeta.get("replicas");
+        Assertions.assertEquals(3, scopedReplicas.size());
+        Assertions.assertFalse(scopedReplicas.stream().anyMatch(replica -> {
+            if (!(replica instanceof Map<?, ?>)) {
+                return false;
+            }
+            return "rs-4".equals(String.valueOf(((Map<?, ?>) replica).get("id")));
+        }));
+
+        int globalRepaired = service.repairTableRoutesWithConfirmation();
+        Assertions.assertTrue(globalRepaired >= 1);
+
+        TableLocation healed = service.getTableLocation("t_scope_vs_global");
+        Assertions.assertEquals("ACTIVE", healed.getTableStatus());
+        Assertions.assertEquals(3, healed.getReplicasSize());
+        Assertions.assertTrue(healed.getReplicas().stream().map(RegionServerInfo::getId).toList().contains("rs-4"));
+    }
+
+    @Test
     void getTableLocationShouldRetryCleanupWhenHealTransferFails() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
