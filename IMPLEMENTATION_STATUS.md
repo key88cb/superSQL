@@ -88,6 +88,7 @@
 - `transferTable` 发送分块时已支持有界重试（默认 3 次），可吸收短暂目标端抖动导致的单次 chunk 失败。
 - `copyTableData` 在 offset 校验失败时会自动清理该文件的临时分块状态（`.part` + 内存偏移），允许后续从 0 干净重传。
 - `copyTableData` 的 offset 跟踪已按 `tableName + fileName` 作用域隔离，避免跨表同名文件传输时的状态串扰。
+- `copyTableData` 在内存 offset 状态缺失时可从磁盘 `.part` 文件长度恢复期望偏移，支持目标端重启后的迁移续传。
 - `copyTableData` 已支持重复 chunk 幂等确认：当目标端已写入同偏移同内容时，会返回成功而非触发 offset reset，提升链路抖动下重试成功率。
 - `copyTableData` 对“同偏移但内容不一致”的重复包会显式拒绝且不重置当前传输进度，避免因异常重试包覆盖/清空已完成分块。
 - `transferTable` 已过滤源端 `.part` 临时文件，只迁移已完成文件，避免把未完成分块产物继续扩散。

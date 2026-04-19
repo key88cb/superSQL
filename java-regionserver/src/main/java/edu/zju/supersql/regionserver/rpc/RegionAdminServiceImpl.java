@@ -267,7 +267,13 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             dataBuf.get(bytes);
 
             String transferKey = transferKey(chunk.getTableName(), chunk.getFileName());
-            long expectedOffset = nextExpectedOffsets.getOrDefault(transferKey, 0L);
+            Long inMemoryExpectedOffset = nextExpectedOffsets.get(transferKey);
+            long expectedOffset = (inMemoryExpectedOffset != null)
+                    ? inMemoryExpectedOffset
+                    : recoverExpectedOffsetFromStaging(stagingPath, chunk.getOffset());
+            if (inMemoryExpectedOffset == null && expectedOffset > 0L) {
+                nextExpectedOffsets.put(transferKey, expectedOffset);
+            }
 
             // If final chunk response was lost after publish, accept duplicate retry as success.
             if (expectedOffset == 0L && chunk.isIsLast()
@@ -690,6 +696,17 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             Files.deleteIfExists(stagingPath);
         } catch (Exception e) {
             log.warn("copyTableData resetTransferState failed file={} cause={}", fileName, e.getMessage());
+        }
+    }
+
+    private static long recoverExpectedOffsetFromStaging(Path stagingPath, long incomingOffset) {
+        if (incomingOffset <= 0L) {
+            return 0L;
+        }
+        try {
+            return Files.exists(stagingPath) ? Files.size(stagingPath) : 0L;
+        } catch (IOException e) {
+            return 0L;
         }
     }
 }

@@ -242,6 +242,28 @@ class RegionAdminServiceImplTest {
     }
 
     @Test
+    void copyTableDataShouldResumeFromStagingFileAfterServiceRestart() throws Exception {
+        byte[] first = "hello".getBytes(StandardCharsets.UTF_8);
+        byte[] second = " world".getBytes(StandardCharsets.UTF_8);
+
+        Response firstResp = service.copyTableData(new DataChunk("resume", "resume_file", 0L, ByteBuffer.wrap(first), false));
+        Assertions.assertEquals(StatusCode.OK, firstResp.getCode());
+        Assertions.assertTrue(Files.exists(dataDir.resolve("resume_file.part")));
+
+        RegionAdminServiceImpl restartedService = new RegionAdminServiceImpl(
+                writeGuard,
+                null,
+                dataDir.toString(),
+                "rs-test");
+
+        Response resumedResp = restartedService.copyTableData(new DataChunk(
+                "resume", "resume_file", 5L, ByteBuffer.wrap(second), true));
+        Assertions.assertEquals(StatusCode.OK, resumedResp.getCode());
+        Assertions.assertArrayEquals("hello world".getBytes(StandardCharsets.UTF_8),
+                Files.readAllBytes(dataDir.resolve("resume_file")));
+    }
+
+    @Test
     void copyTableDataShouldRejectConflictingDuplicateWithoutResettingProgress() throws Exception {
         byte[] first = "hello".getBytes(StandardCharsets.UTF_8);
         byte[] conflicting = "HELLO".getBytes(StandardCharsets.UTF_8);
