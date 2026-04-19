@@ -70,19 +70,21 @@ public final class MasterRuntimeContext {
 
     public static boolean isActiveMaster() {
         if (!isReady()) {
-            return true;
+            log.warn("Read active-master skipped: runtime context not ready, fallback as standby");
+            return false;
         }
         try {
             byte[] bytes = zkClient.getData().forPath(ZkPaths.ACTIVE_MASTER);
             if (bytes == null || bytes.length == 0) {
-                return true;
+                log.warn("Read active-master got empty payload, fallback as standby");
+                return false;
             }
             Map<?, ?> data = MAPPER.readValue(bytes, Map.class);
             Object id = data.get("masterId");
             return id != null && masterId != null && masterId.equals(String.valueOf(id));
         } catch (Exception e) {
-            log.warn("Read active-master failed, fallback as active: {}", e.getMessage());
-            return true;
+            log.warn("Read active-master failed, fallback as standby: {}", e.getMessage());
+            return false;
         }
     }
 

@@ -87,6 +87,12 @@ class MasterRuntimeContextIntegrationTest {
         Assertions.assertFalse(MasterRuntimeContext.isActiveMaster());
     }
 
+    @Test
+    void isActiveMasterShouldFailClosedWhenPayloadIsInvalid() throws Exception {
+        zkClient.setData().forPath("/active-master", "{invalid-json".getBytes(StandardCharsets.UTF_8));
+        Assertions.assertFalse(MasterRuntimeContext.isActiveMaster());
+    }
+
     private void createIfMissing(String path) throws Exception {
         if (zkClient.checkExists().forPath(path) == null) {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);

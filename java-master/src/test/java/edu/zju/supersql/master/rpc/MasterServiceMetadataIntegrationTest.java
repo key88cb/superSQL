@@ -151,6 +151,16 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void createTableShouldDegradeToNotLeaderWhenLeaderStateIsInvalid() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        zkClient.setData().forPath("/active-master", "{invalid-json".getBytes(StandardCharsets.UTF_8));
+
+        Response response = service.createTable("create table t_invalid_leader_state(id int, primary key(id));");
+
+        Assertions.assertEquals(StatusCode.NOT_LEADER, response.getCode());
+    }
+
+    @Test
     void getTableLocationOnStandbyShouldReturnRedirectPlaceholder() throws Exception {
         writeActiveMaster("master-2", "master-2:8081");
 
