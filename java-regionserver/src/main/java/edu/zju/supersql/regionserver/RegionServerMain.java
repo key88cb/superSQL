@@ -50,28 +50,57 @@ public class RegionServerMain {
                                      String walDir,
                                      boolean miniSqlAlive) {
         return buildStatusPayload(
-            rsId,
-            rsHost,
-            thriftPort,
-            httpPort,
-            zkConnect,
-            dataDir,
-            walDir,
-            miniSqlAlive,
+                rsId,
+                rsHost,
+                thriftPort,
+                httpPort,
+                zkConnect,
+                dataDir,
+                walDir,
+                miniSqlAlive,
+                null,
+                null,
                 null,
                 null);
-        }
+    }
 
-        static byte[] buildStatusPayload(String rsId,
-                         String rsHost,
-                         int thriftPort,
-                         int httpPort,
-                         String zkConnect,
-                         String dataDir,
-                         String walDir,
-                         boolean miniSqlAlive,
+    static byte[] buildStatusPayload(String rsId,
+                                     String rsHost,
+                                     int thriftPort,
+                                     int httpPort,
+                                     String zkConnect,
+                                     String dataDir,
+                                     String walDir,
+                                     boolean miniSqlAlive,
                                      Map<String, Object> transferManifestVerification,
                                      Map<String, Object> transferTable) {
+        return buildStatusPayload(
+                rsId,
+                rsHost,
+                thriftPort,
+                httpPort,
+                zkConnect,
+                dataDir,
+                walDir,
+                miniSqlAlive,
+                transferManifestVerification,
+                transferTable,
+                null,
+                null);
+    }
+
+    static byte[] buildStatusPayload(String rsId,
+                                     String rsHost,
+                                     int thriftPort,
+                                     int httpPort,
+                                     String zkConnect,
+                                     String dataDir,
+                                     String walDir,
+                                     boolean miniSqlAlive,
+                                     Map<String, Object> transferManifestVerification,
+                                     Map<String, Object> transferTable,
+                                     Map<String, Object> prepareDecision,
+                                     Map<String, Object> replicaCommitRetry) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("status", "ok");
         payload.put("rsId", rsId);
@@ -133,6 +162,38 @@ public class RegionServerMain {
         } else {
             payload.put("transferTable", transferTable);
         }
+
+        if (prepareDecision == null) {
+            Map<String, Object> defaults = new LinkedHashMap<>();
+            defaults.put("timeoutMs", 0L);
+            defaults.put("runs", 0L);
+            defaults.put("examined", 0L);
+            defaults.put("autoAborted", 0L);
+            defaults.put("lastRunAtMs", 0L);
+            defaults.put("lastAbortAtMs", 0L);
+            defaults.put("lastAbortTable", "");
+            defaults.put("lastAbortLsn", -1L);
+            defaults.put("lastError", "");
+            payload.put("prepareDecision", defaults);
+        } else {
+            payload.put("prepareDecision", prepareDecision);
+        }
+
+        if (replicaCommitRetry == null) {
+            Map<String, Object> defaults = new LinkedHashMap<>();
+            defaults.put("pendingCount", 0L);
+            defaults.put("enqueuedCount", 0L);
+            defaults.put("recoveredCount", 0L);
+            defaults.put("retryAttemptCount", 0L);
+            defaults.put("droppedCount", 0L);
+            defaults.put("lastSuccessAtMs", 0L);
+            defaults.put("lastFailureAtMs", 0L);
+            defaults.put("lastError", "");
+            payload.put("replicaCommitRetry", defaults);
+        } else {
+            payload.put("replicaCommitRetry", replicaCommitRetry);
+        }
+
         payload.put("timestamp", System.currentTimeMillis());
         try {
             return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
@@ -215,12 +276,20 @@ public class RegionServerMain {
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
         });
         final RegionAdminServiceImpl[] adminServiceRef = new RegionAdminServiceImpl[1];
+        final ReplicaManager[] replicaManagerRef = new ReplicaManager[1];
+        final ReplicaSyncServiceImpl[] replicaSyncRef = new ReplicaSyncServiceImpl[1];
         healthServer.createContext("/status", exchange -> {
             Map<String, Object> manifestStats = adminServiceRef[0] != null
                     ? adminServiceRef[0].getTransferManifestVerificationStats()
                     : null;
             Map<String, Object> transferTableStats = adminServiceRef[0] != null
                 ? adminServiceRef[0].getTransferTableStats()
+                : null;
+            Map<String, Object> prepareDecisionStats = replicaSyncRef[0] != null
+                    ? replicaSyncRef[0].getPrepareResolutionStats()
+                    : null;
+            Map<String, Object> replicaCommitRetryStats = replicaManagerRef[0] != null
+                ? replicaManagerRef[0].getCommitRetryStats()
                 : null;
             byte[] body = buildStatusPayload(
                     rsId,
@@ -232,7 +301,9 @@ public class RegionServerMain {
                     walDir,
                     miniSql.isAlive(),
                     manifestStats,
-                    transferTableStats);
+                    transferTableStats,
+                        prepareDecisionStats,
+                    replicaCommitRetryStats);
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
@@ -243,10 +314,12 @@ public class RegionServerMain {
         // ── Service wiring ────────────────────────────────────────────────────
         WriteGuard writeGuard = new WriteGuard();
         ReplicaManager replicaManager = new ReplicaManager();
+        replicaManagerRef[0] = replicaManager;
         String selfAddress = rsHost + ":" + thriftPort;
 
         ReplicaSyncServiceImpl replicaSync = new ReplicaSyncServiceImpl(miniSql, walManager);
         replicaSync.init();
+        replicaSyncRef[0] = replicaSync;
         
         RegionServiceImpl regionService = new RegionServiceImpl(
             miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, minReplicaAcks);
@@ -292,6 +365,22 @@ public class RegionServerMain {
         }, "CheckpointThread");
         checkpointThread.setDaemon(true);
         checkpointThread.start();
+
+        Thread prepareDecisionThread = new Thread(() -> {
+            log.info("Starting background prepare decision resolver thread...");
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(TimeUnit.SECONDS.toMillis(5));
+                    replicaSync.resolveTimedOutPreparesBestEffort();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    log.error("Error in prepare decision resolver thread: ", e);
+                }
+            }
+        }, "PrepareDecisionThread");
+        prepareDecisionThread.setDaemon(true);
+        prepareDecisionThread.start();
 
         server.serve();
     }

@@ -26,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -118,6 +119,49 @@ class ReplicaManagerTest {
                 List.of("127.0.0.1:" + port1, "127.0.0.1:" + port2));
         Thread.sleep(500); // give async tasks time to complete
         // No assertion needed — test passes if no exception is thrown
+    }
+
+    @Test
+    void commitOnReplicasShouldEnqueueFailedCommitForRetry() throws Exception {
+        ReplicaManager manager = new ReplicaManager();
+        manager.commitOnReplicas("orders", 3333L, List.of("127.0.0.1:1"));
+
+        waitForCondition(() -> {
+            Map<String, Object> stats = manager.getCommitRetryStats();
+            long pending = ((Number) stats.get("pendingCount")).longValue();
+            long enqueued = ((Number) stats.get("enqueuedCount")).longValue();
+            return pending >= 1L && enqueued >= 1L;
+        }, 4_000L);
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertTrue(((Number) stats.get("pendingCount")).longValue() >= 1L);
+        Assertions.assertTrue(((Number) stats.get("enqueuedCount")).longValue() >= 1L);
+        Assertions.assertFalse(String.valueOf(stats.get("lastError")).isBlank());
+    }
+
+    @Test
+    void retryPendingCommitsShouldRecoverAfterReplicaGetsMissingEntry() throws Exception {
+        ReplicaManager manager = new ReplicaManager();
+        String replica = "127.0.0.1:" + port1;
+        long lsn = 4444L;
+
+        manager.commitOnReplicas("orders", lsn, List.of(replica));
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() >= 1L,
+                4_000L);
+
+        WalEntry entry = buildEntry(lsn, "orders", "insert into orders values(4444);");
+        int acks = manager.syncToReplicas(entry, List.of(replica), 1);
+        Assertions.assertEquals(1, acks);
+
+        manager.retryPendingCommitsNow();
+        waitForCondition(() -> ((Number) manager.getCommitRetryStats().get("pendingCount")).longValue() == 0L,
+                4_000L);
+
+        Map<String, Object> stats = manager.getCommitRetryStats();
+        Assertions.assertTrue(((Number) stats.get("recoveredCount")).longValue() >= 1L);
+        Response secondCommit = commitLog(replica, "orders", lsn);
+        Assertions.assertEquals(StatusCode.OK, secondCommit.getCode());
+        Assertions.assertTrue(secondCommit.getMessage().contains("ALREADY_COMMITTED"));
     }
 
     @Test
@@ -320,6 +364,22 @@ class ReplicaManagerTest {
         try (ServerSocket s = new ServerSocket(0)) {
             return s.getLocalPort();
         }
+    }
+
+    private static void waitForCondition(CheckedCondition condition, long timeoutMs) throws Exception {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (condition.check()) {
+                return;
+            }
+            Thread.sleep(50L);
+        }
+        Assertions.fail("Condition not satisfied within timeout=" + timeoutMs + "ms");
+    }
+
+    @FunctionalInterface
+    private interface CheckedCondition {
+        boolean check() throws Exception;
     }
 
     private static class InMemoryReplicaSyncService implements ReplicaSyncService.Iface {

@@ -14,6 +14,7 @@ import org.mockito.Mockito;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 class ReplicaSyncServiceImplTest {
 
@@ -167,6 +168,46 @@ class ReplicaSyncServiceImplTest {
         Assertions.assertEquals(1, entriesAfterCommit.size());
         Assertions.assertEquals(100L, entriesAfterCommit.get(0).getLsn());
         Mockito.verify(mockMiniSql).execute("insert into persisted_test values(1);");
+    }
+
+    @Test
+    void timedOutPrepareShouldBeAutoAbortedByResolver() throws Exception {
+        ReplicaSyncServiceImpl svc = service();
+        String table = "t_timeout";
+        long staleTxnId = System.currentTimeMillis() - 10_000L;
+        WalEntry entry = new WalEntry(200L, staleTxnId, table, WalOpType.INSERT, System.currentTimeMillis());
+        entry.setAfterRow("insert into t_timeout values(1);".getBytes());
+
+        svc.syncLog(entry);
+        Assertions.assertEquals(1, walManager.readUncommittedEntries(table).size());
+
+        svc.resolveTimedOutPrepares(System.currentTimeMillis(), 1_000L);
+
+        Response commitResponse = svc.commitLog(table, 200L);
+        Assertions.assertEquals(StatusCode.TABLE_NOT_FOUND, commitResponse.getCode());
+        Assertions.assertTrue(walManager.readUncommittedEntries(table).isEmpty());
+
+        Map<String, Object> stats = svc.getPrepareResolutionStats();
+        Assertions.assertTrue(((Number) stats.get("autoAborted")).longValue() >= 1L);
+        Assertions.assertEquals(table, stats.get("lastAbortTable"));
+        Assertions.assertEquals(200L, ((Number) stats.get("lastAbortLsn")).longValue());
+    }
+
+    @Test
+    void freshPrepareShouldNotBeAutoAborted() throws Exception {
+        ReplicaSyncServiceImpl svc = service();
+        String table = "t_fresh";
+        long freshTxnId = System.currentTimeMillis();
+        WalEntry entry = new WalEntry(201L, freshTxnId, table, WalOpType.INSERT, System.currentTimeMillis());
+        String sql = "insert into t_fresh values(1);";
+        entry.setAfterRow(sql.getBytes());
+
+        svc.syncLog(entry);
+        svc.resolveTimedOutPrepares(System.currentTimeMillis(), 60_000L);
+
+        Response commitResponse = svc.commitLog(table, 201L);
+        Assertions.assertEquals(StatusCode.OK, commitResponse.getCode());
+        Mockito.verify(mockMiniSql).execute(sql);
     }
 
     private static WalEntry walEntry(long lsn, String table, WalOpType op) {

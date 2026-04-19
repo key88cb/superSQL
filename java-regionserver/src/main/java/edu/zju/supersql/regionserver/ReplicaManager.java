@@ -15,14 +15,18 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Primary-side replica synchronisation coordinator.
@@ -44,6 +48,37 @@ public class ReplicaManager {
     private static final int SYNC_TIMEOUT_MS    = 3_000;
     private static final int COMMIT_RETRY_ATTEMPTS = 3;
     private static final long COMMIT_RETRY_BACKOFF_MS = 200L;
+    private static final long PENDING_COMMIT_RETRY_INTERVAL_MS = 1_000L;
+    private static final long PENDING_COMMIT_MAX_AGE_MS = TimeUnit.MINUTES.toMillis(30);
+    private static final int PENDING_COMMIT_MAX_QUEUE_SIZE = 50_000;
+
+    private record CommitAttempt(boolean success, String error) {
+    }
+
+    private static final class PendingCommit {
+        private final String tableName;
+        private final long lsn;
+        private final String address;
+        private final long firstQueuedAtMs;
+        private final AtomicLong attempts = new AtomicLong(0L);
+        private volatile long lastAttemptAtMs;
+        private volatile String lastError;
+
+        private PendingCommit(String tableName, long lsn, String address, long nowMs, String initialError) {
+            this.tableName = tableName;
+            this.lsn = lsn;
+            this.address = address;
+            this.firstQueuedAtMs = nowMs;
+            this.lastAttemptAtMs = nowMs;
+            this.lastError = initialError;
+        }
+
+        private void markAttemptFailure(String error) {
+            attempts.incrementAndGet();
+            lastAttemptAtMs = System.currentTimeMillis();
+            lastError = error;
+        }
+    }
 
     private final ExecutorService executor =
             Executors.newCachedThreadPool(r -> {
@@ -51,6 +86,28 @@ public class ReplicaManager {
                 t.setDaemon(true);
                 return t;
             });
+    private final ScheduledExecutorService pendingCommitRetryExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "replica-commit-retry");
+                t.setDaemon(true);
+                return t;
+            });
+    private final ConcurrentHashMap<String, PendingCommit> pendingCommits = new ConcurrentHashMap<>();
+    private final AtomicLong pendingCommitEnqueuedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitRecoveredCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitRetryAttemptCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitDroppedCount = new AtomicLong(0L);
+    private final AtomicLong pendingCommitLastSuccessAtMs = new AtomicLong(0L);
+    private final AtomicLong pendingCommitLastFailureAtMs = new AtomicLong(0L);
+    private volatile String pendingCommitLastError = "";
+
+    public ReplicaManager() {
+        pendingCommitRetryExecutor.scheduleWithFixedDelay(
+                this::retryPendingCommits,
+                PENDING_COMMIT_RETRY_INTERVAL_MS,
+                PENDING_COMMIT_RETRY_INTERVAL_MS,
+                TimeUnit.MILLISECONDS);
+    }
 
     /**
      * Sends a WAL entry to all replicas and waits for ≥ 1 ACK.
@@ -134,8 +191,33 @@ public class ReplicaManager {
             return;
         }
         for (String addr : addresses) {
-            executor.submit(() -> commitOneWithRetry(tableName, lsn, addr));
+            executor.submit(() -> {
+                boolean committed = commitOneWithRetry(tableName, lsn, addr);
+                if (!committed) {
+                    enqueuePendingCommit(tableName,
+                            lsn,
+                            addr,
+                            "initial commit retries exhausted");
+                }
+            });
         }
+    }
+
+    public Map<String, Object> getCommitRetryStats() {
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("pendingCount", pendingCommits.size());
+        stats.put("enqueuedCount", pendingCommitEnqueuedCount.get());
+        stats.put("recoveredCount", pendingCommitRecoveredCount.get());
+        stats.put("retryAttemptCount", pendingCommitRetryAttemptCount.get());
+        stats.put("droppedCount", pendingCommitDroppedCount.get());
+        stats.put("lastSuccessAtMs", pendingCommitLastSuccessAtMs.get());
+        stats.put("lastFailureAtMs", pendingCommitLastFailureAtMs.get());
+        stats.put("lastError", pendingCommitLastError);
+        return stats;
+    }
+
+    void retryPendingCommitsNow() {
+        retryPendingCommits();
     }
 
     /**
@@ -282,10 +364,13 @@ public class ReplicaManager {
     }
 
     boolean commitOneWithRetry(String tableName, long lsn, String address) {
+        String lastError = "";
         for (int attempt = 1; attempt <= COMMIT_RETRY_ATTEMPTS; attempt++) {
-            if (commitOne(tableName, lsn, address)) {
+            CommitAttempt commitAttempt = commitOneAttempt(tableName, lsn, address);
+            if (commitAttempt.success()) {
                 return true;
             }
+            lastError = commitAttempt.error();
             if (attempt < COMMIT_RETRY_ATTEMPTS) {
                 try {
                     Thread.sleep(COMMIT_RETRY_BACKOFF_MS * attempt);
@@ -295,18 +380,22 @@ public class ReplicaManager {
                 }
             }
         }
+        pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
+        pendingCommitLastError = lastError;
         return false;
     }
 
-    private boolean commitOne(String tableName, long lsn, String address) {
+    private CommitAttempt commitOneAttempt(String tableName, long lsn, String address) {
         String[] parts = address.split(":");
-        if (parts.length != 2) return false;
+        if (parts.length != 2) {
+            return new CommitAttempt(false, "invalid replica address");
+        }
         String host = parts[0];
         int port;
         try {
             port = Integer.parseInt(parts[1]);
         } catch (NumberFormatException e) {
-            return false;
+            return new CommitAttempt(false, "invalid replica port");
         }
 
         try (TTransport transport = new TFramedTransport(
@@ -319,16 +408,80 @@ public class ReplicaManager {
                 if (resp.getCode() == StatusCode.OK) {
                 log.debug("commitLog to {} for table={} lsn={}: code={} attempt=success",
                     address, tableName, lsn, resp.getCode());
-                return true;
+                return new CommitAttempt(true, "");
                 }
                 log.warn("commitLog to {} for table={} lsn={} returned code={} msg={}",
                     address, tableName, lsn, resp.getCode(), resp.getMessage());
-                return false;
+                return new CommitAttempt(false,
+                        "commit returned " + resp.getCode() + " msg=" + resp.getMessage());
         } catch (Exception e) {
             log.warn("commitLog to {} failed for table={} lsn={}: {}",
                     address, tableName, lsn, e.getMessage());
-                return false;
+                return new CommitAttempt(false, e.getMessage());
         }
+    }
+
+    private void enqueuePendingCommit(String tableName, long lsn, String address, String initialError) {
+        if (tableName == null || tableName.isBlank() || address == null || address.isBlank()) {
+            return;
+        }
+        if (pendingCommits.size() >= PENDING_COMMIT_MAX_QUEUE_SIZE) {
+            pendingCommitDroppedCount.incrementAndGet();
+            pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
+            pendingCommitLastError = "pending commit queue overflow";
+            return;
+        }
+
+        String key = pendingCommitKey(tableName, lsn, address);
+        PendingCommit pendingCommit = new PendingCommit(
+                tableName,
+                lsn,
+                address,
+                System.currentTimeMillis(),
+                initialError);
+        PendingCommit existing = pendingCommits.putIfAbsent(key, pendingCommit);
+        if (existing == null) {
+            pendingCommitEnqueuedCount.incrementAndGet();
+        } else {
+            existing.markAttemptFailure(initialError);
+        }
+        pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
+        pendingCommitLastError = initialError;
+    }
+
+    private void retryPendingCommits() {
+        if (pendingCommits.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, PendingCommit> entry : pendingCommits.entrySet()) {
+            String key = entry.getKey();
+            PendingCommit task = entry.getValue();
+            CommitAttempt commitAttempt = commitOneAttempt(task.tableName, task.lsn, task.address);
+            pendingCommitRetryAttemptCount.incrementAndGet();
+
+            if (commitAttempt.success()) {
+                if (pendingCommits.remove(key, task)) {
+                    pendingCommitRecoveredCount.incrementAndGet();
+                    pendingCommitLastSuccessAtMs.set(System.currentTimeMillis());
+                }
+                continue;
+            }
+
+            task.markAttemptFailure(commitAttempt.error());
+            pendingCommitLastFailureAtMs.set(System.currentTimeMillis());
+            pendingCommitLastError = commitAttempt.error();
+
+            if (now - task.firstQueuedAtMs > PENDING_COMMIT_MAX_AGE_MS) {
+                if (pendingCommits.remove(key, task)) {
+                    pendingCommitDroppedCount.incrementAndGet();
+                }
+            }
+        }
+    }
+
+    private static String pendingCommitKey(String tableName, long lsn, String address) {
+        return tableName + "#" + lsn + "@" + address;
     }
 
     private List<String> selectDonorCandidates(Map<String, Long> maxLsnByReplica, String excludedReplica) {

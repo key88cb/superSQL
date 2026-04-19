@@ -62,6 +62,25 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals("", transferTable.get("lastFailureTable"));
         Assertions.assertTrue(((java.util.List<?>) transferTable.get("recentFailures")).isEmpty());
         Assertions.assertEquals(0L, ((Number) transferTable.get("recentFailuresDropped")).longValue());
+        Map<?, ?> prepareDecision = (Map<?, ?>) json.get("prepareDecision");
+        Assertions.assertEquals(0L, ((Number) prepareDecision.get("timeoutMs")).longValue());
+        Assertions.assertEquals(0L, ((Number) prepareDecision.get("runs")).longValue());
+        Assertions.assertEquals(0L, ((Number) prepareDecision.get("examined")).longValue());
+        Assertions.assertEquals(0L, ((Number) prepareDecision.get("autoAborted")).longValue());
+        Assertions.assertEquals(0L, ((Number) prepareDecision.get("lastRunAtMs")).longValue());
+        Assertions.assertEquals(0L, ((Number) prepareDecision.get("lastAbortAtMs")).longValue());
+        Assertions.assertEquals("", prepareDecision.get("lastAbortTable"));
+        Assertions.assertEquals(-1L, ((Number) prepareDecision.get("lastAbortLsn")).longValue());
+        Assertions.assertEquals("", prepareDecision.get("lastError"));
+        Map<?, ?> replicaCommitRetry = (Map<?, ?>) json.get("replicaCommitRetry");
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("pendingCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("enqueuedCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("recoveredCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("retryAttemptCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("droppedCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastSuccessAtMs")).longValue());
+        Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastFailureAtMs")).longValue());
+        Assertions.assertEquals("", replicaCommitRetry.get("lastError"));
         Assertions.assertTrue(json.containsKey("timestamp"));
     }
 
@@ -126,6 +145,27 @@ class RegionServerMainStatusPayloadTest {
         transferTableStats.put("recentFailures", recentFailures);
         transferTableStats.put("recentFailuresDropped", 4L);
 
+        Map<String, Object> prepareDecision = new LinkedHashMap<>();
+        prepareDecision.put("timeoutMs", 300000L);
+        prepareDecision.put("runs", 12L);
+        prepareDecision.put("examined", 21L);
+        prepareDecision.put("autoAborted", 2L);
+        prepareDecision.put("lastRunAtMs", 600L);
+        prepareDecision.put("lastAbortAtMs", 550L);
+        prepareDecision.put("lastAbortTable", "orders");
+        prepareDecision.put("lastAbortLsn", 99L);
+        prepareDecision.put("lastError", "");
+
+        Map<String, Object> replicaCommitRetry = new LinkedHashMap<>();
+        replicaCommitRetry.put("pendingCount", 2L);
+        replicaCommitRetry.put("enqueuedCount", 10L);
+        replicaCommitRetry.put("recoveredCount", 8L);
+        replicaCommitRetry.put("retryAttemptCount", 21L);
+        replicaCommitRetry.put("droppedCount", 1L);
+        replicaCommitRetry.put("lastSuccessAtMs", 321L);
+        replicaCommitRetry.put("lastFailureAtMs", 654L);
+        replicaCommitRetry.put("lastError", "commit returned TABLE_NOT_FOUND");
+
         byte[] payload = RegionServerMain.buildStatusPayload(
                 "rs-9",
                 "127.0.0.1",
@@ -136,7 +176,9 @@ class RegionServerMainStatusPayloadTest {
                 "./wal",
                 true,
                 manifestStats,
-                transferTableStats);
+                transferTableStats,
+                prepareDecision,
+                replicaCommitRetry);
 
         Map<?, ?> json = MAPPER.readValue(new String(payload, StandardCharsets.UTF_8), Map.class);
         Map<?, ?> transferManifestVerification = (Map<?, ?>) json.get("transferManifestVerification");
@@ -173,5 +215,24 @@ class RegionServerMainStatusPayloadTest {
             Assertions.assertEquals("orders", transferTable.get("lastFailureTable"));
             Assertions.assertEquals(1, ((java.util.List<?>) transferTable.get("recentFailures")).size());
             Assertions.assertEquals(4L, ((Number) transferTable.get("recentFailuresDropped")).longValue());
+        Map<?, ?> prepareDecisionStats = (Map<?, ?>) json.get("prepareDecision");
+        Assertions.assertEquals(300000L, ((Number) prepareDecisionStats.get("timeoutMs")).longValue());
+        Assertions.assertEquals(12L, ((Number) prepareDecisionStats.get("runs")).longValue());
+        Assertions.assertEquals(21L, ((Number) prepareDecisionStats.get("examined")).longValue());
+        Assertions.assertEquals(2L, ((Number) prepareDecisionStats.get("autoAborted")).longValue());
+        Assertions.assertEquals(600L, ((Number) prepareDecisionStats.get("lastRunAtMs")).longValue());
+        Assertions.assertEquals(550L, ((Number) prepareDecisionStats.get("lastAbortAtMs")).longValue());
+        Assertions.assertEquals("orders", prepareDecisionStats.get("lastAbortTable"));
+        Assertions.assertEquals(99L, ((Number) prepareDecisionStats.get("lastAbortLsn")).longValue());
+        Assertions.assertEquals("", prepareDecisionStats.get("lastError"));
+        Map<?, ?> commitRetryStats = (Map<?, ?>) json.get("replicaCommitRetry");
+        Assertions.assertEquals(2L, ((Number) commitRetryStats.get("pendingCount")).longValue());
+        Assertions.assertEquals(10L, ((Number) commitRetryStats.get("enqueuedCount")).longValue());
+        Assertions.assertEquals(8L, ((Number) commitRetryStats.get("recoveredCount")).longValue());
+        Assertions.assertEquals(21L, ((Number) commitRetryStats.get("retryAttemptCount")).longValue());
+        Assertions.assertEquals(1L, ((Number) commitRetryStats.get("droppedCount")).longValue());
+        Assertions.assertEquals(321L, ((Number) commitRetryStats.get("lastSuccessAtMs")).longValue());
+        Assertions.assertEquals(654L, ((Number) commitRetryStats.get("lastFailureAtMs")).longValue());
+        Assertions.assertEquals("commit returned TABLE_NOT_FOUND", commitRetryStats.get("lastError"));
     }
 }
