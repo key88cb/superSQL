@@ -88,6 +88,7 @@
 - RegionServer HTTP 端点已补充 `/status` JSON 运行态输出，便于外部探活与诊断接入。
 - RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/duplicateAcks/lastSuccessTs/lastFailureTs/lastFailureMessage），便于外部诊断迁移校验失败。
 - RegionServer `/status` 的 manifest 校验统计已补充失败原因分解（`failureReasons`）与 `lastFailureReason`，便于快速定位失败类别。
+- RegionServer `/status` 的 manifest 校验统计已补充 `recentFailures` 与 `recentFailuresDropped`，用于观察近期失败序列与窗口裁剪量。
 - RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure/lastSuccessTs、失败原因分类、最近失败信息），便于外部排查迁移失败类型。
 - `transferTable` 失败原因分类已细化包含 `source_io_error`，便于区分源端本地 I/O 异常与链路/目标端拒绝类问题。
 - `transferTable` 统计已补充 `recentFailures` 有界窗口（最多 8 条），用于快速查看最近失败序列且控制 `/status` 体积。

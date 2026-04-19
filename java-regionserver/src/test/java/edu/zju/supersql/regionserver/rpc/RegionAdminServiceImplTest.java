@@ -691,6 +691,38 @@ class RegionAdminServiceImplTest {
         Map<?, ?> reasons = (Map<?, ?>) snapshot.get("failureReasons");
         Assertions.assertEquals(1L, ((Number) reasons.get("file_missing")).longValue());
         Assertions.assertEquals(0L, ((Number) reasons.get("checksum_mismatch")).longValue());
+        List<?> recentFailures = (List<?>) snapshot.get("recentFailures");
+        Assertions.assertEquals(1, recentFailures.size());
+        Assertions.assertEquals(0L, ((Number) snapshot.get("recentFailuresDropped")).longValue());
+        }
+
+        @Test
+        void transferManifestVerificationRecentFailuresShouldKeepBoundedWindow() throws Exception {
+        for (int i = 0; i < 10; i++) {
+            byte[] manifest = ("{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing_" + i
+                + "\",\"size\":1,\"crc32\":0}]}")
+                .getBytes(StandardCharsets.UTF_8);
+            Response r = service.copyTableData(new DataChunk(
+                "orders",
+                "__supersql_transfer_manifest__.orders.json",
+                0L,
+                ByteBuffer.wrap(manifest),
+                true));
+            Assertions.assertEquals(StatusCode.ERROR, r.getCode());
+        }
+
+        Map<String, Object> snapshot = service.getTransferManifestVerificationStats();
+        List<?> recent = (List<?>) snapshot.get("recentFailures");
+        Assertions.assertEquals(8, recent.size());
+        Assertions.assertEquals(2L, ((Number) snapshot.get("recentFailuresDropped")).longValue());
+
+        Map<?, ?> first = (Map<?, ?>) recent.get(0);
+        Map<?, ?> last = (Map<?, ?>) recent.get(recent.size() - 1);
+        Assertions.assertEquals("file_missing", String.valueOf(first.get("reason")));
+        Assertions.assertTrue(String.valueOf(first.get("message")).contains("orders_missing_2"));
+        Assertions.assertEquals("file_missing", String.valueOf(last.get("reason")));
+        Assertions.assertTrue(String.valueOf(last.get("message")).contains("orders_missing_9"));
+        Assertions.assertTrue(((Number) last.get("ts")).longValue() > 0L);
         }
 
     @Test

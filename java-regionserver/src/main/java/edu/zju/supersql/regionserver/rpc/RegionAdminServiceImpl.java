@@ -47,6 +47,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private static final int COPY_CHUNK_MAX_RETRIES = 3;
     private static final int STATUS_FAILURE_MESSAGE_MAX_LEN = 256;
     private static final int TRANSFER_FAILURE_HISTORY_MAX_SIZE = 8;
+    private static final int MANIFEST_FAILURE_HISTORY_MAX_SIZE = 8;
     private static final String STAGING_SUFFIX = ".part";
     private static final String TRANSFER_MANIFEST_PREFIX = "__supersql_transfer_manifest__.";
 
@@ -68,8 +69,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong manifestFailureSizeMismatch = new AtomicLong();
     private final AtomicLong manifestFailureChecksumMismatch = new AtomicLong();
     private final AtomicLong manifestFailureOther = new AtomicLong();
+    private final AtomicLong manifestRecentFailuresDropped = new AtomicLong();
     private volatile String manifestVerificationLastFailureReason = "";
     private volatile String manifestVerificationLastFailureMessage = "";
+    private final Object manifestFailureHistoryLock = new Object();
+    private final Deque<Map<String, Object>> manifestRecentFailures = new ArrayDeque<>();
     private final Map<String, Long> manifestVerifiedDigestByTable = new ConcurrentHashMap<>();
     private final AtomicLong transferTableTotal = new AtomicLong();
     private final AtomicLong transferTableSuccess = new AtomicLong();
@@ -657,6 +661,8 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("failureReasons", reasons);
         payload.put("lastFailureReason", manifestVerificationLastFailureReason);
         payload.put("lastFailureMessage", manifestVerificationLastFailureMessage);
+        payload.put("recentFailures", snapshotManifestRecentFailures());
+        payload.put("recentFailuresDropped", manifestRecentFailuresDropped.get());
         return payload;
     }
 
@@ -702,9 +708,12 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
     private Response manifestVerificationFailed(String reason, String message) {
         manifestVerificationFailure.incrementAndGet();
-        manifestVerificationLastFailureTs.set(System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        manifestVerificationLastFailureTs.set(now);
         manifestVerificationLastFailureReason = reason == null ? "other" : reason;
-        manifestVerificationLastFailureMessage = sanitizeStatusMessage(message);
+        String sanitizedMessage = sanitizeStatusMessage(message);
+        manifestVerificationLastFailureMessage = sanitizedMessage;
+        recordManifestFailure(now, manifestVerificationLastFailureReason, sanitizedMessage);
 
         switch (manifestVerificationLastFailureReason) {
             case "invalid_manifest" -> manifestFailureInvalidManifest.incrementAndGet();
@@ -718,6 +727,27 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         Response r = new Response(StatusCode.ERROR);
         r.setMessage(message);
         return r;
+    }
+
+    private List<Map<String, Object>> snapshotManifestRecentFailures() {
+        synchronized (manifestFailureHistoryLock) {
+            return new ArrayList<>(manifestRecentFailures);
+        }
+    }
+
+    private void recordManifestFailure(long ts, String reason, String message) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("ts", ts);
+        event.put("reason", reason == null ? "" : reason);
+        event.put("message", message == null ? "" : message);
+
+        synchronized (manifestFailureHistoryLock) {
+            manifestRecentFailures.addLast(event);
+            while (manifestRecentFailures.size() > MANIFEST_FAILURE_HISTORY_MAX_SIZE) {
+                manifestRecentFailures.removeFirst();
+                manifestRecentFailuresDropped.incrementAndGet();
+            }
+        }
     }
 
     private Response transferTableFailed(StatusCode code, String reason, String message) {

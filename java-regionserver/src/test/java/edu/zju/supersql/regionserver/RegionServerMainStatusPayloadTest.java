@@ -49,6 +49,8 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("size_mismatch")).longValue());
         Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("checksum_mismatch")).longValue());
         Assertions.assertEquals(0L, ((Number) manifestFailureReasons.get("other")).longValue());
+        Assertions.assertTrue(((java.util.List<?>) transferManifestVerification.get("recentFailures")).isEmpty());
+        Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("recentFailuresDropped")).longValue());
         Map<?, ?> transferTable = (Map<?, ?>) json.get("transferTable");
         Assertions.assertEquals(0L, ((Number) transferTable.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("success")).longValue());
@@ -78,6 +80,14 @@ class RegionServerMainStatusPayloadTest {
         manifestStats.put("failureReasons", manifestReasons);
         manifestStats.put("lastFailureReason", "file_missing");
         manifestStats.put("lastFailureMessage", "checksum mismatch");
+        java.util.List<Map<String, Object>> manifestRecentFailures = new java.util.ArrayList<>();
+        Map<String, Object> manifestEvent = new LinkedHashMap<>();
+        manifestEvent.put("ts", 120L);
+        manifestEvent.put("reason", "file_missing");
+        manifestEvent.put("message", "missing orders_data");
+        manifestRecentFailures.add(manifestEvent);
+        manifestStats.put("recentFailures", manifestRecentFailures);
+        manifestStats.put("recentFailuresDropped", 3L);
 
         Map<String, Object> transferTableStats = new LinkedHashMap<>();
         transferTableStats.put("total", 7L);
@@ -131,6 +141,8 @@ class RegionServerMainStatusPayloadTest {
         Map<?, ?> manifestFailureReasons = (Map<?, ?>) transferManifestVerification.get("failureReasons");
         Assertions.assertEquals(1L, ((Number) manifestFailureReasons.get("invalid_manifest")).longValue());
         Assertions.assertEquals(1L, ((Number) manifestFailureReasons.get("file_missing")).longValue());
+        Assertions.assertEquals(1, ((java.util.List<?>) transferManifestVerification.get("recentFailures")).size());
+        Assertions.assertEquals(3L, ((Number) transferManifestVerification.get("recentFailuresDropped")).longValue());
 
             Assertions.assertEquals(7L, ((Number) transferTable.get("total")).longValue());
             Assertions.assertEquals(4L, ((Number) transferTable.get("success")).longValue());

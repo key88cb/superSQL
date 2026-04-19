@@ -100,6 +100,8 @@ public class RegionServerMain {
             defaults.put("failureReasons", reasons);
             defaults.put("lastFailureReason", "");
             defaults.put("lastFailureMessage", "");
+            defaults.put("recentFailures", java.util.Collections.emptyList());
+            defaults.put("recentFailuresDropped", 0L);
             payload.put("transferManifestVerification", defaults);
         } else {
             payload.put("transferManifestVerification", transferManifestVerification);
