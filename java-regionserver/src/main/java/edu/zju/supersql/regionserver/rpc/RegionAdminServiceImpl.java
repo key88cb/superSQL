@@ -74,6 +74,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong transferTableFailureSourceIoError = new AtomicLong();
     private final AtomicLong transferTableFailureOther = new AtomicLong();
     private final AtomicLong transferTableLastFailureTs = new AtomicLong();
+    private final AtomicLong transferTableRecentFailuresDropped = new AtomicLong();
     private volatile String transferTableLastFailureReason = "";
     private volatile String transferTableLastFailureMessage = "";
     private final Object transferFailureHistoryLock = new Object();
@@ -662,6 +663,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("lastFailureReason", transferTableLastFailureReason);
         payload.put("lastFailureMessage", transferTableLastFailureMessage);
         payload.put("recentFailures", snapshotRecentTransferFailures());
+        payload.put("recentFailuresDropped", transferTableRecentFailuresDropped.get());
         return payload;
     }
 
@@ -730,6 +732,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             transferTableRecentFailures.addLast(event);
             while (transferTableRecentFailures.size() > TRANSFER_FAILURE_HISTORY_MAX_SIZE) {
                 transferTableRecentFailures.removeFirst();
+                transferTableRecentFailuresDropped.incrementAndGet();
             }
         }
     }

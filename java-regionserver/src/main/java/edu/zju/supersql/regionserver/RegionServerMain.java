@@ -113,6 +113,7 @@ public class RegionServerMain {
             defaults.put("lastFailureReason", "");
             defaults.put("lastFailureMessage", "");
             defaults.put("recentFailures", java.util.Collections.emptyList());
+            defaults.put("recentFailuresDropped", 0L);
             payload.put("transferTable", defaults);
         } else {
             payload.put("transferTable", transferTable);

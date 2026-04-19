@@ -790,6 +790,7 @@ class RegionAdminServiceImplTest {
         Map<String, Object> snapshot = service.getTransferTableStats();
         List<?> recent = (List<?>) snapshot.get("recentFailures");
         Assertions.assertEquals(8, recent.size());
+        Assertions.assertEquals(2L, ((Number) snapshot.get("recentFailuresDropped")).longValue());
 
         Map<?, ?> first = (Map<?, ?>) recent.get(0);
         Map<?, ?> last = (Map<?, ?>) recent.get(recent.size() - 1);

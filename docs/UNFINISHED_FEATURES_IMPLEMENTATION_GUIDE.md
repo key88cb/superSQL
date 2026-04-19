@@ -90,6 +90,7 @@
 - RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure/lastSuccessTs、失败原因分类、最近失败信息），便于外部排查迁移失败类型。
 - `transferTable` 失败原因分类已细化包含 `source_io_error`，便于区分源端本地 I/O 异常与链路/目标端拒绝类问题。
 - `transferTable` 统计已补充 `recentFailures` 有界窗口（最多 8 条），用于快速查看最近失败序列且控制 `/status` 体积。
+- `transferTable` 统计新增 `recentFailuresDropped`，用于提示窗口裁剪导致未展示的历史失败条目数量。
 - RegionServer `/status` 的 `transferTable.lastFailureMessage` 已做单行归一化与长度上限（256）控制，避免异常长错误信息影响状态接口可用性。
 - `RegionServiceImpl` 读写基础路径、`executeBatch`、索引相关接口。
 - 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`）用于拒绝 ACK 不足写入。

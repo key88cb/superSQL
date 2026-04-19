@@ -47,6 +47,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) transferTable.get("failure")).longValue());
         Assertions.assertEquals(0L, ((Number) transferTable.get("lastSuccessTs")).longValue());
         Assertions.assertTrue(((java.util.List<?>) transferTable.get("recentFailures")).isEmpty());
+        Assertions.assertEquals(0L, ((Number) transferTable.get("recentFailuresDropped")).longValue());
         Assertions.assertTrue(json.containsKey("timestamp"));
     }
 
@@ -84,6 +85,7 @@ class RegionServerMainStatusPayloadTest {
         event.put("message", "copyTableData rejected");
         recentFailures.add(event);
         transferTableStats.put("recentFailures", recentFailures);
+        transferTableStats.put("recentFailuresDropped", 4L);
 
         byte[] payload = RegionServerMain.buildStatusPayload(
                 "rs-9",
@@ -120,5 +122,6 @@ class RegionServerMainStatusPayloadTest {
             Assertions.assertEquals(0L, ((Number) failureReasons.get("source_io_error")).longValue());
             Assertions.assertEquals("target_reject", transferTable.get("lastFailureReason"));
             Assertions.assertEquals(1, ((java.util.List<?>) transferTable.get("recentFailures")).size());
+            Assertions.assertEquals(4L, ((Number) transferTable.get("recentFailuresDropped")).longValue());
     }
 }
