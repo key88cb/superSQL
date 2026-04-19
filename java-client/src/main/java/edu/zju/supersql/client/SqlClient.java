@@ -375,7 +375,6 @@ public class SqlClient {
     }
 
     private static void handleDdl(String sql, String activeMaster, RouteCache routeCache, ClientConfig config) throws Exception {
-        String normalized = sql.trim().toLowerCase();
         DdlAction action = classifyDdlAction(sql);
         Response r;
         if (action == DdlAction.CREATE_TABLE) {
