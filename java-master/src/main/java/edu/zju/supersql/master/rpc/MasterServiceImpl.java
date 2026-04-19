@@ -5,6 +5,7 @@ import edu.zju.supersql.master.MasterConfig;
 import edu.zju.supersql.master.MasterRuntimeContext;
 import edu.zju.supersql.master.ZkPaths;
 import edu.zju.supersql.master.balance.LoadBalancer;
+import edu.zju.supersql.master.migration.RegionMigrator;
 import edu.zju.supersql.master.meta.AssignmentManager;
 import edu.zju.supersql.master.meta.MetaManager;
 import edu.zju.supersql.rpc.*;
@@ -81,6 +82,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     private final LoadBalancer loadBalancer;
     private final RegionDdlExecutor regionDdlExecutor;
     private final RegionAdminExecutor regionAdminExecutor;
+    private final RegionMigrator regionMigrator;
     private final LongSupplier clockMs;
     private final long routeHealMinGapMs;
     private final long migrationStuckTimeoutMs;
@@ -189,6 +191,14 @@ public class MasterServiceImpl implements MasterService.Iface {
         this.regionDdlExecutor = regionDdlExecutor;
         this.regionAdminExecutor = regionAdminExecutor;
         this.clockMs = clockMs;
+        this.regionMigrator = new RegionMigrator(
+            metaManager,
+            assignmentManager,
+            regionAdminExecutor,
+            clockMs,
+            this::setMigrationContextBestEffort,
+            this::clearMigrationContextBestEffort,
+            this::touchStatusUpdatedAtBestEffort);
         this.routeHealMinGapMs = Math.max(0L, routeHealMinGapMs);
         this.routeRepairWindowSize = Math.max(1, routeRepairWindowSize);
         this.migrationStuckTimeoutMs = Math.max(0L, migrationStuckTimeoutMs);
@@ -717,7 +727,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 return r;
             }
 
-            return rebalanceReplica(candidate, source, target);
+            return regionMigrator.rebalanceReplica(candidate, source, target);
         } catch (Exception e) {
             throw new TException("Failed to trigger rebalance", e);
         }

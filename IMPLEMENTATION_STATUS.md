@@ -24,6 +24,7 @@
 - `triggerRebalance()` 迁移中会写入 `migrationAttemptId`（PREPARING/MOVING 可观测），成功与回滚后会清理该字段，便于后续幂等恢复扩展。
 - `triggerRebalance()` 已补充迁移上下文字段（`migrationSourceReplicaId` / `migrationTargetReplicaId`）；卡死迁移超时恢复不再仅回写状态，会按阶段执行补偿：`FINALIZING` 优先清理 source，`PREPARING/MOVING/ROLLBACK` 优先清理 target，再恢复为 `ACTIVE`。
 - 卡死迁移恢复已收紧为“补偿成功后才转 `ACTIVE`”：若可达副本上的必要清理失败，则维持原迁移状态与上下文字段，避免出现“状态已恢复但数据面残留未收敛”的假恢复。
+- Master 迁移主流程已抽离到独立组件 `RegionMigrator`（`PREPARING -> MOVING -> FINALIZING/ROLLBACK -> ACTIVE`），`MasterServiceImpl` 调度入口改为调用该组件执行迁移编排。
 - `triggerRebalance()` 候选选择已限制为 `ACTIVE` 表，避免对 `PREPARING/MOVING` 表重复触发迁移。
 - `createTable` 成功落盘元数据后也会初始化 `statusUpdatedAt`，保证新表从创建时起具备状态时间戳。
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。
