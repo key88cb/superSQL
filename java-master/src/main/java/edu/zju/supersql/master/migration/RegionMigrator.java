@@ -11,7 +11,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
@@ -55,6 +58,14 @@ public final class RegionMigrator {
     @FunctionalInterface
     public interface RecoveryResolver {
         RegionServerInfo resolve(TableLocation location, String replicaId);
+    }
+
+    @FunctionalInterface
+    public interface RecoveryCandidateResolver {
+        List<RegionServerInfo> resolve(TableLocation location,
+                                       String compensationRole,
+                                       String sourceReplicaId,
+                                       String targetReplicaId);
     }
 
     @FunctionalInterface
@@ -498,7 +509,8 @@ public final class RegionMigrator {
     public TableLocation recoverStuckMigrationWithConfirmation(TableLocation location,
                                                                long migrationStuckTimeoutMs,
                                                                MigrationContextReader migrationContextReader,
-                                                               RecoveryResolver recoveryResolver) {
+                                                               RecoveryResolver recoveryResolver,
+                                                               RecoveryCandidateResolver recoveryCandidateResolver) {
         if (location == null || !location.isSetTableName()) {
             return location;
         }
@@ -528,52 +540,53 @@ public final class RegionMigrator {
         String targetReplicaId = migrationContext.targetReplicaId();
         String compensationRole = resolveCompensationRole(currentStatus, migrationContext);
         String compensationReplicaId = resolveCompensationReplicaId(compensationRole, sourceReplicaId, targetReplicaId);
-
-        if (compensationRole != null
-                && (compensationReplicaId == null || compensationReplicaId.isBlank())) {
-            if (STATUS_MOVING.equalsIgnoreCase(currentStatus)
-                    || STATUS_PREPARING.equalsIgnoreCase(currentStatus)
-                    || STATUS_ROLLBACK.equalsIgnoreCase(currentStatus)) {
-                // No target context means transfer likely never created target side artifacts; safe to finalize ACTIVE.
-                compensationRole = null;
-            } else {
-                return transitionToCompensating(location,
-                        attemptId,
-                        sourceReplicaId,
-                        targetReplicaId,
-                        compensationRole,
-                        "missing compensation replica id for role=" + compensationRole + " status=" + currentStatus,
-                        now);
-            }
-        }
+        boolean missingCompensationReplicaId = compensationRole != null
+            && (compensationReplicaId == null || compensationReplicaId.isBlank());
 
         if (compensationRole != null) {
+            boolean cleaned = false;
+            String cleanupReason = "recover_stuck_" + (currentStatus == null
+                ? "unknown"
+                : currentStatus.toLowerCase());
+            if (!missingCompensationReplicaId) {
             RegionServerInfo compensationReplica = recoveryResolver.resolve(location, compensationReplicaId);
-            if (compensationReplica == null) {
-                return transitionToCompensating(location,
-                        attemptId,
-                        sourceReplicaId,
-                        targetReplicaId,
-                        compensationRole,
-                        "missing replica instance for compensation role=" + compensationRole + " replicaId=" + compensationReplicaId,
-                        now);
-            }
-                    String cleanupReason = "recover_stuck_" + (currentStatus == null
-                        ? "unknown"
-                        : currentStatus.toLowerCase());
-            boolean cleaned = cleanupReplicaWithConfirmation(
+            if (compensationReplica != null) {
+                cleaned = cleanupReplicaWithConfirmation(
                     compensationReplica,
                     location.getTableName(),
                     cleanupReason,
                     compensationRole);
+            }
+            }
+
             if (!cleaned) {
+            boolean cleanedByCandidates = cleanupViaRecoveryCandidates(
+                location,
+                compensationRole,
+                sourceReplicaId,
+                targetReplicaId,
+                cleanupReason,
+                recoveryCandidateResolver);
+            if (!cleanedByCandidates) {
+                if (missingCompensationReplicaId
+                    && (STATUS_MOVING.equalsIgnoreCase(currentStatus)
+                    || STATUS_PREPARING.equalsIgnoreCase(currentStatus)
+                    || STATUS_ROLLBACK.equalsIgnoreCase(currentStatus))) {
+                // No target context and no cross-node cleanup candidates: safe to finalize ACTIVE.
+                compensationRole = null;
+                } else {
+                String reason = missingCompensationReplicaId
+                    ? "missing compensation replica id for role=" + compensationRole
+                    : "cleanup confirmation failed role=" + compensationRole + " replicaId=" + compensationReplicaId;
                 return transitionToCompensating(location,
-                        attemptId,
-                        sourceReplicaId,
-                        targetReplicaId,
-                        compensationRole,
-                        "cleanup confirmation failed role=" + compensationRole + " replicaId=" + compensationReplicaId,
-                        now);
+                    attemptId,
+                    sourceReplicaId,
+                    targetReplicaId,
+                    compensationRole,
+                    reason + " status=" + currentStatus,
+                    now);
+                }
+            }
             }
         }
 
@@ -643,6 +656,88 @@ public final class RegionMigrator {
             return targetReplicaId;
         }
         return null;
+    }
+
+    private boolean cleanupViaRecoveryCandidates(TableLocation location,
+                                                 String compensationRole,
+                                                 String sourceReplicaId,
+                                                 String targetReplicaId,
+                                                 String cleanupReason,
+                                                 RecoveryCandidateResolver recoveryCandidateResolver) {
+        if (recoveryCandidateResolver == null || location == null || !location.isSetTableName()) {
+            return false;
+        }
+
+        List<RegionServerInfo> resolvedCandidates;
+        try {
+            resolvedCandidates = recoveryCandidateResolver.resolve(
+                    location,
+                    compensationRole,
+                    sourceReplicaId,
+                    targetReplicaId);
+        } catch (Exception e) {
+            log.warn("recoverStuckMigration cross-node candidate resolve failed table={} role={} cause={}",
+                    location.getTableName(),
+                    compensationRole,
+                    e.getMessage());
+            return false;
+        }
+
+        if (resolvedCandidates == null || resolvedCandidates.isEmpty()) {
+            return false;
+        }
+
+        Set<String> assignedReplicaIds = assignedReplicaIds(location);
+        Set<String> seen = new HashSet<>();
+        List<RegionServerInfo> cleanupCandidates = new ArrayList<>();
+        for (RegionServerInfo candidate : resolvedCandidates) {
+            if (candidate == null || !candidate.isSetId() || candidate.getId().isBlank()) {
+                continue;
+            }
+            String replicaId = candidate.getId();
+            if (!seen.add(replicaId)) {
+                continue;
+            }
+            if (assignedReplicaIds.contains(replicaId)) {
+                continue;
+            }
+            cleanupCandidates.add(candidate);
+        }
+        if (cleanupCandidates.isEmpty()) {
+            return false;
+        }
+
+        String fallbackRole = (compensationRole == null || compensationRole.isBlank())
+                ? "cross_node"
+                : compensationRole + "_cross_node";
+        for (RegionServerInfo candidate : cleanupCandidates) {
+            boolean cleaned = cleanupReplicaWithConfirmation(
+                    candidate,
+                    location.getTableName(),
+                    cleanupReason,
+                    fallbackRole);
+            if (!cleaned) {
+                return false;
+            }
+        }
+
+        log.warn("recoverStuckMigration cross-node cleanup succeeded table={} role={} candidates={}",
+                location.getTableName(),
+                compensationRole,
+                cleanupCandidates.stream().map(RegionServerInfo::getId).toList());
+        return true;
+    }
+
+    private static Set<String> assignedReplicaIds(TableLocation location) {
+        Set<String> assigned = new LinkedHashSet<>();
+        if (location != null && location.isSetReplicas() && location.getReplicas() != null) {
+            for (RegionServerInfo replica : location.getReplicas()) {
+                if (replica != null && replica.isSetId() && !replica.getId().isBlank()) {
+                    assigned.add(replica.getId());
+                }
+            }
+        }
+        return assigned;
     }
 
     private TableLocation transitionToCompensating(TableLocation location,

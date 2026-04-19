@@ -909,7 +909,7 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
-    void getTableLocationShouldEnterCompensatingWhenTargetCleanupFails() throws Exception {
+    void getTableLocationShouldRecoverViaCrossNodeCleanupWhenTargetCleanupFails() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
         registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
@@ -955,13 +955,17 @@ class MasterServiceMetadataIntegrationTest {
                 5_000L);
 
         TableLocation recovered = blockedService.getTableLocation("t_stuck_moving_blocked");
-        Assertions.assertEquals("COMPENSATING", recovered.getTableStatus());
+            Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+            Assertions.assertTrue(blockedAdmin.operations.stream().anyMatch(op ->
+                "delete".equals(op.method())
+                    && "t_stuck_moving_blocked".equals(op.tableName())
+                    && !"rs-4".equals(op.replicaId())));
 
         Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_moving_blocked");
-        Assertions.assertEquals("COMPENSATING", String.valueOf(finalMeta.get("tableStatus")));
-        Assertions.assertEquals("attempt-moving-blocked", String.valueOf(finalMeta.get("migrationAttemptId")));
-        Assertions.assertEquals("target", String.valueOf(finalMeta.get("migrationCompensationRole")));
-        Assertions.assertEquals("true", String.valueOf(finalMeta.get("migrationCompensationBlocked")));
+            Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+            Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
+            Assertions.assertFalse(finalMeta.containsKey("migrationCompensationRole"));
+            Assertions.assertFalse(finalMeta.containsKey("migrationCompensationBlocked"));
     }
 
     @Test
@@ -1048,6 +1052,98 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertEquals("attempt-moving-missing-target", String.valueOf(finalMeta.get("migrationAttemptId")));
         Assertions.assertEquals("target", String.valueOf(finalMeta.get("migrationCompensationRole")));
         Assertions.assertEquals("true", String.valueOf(finalMeta.get("migrationCompensationBlocked")));
+    }
+
+    @Test
+    void getTableLocationShouldRecoverViaCrossNodeCleanupWhenSourceReplicaIdMissing() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_stuck_finalizing_cross_node(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_finalizing_cross_node").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "FINALIZING");
+        meta.put("migrationAttemptId", "attempt-finalizing-cross-node");
+        meta.put("migrationSourceReplicaId", "rs-missing");
+        meta.put("migrationTargetReplicaId", "rs-4");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_finalizing_cross_node",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        RecordingRegionAdminExecutor recoveringAdmin = new RecordingRegionAdminExecutor();
+        MasterServiceImpl recoveringService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                recoveringAdmin,
+                clock::get,
+                1_000L,
+                10,
+                5_000L);
+
+        TableLocation recovered = recoveringService.getTableLocation("t_stuck_finalizing_cross_node");
+        Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+        Assertions.assertTrue(recoveringAdmin.operations.stream().anyMatch(op ->
+                "delete".equals(op.method())
+                        && "t_stuck_finalizing_cross_node".equals(op.tableName())));
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_finalizing_cross_node");
+        Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
+    }
+
+    @Test
+    void getTableLocationShouldRecoverViaCrossNodeCleanupWhenTargetReplicaIdMissing() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_stuck_moving_cross_node(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_moving_cross_node").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "MOVING");
+        meta.put("migrationAttemptId", "attempt-moving-cross-node");
+        meta.put("migrationSourceReplicaId", "rs-2");
+        meta.put("migrationTargetReplicaId", "rs-missing");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_moving_cross_node",
+                MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        RecordingRegionAdminExecutor recoveringAdmin = new RecordingRegionAdminExecutor();
+        MasterServiceImpl recoveringService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                recoveringAdmin,
+                clock::get,
+                1_000L,
+                10,
+                5_000L);
+
+        TableLocation recovered = recoveringService.getTableLocation("t_stuck_moving_cross_node");
+        Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+        Assertions.assertTrue(recoveringAdmin.operations.stream().anyMatch(op ->
+                "delete".equals(op.method())
+                        && "t_stuck_moving_cross_node".equals(op.tableName())));
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_moving_cross_node");
+        Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
     }
 
     @Test

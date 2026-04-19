@@ -26,6 +26,7 @@
 - 卡死迁移恢复已升级为“可确认完成协议”：必要清理由 `deleteLocalTable` 多次重试确认（`OK/TABLE_NOT_FOUND` 视为确认完成），仅在补偿确认后才回到 `ACTIVE`。
 - 当补偿确认失败或补偿对象不可解析时，状态会进入 `COMPENSATING`（而非继续停留在历史迁移态），并保留 `migrationCompensationRole/migrationCompensationBlocked/migrationCompensationLastError/migrationCompensationUpdatedAtMs` 以支持后续自动重试收敛。
 - 对于 `MOVING/PREPARING/ROLLBACK` 且缺少 target 上下文的历史残留场景，恢复逻辑保留安全兜底（可直接回收为 `ACTIVE`），避免因上下文缺失导致永久卡死；其余场景坚持“补偿确认优先”。
+- `RegionMigrator` 已补充跨节点补偿恢复策略：当 source/target 补偿副本缺失或不可解析时，会在“非 assignment 在线节点”执行补偿清理确认，成功后可继续收敛回 `ACTIVE`。
 - Master 迁移主流程已抽离到独立组件 `RegionMigrator`（`PREPARING -> MOVING -> FINALIZING/ROLLBACK -> ACTIVE`），`MasterServiceImpl` 调度入口改为调用该组件执行迁移编排。
 - 卡死迁移恢复逻辑已进一步下沉到 `RegionMigrator`：`MasterServiceImpl` 仅保留迁移上下文读写与副本解析回调，迁移编排与超时恢复收敛到统一组件。
 - 迁移补偿相关回调与调度入口命名已去除 `best-effort` 语义（如 `set/clear/readMigrationContext`、`recoverStuckMigrationsForRebalanceWithConfirmation`），与“确认后完成”的协议语义保持一致。

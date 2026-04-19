@@ -361,7 +361,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                     table,
                     migrationStuckTimeoutMs,
                     this::readMigrationContext,
-                    this::resolveRegionServerForRecovery);
+                    this::resolveRegionServerForRecovery,
+                    this::resolveCrossNodeRecoveryCandidates);
                 TableLocation healed = healTableLocationBestEffort(recovered);
                 String after = healSignature(healed);
                 if (!Objects.equals(before, after)) {
@@ -539,7 +540,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                 location,
                 migrationStuckTimeoutMs,
                 this::readMigrationContext,
-                this::resolveRegionServerForRecovery);
+                this::resolveRegionServerForRecovery,
+                this::resolveCrossNodeRecoveryCandidates);
             return healTableLocationBestEffort(recovered);
         } catch (Exception e) {
             throw new TException("Failed to resolve table location: " + tableName, e);
@@ -704,7 +706,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                     location,
                     migrationStuckTimeoutMs,
                     this::readMigrationContext,
-                    this::resolveRegionServerForRecovery);
+                    this::resolveRegionServerForRecovery,
+                    this::resolveCrossNodeRecoveryCandidates);
                 healed.add(healTableLocationBestEffort(recovered));
             }
             return healed;
@@ -793,7 +796,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                     location,
                     migrationStuckTimeoutMs,
                     this::readMigrationContext,
-                    this::resolveRegionServerForRecovery);
+                    this::resolveRegionServerForRecovery,
+                    this::resolveCrossNodeRecoveryCandidates);
                 if (!Objects.equals(location.getTableStatus(), recoveredLocation.getTableStatus())
                         && "ACTIVE".equalsIgnoreCase(recoveredLocation.getTableStatus())) {
                     recovered++;
@@ -1242,6 +1246,46 @@ public class MasterServiceImpl implements MasterService.Iface {
                     e.getMessage());
         }
         return null;
+    }
+
+    private List<RegionServerInfo> resolveCrossNodeRecoveryCandidates(TableLocation location,
+                                                                       String compensationRole,
+                                                                       String sourceReplicaId,
+                                                                       String targetReplicaId) {
+        Set<String> assignedReplicaIds = new HashSet<>();
+        if (location != null && location.isSetReplicas() && location.getReplicas() != null) {
+            for (RegionServerInfo replica : location.getReplicas()) {
+                if (replica != null && replica.isSetId() && !replica.getId().isBlank()) {
+                    assignedReplicaIds.add(replica.getId());
+                }
+            }
+        }
+
+        List<RegionServerInfo> candidates = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        try {
+            for (RegionServerInfo regionServerInfo : listRegionServers()) {
+                if (regionServerInfo == null || !regionServerInfo.isSetId() || regionServerInfo.getId().isBlank()) {
+                    continue;
+                }
+                String replicaId = regionServerInfo.getId();
+                if (!seen.add(replicaId)) {
+                    continue;
+                }
+                if (assignedReplicaIds.contains(replicaId)) {
+                    continue;
+                }
+                candidates.add(regionServerInfo);
+            }
+        } catch (Exception e) {
+            log.warn("resolveCrossNodeRecoveryCandidates failed table={} role={} source={} target={} cause={}",
+                    location == null ? "" : location.getTableName(),
+                    compensationRole,
+                    sourceReplicaId,
+                    targetReplicaId,
+                    e.getMessage());
+        }
+        return candidates;
     }
 
     @SuppressWarnings("unchecked")
