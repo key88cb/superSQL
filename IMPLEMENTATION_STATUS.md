@@ -122,6 +122,9 @@
 - ReplicaSyncServiceImpl 的 `commitLog` 已具备幂等语义：重复 COMMIT 不再重复回放 SQL。
 - ReplicaSyncServiceImpl 的 `pullLog/getMaxLsn` 已收敛为仅暴露 COMMITTED 日志（并在启动时恢复 committed 索引），避免将未提交 PREPARE 暴露给追赶链路。
 - ReplicaSyncServiceImpl 已新增超时 PREPARE 自动决议（超时后本地标记 ABORT 并从内存待提交集合移除），降低跨节点提交确认丢失时 PREPARE 长期滞留风险。
+- ReplicaSyncService/ReplicaManager 已落地显式最终决议 RPC 语义：新增 `finalizeLogDecision` 与 `getLogDecisionState`，主副本可显式下发 COMMIT/ABORT 终局并查询副本决议状态。
+- ReplicaSyncServiceImpl 已支持“legacy commit + 显式决议”双轨兼容：`commitLog` 保持历史幂等语义（COMMITTED/ALREADY_COMMITTED），显式 ABORT 冲突会拒绝后续提交，超时自动 ABORT 保持 TABLE_NOT_FOUND 兼容行为。
+- ReplicaSyncServiceImpl 启动恢复已支持从 WAL 状态重建决议状态（COMMITTED/ABORTED），保证重启后决议查询与重复决议幂等行为一致。
 - 主副本对副本 `commitLog` 通知已增加有界重试（best-effort），降低短暂网络抖动下的提交通知丢失概率。
 - 当 `commitLog` 因 `TABLE_NOT_FOUND` 失败进入待重试队列时，ReplicaManager 会基于 donor 的 `pullLog` 定向回填缺失日志后再重试 commit，提升无新写入场景下的自愈收敛能力。
 - ReplicaManager 待重试队列已引入退避节流窗口，避免对故障副本持续高频无效重试；并新增 `throttledSkipCount/stalledCount/oldestPendingAgeMs` 观测字段用于识别重试停滞。
@@ -146,7 +149,7 @@
 - RegionServer `/status` 已补充 `prepareDecision` 与 `replicaCommitRetry` 统计，支持观测 PREPARE 超时决议与副本提交通知重试收敛情况；其中 `replicaCommitRetry` 进一步包含 repair 计数与错误分类分布（如 `table_not_found`/`transport_error`）。
 
 当前限制：
-- WAL、ReplicaManager 与 ReplicaSyncService 尚未达到完整最终协议语义（当前已具备“超时 PREPARE 自动 ABORT”与 `decision-ready` 后多数派已提交自动终局；但跨节点显式最终决议确认链路仍未完全闭环）。
+- WAL、ReplicaManager 与 ReplicaSyncService 已落地显式最终决议 RPC 与自动终局主链路；后续仍需继续加强极端网络分区下的跨节点一致性混沌验证与运维处置自动化。
 - Region 迁移、主副本晋升、恢复 3 副本等自治能力还未打通完整闭环。
 - transfer/copyTableData 已有基础实现，但尚未形成完整迁移协议。
 
@@ -258,6 +261,7 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：rebalance `FINALIZING` 阶段可观测性，以及超时 `MOVING` 状态在读路径触发下自动恢复为 `ACTIVE` 的自恢复语义。
 - 2026-04-19 已补充覆盖：checkpoint 与 recover 对陈旧 PREPARE 的自动裁剪（`LSN<=checkpointLsn`）语义，避免悬挂 PREPARE 污染后续恢复与统计。
 - 2026-04-19 已补充覆盖：`copyTableData` 在“进行中重复 chunk”与“完成后重复末块”场景下的幂等确认语义，避免误触发 offset reset。
+- 2026-04-19 已补充覆盖：显式最终决议 RPC（`finalizeLogDecision/getLogDecisionState`）与 legacy `commitLog` 兼容语义（显式 ABORT 冲突拒绝、超时自动 ABORT 返回 `TABLE_NOT_FOUND`）的回归验证。
 - 2026-04-19 已补充覆盖：`copyTableData` 在“重复 offset 但内容冲突”场景下会返回错误且保持传输进度，后续正确 chunk 可继续完成迁移。
 - 2026-04-19 已补充覆盖：`triggerRebalance` 在“集群已平衡”返回前会先执行卡死迁移预恢复，验证调度路径不再依赖读路径才能回收超时状态。
 - 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（总量 + `rebalance/recovery` 分项 + 分项最近错误）与 Master `/status` 中 `migration` 字段契约。

@@ -18,7 +18,7 @@ echo "==> Generating Thrift Java stubs via Docker..."
 docker run --rm \
     -v "$(pwd)/rpc-proto:/work" \
     -w /work \
-    thrift:0.20 \
+    thrift \
     thrift \
         --gen "java:beans,private-members" \
         -out src/main/java \

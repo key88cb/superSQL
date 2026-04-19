@@ -41,6 +41,11 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
     static final Map<String, ConcurrentSkipListMap<Long, WalEntry>> WAL_BY_TABLE =
             new ConcurrentHashMap<>();
     static final Map<String, Set<Long>> COMMITTED_LSNS = new ConcurrentHashMap<>();
+        static final Map<String, ConcurrentHashMap<Long, DecisionRecord>> FINAL_DECISIONS_BY_TABLE =
+            new ConcurrentHashMap<>();
+
+        private record DecisionRecord(boolean committed, String decisionId, long decidedAtMs) {
+        }
 
     private final MiniSqlProcess miniSql;
     private final WalManager walManager;
@@ -74,6 +79,7 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
         log.info("ReplicaSyncServiceImpl: restoring pending logs from WAL...");
         WAL_BY_TABLE.clear();
         COMMITTED_LSNS.clear();
+        FINAL_DECISIONS_BY_TABLE.clear();
         
         File dir = new File(walManager.getWalDir());
         File[] files = dir.listFiles((d, name) -> name.endsWith(".wal"));
@@ -102,6 +108,22 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
                     }
                     log.info("Restored {} pending logs for table={}", uncommitted.size(), tableName);
                 }
+
+                Map<Long, Byte> statuses = walManager.readEntryStatuses(tableName);
+                if (!statuses.isEmpty()) {
+                    ConcurrentHashMap<Long, DecisionRecord> decisionMap = tableDecisions(tableName);
+                    for (Map.Entry<Long, Byte> statusEntry : statuses.entrySet()) {
+                        long lsn = statusEntry.getKey();
+                        byte status = statusEntry.getValue();
+                        if (status == 1) {
+                            decisionMap.put(lsn,
+                                    new DecisionRecord(true, "recovered-commit-" + tableName + "-" + lsn, System.currentTimeMillis()));
+                        } else if (status == 2) {
+                            decisionMap.put(lsn,
+                                    new DecisionRecord(false, "recovered-abort-" + tableName + "-" + lsn, System.currentTimeMillis()));
+                        }
+                    }
+                }
             } catch (IOException e) {
                 log.error("Failed to restore logs for table={}: {}", tableName, e.getMessage());
             }
@@ -114,6 +136,7 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
     public static void resetForTests() {
         WAL_BY_TABLE.clear();
         COMMITTED_LSNS.clear();
+        FINAL_DECISIONS_BY_TABLE.clear();
     }
 
     public void resolveTimedOutPreparesBestEffort() {
@@ -171,6 +194,10 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
                         walManager.abort(tableName, lsn);
                     }
                     if (wal.remove(lsn, entry)) {
+                        tableDecisions(tableName).put(lsn,
+                                new DecisionRecord(false,
+                                        "auto-timeout-abort-" + tableName + "-" + lsn,
+                                        System.currentTimeMillis()));
                         prepareResolutionAutoAborted.incrementAndGet();
                         prepareResolutionLastAbortAtMs.set(System.currentTimeMillis());
                         prepareResolutionLastAbortLsn.set(lsn);
@@ -192,6 +219,19 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
         if (entry == null || !entry.isSetTableName() || !entry.isSetLsn()) {
             Response r = new Response(StatusCode.ERROR);
             r.setMessage("Invalid wal entry");
+            return r;
+        }
+
+        DecisionRecord existingDecision = tableDecisions(entry.getTableName()).get(entry.getLsn());
+        if (existingDecision != null) {
+            if (!existingDecision.committed()) {
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("Entry already finalized as ABORT for table="
+                        + entry.getTableName() + " lsn=" + entry.getLsn());
+                return r;
+            }
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("ACK_ALREADY_DECIDED_COMMIT lsn=" + entry.getLsn());
             return r;
         }
 
@@ -263,53 +303,170 @@ public class ReplicaSyncServiceImpl implements ReplicaSyncService.Iface {
 
     @Override
     public Response commitLog(String tableName, long lsn) throws TException {
+        LogDecisionState state = getLogDecisionState(tableName, lsn);
+        if (state.isDecided() && state.isSetCommitted() && !state.isCommitted()) {
+            String decisionId = state.getDecisionId();
+            if (decisionId != null && decisionId.startsWith("auto-timeout-abort-")) {
+                Response r = new Response(StatusCode.TABLE_NOT_FOUND);
+                r.setMessage("No wal entry found for table=" + tableName + " lsn=" + lsn);
+                return r;
+            }
+        }
+        Response finalize = finalizeLogDecision(
+                tableName,
+                lsn,
+                true,
+                "legacy-commit-" + tableName + "-" + lsn,
+                System.currentTimeMillis());
+        if (finalize.getCode() == StatusCode.OK
+                && finalize.getMessage() != null
+                && finalize.getMessage().startsWith("DECIDED_COMMIT")) {
+            finalize.setMessage("COMMITTED lsn=" + lsn);
+        }
+        return finalize;
+    }
+
+    @Override
+    public Response finalizeLogDecision(String tableName,
+                                        long lsn,
+                                        boolean committed,
+                                        String decisionId,
+                                        long decidedAtMs) throws TException {
         resolveTimedOutPreparesBestEffort();
-        Set<Long> committed = COMMITTED_LSNS.computeIfAbsent(tableName, k -> ConcurrentHashMap.newKeySet());
-        if (committed.contains(lsn)) {
+        if (tableName == null || tableName.isBlank()) {
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("Invalid table name");
+            return r;
+        }
+        String normalizedDecisionId =
+                (decisionId == null || decisionId.isBlank())
+                        ? "decision-" + tableName + "-" + lsn + "-" + (committed ? "commit" : "abort")
+                        : decisionId;
+        long decisionTs = decidedAtMs > 0L ? decidedAtMs : System.currentTimeMillis();
+
+        ConcurrentHashMap<Long, DecisionRecord> decisions = tableDecisions(tableName);
+        DecisionRecord existingDecision = decisions.get(lsn);
+        if (existingDecision != null) {
+            if (existingDecision.committed() == committed) {
+                Response r = new Response(StatusCode.OK);
+                r.setMessage(committed
+                        ? "ALREADY_COMMITTED lsn=" + lsn
+                        : "ALREADY_ABORTED lsn=" + lsn);
+                return r;
+            }
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("Decision conflict for table=" + tableName + " lsn=" + lsn
+                    + ": existingCommitted=" + existingDecision.committed());
+            return r;
+        }
+
+        Set<Long> committedLsns = COMMITTED_LSNS.computeIfAbsent(tableName, k -> ConcurrentHashMap.newKeySet());
+        if (committed && committedLsns.contains(lsn)) {
+            decisions.put(lsn, new DecisionRecord(true, normalizedDecisionId, decisionTs));
             Response r = new Response(StatusCode.OK);
             r.setMessage("ALREADY_COMMITTED lsn=" + lsn);
             return r;
         }
 
         ConcurrentSkipListMap<Long, WalEntry> wal = WAL_BY_TABLE.get(tableName);
-        if (wal == null || !wal.containsKey(lsn)) {
-            Response r = new Response(StatusCode.TABLE_NOT_FOUND);
-            r.setMessage("No wal entry found for table=" + tableName + " lsn=" + lsn);
+        WalEntry entry = wal == null ? null : wal.get(lsn);
+
+        if (committed) {
+            if (entry == null) {
+                Response r = new Response(StatusCode.TABLE_NOT_FOUND);
+                r.setMessage("No wal entry found for table=" + tableName + " lsn=" + lsn);
+                return r;
+            }
+
+            if (!committedLsns.contains(lsn)) {
+                if (miniSql != null && entry.isSetAfterRow()) {
+                    String sql = new String(entry.getAfterRow(), StandardCharsets.UTF_8);
+                    try {
+                        miniSql.execute(sql);
+                        log.debug("finalizeLogDecision(commit): replayed lsn={} sql={}", lsn, sql);
+                    } catch (Exception e) {
+                        log.error("finalizeLogDecision(commit): failed to replay lsn={} sql={}: {}", lsn, sql, e.getMessage());
+                        Response r = new Response(StatusCode.ERROR);
+                        r.setMessage("Replay failed: " + e.getMessage());
+                        return r;
+                    }
+                }
+
+                if (walManager != null) {
+                    walManager.commit(tableName, lsn);
+                }
+                committedLsns.add(lsn);
+            }
+
+            decisions.put(lsn, new DecisionRecord(true, normalizedDecisionId, decisionTs));
+            Response r = new Response(StatusCode.OK);
+            r.setMessage("DECIDED_COMMIT lsn=" + lsn + " decisionId=" + normalizedDecisionId);
             return r;
         }
 
-        WalEntry entry = wal.get(lsn);
+        if (committedLsns.contains(lsn)) {
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("Cannot ABORT already committed log table=" + tableName + " lsn=" + lsn);
+            return r;
+        }
 
-        // Replay SQL on local engine (write-through to secondary's miniSQL)
-        if (miniSql != null && entry.isSetAfterRow()) {
-            String sql = new String(entry.getAfterRow(), StandardCharsets.UTF_8);
+        if (entry != null && walManager != null) {
             try {
-                miniSql.execute(sql);
-                log.debug("commitLog: replayed lsn={} sql={}", lsn, sql);
+                walManager.abort(tableName, lsn);
             } catch (Exception e) {
-                log.error("commitLog: failed to replay lsn={} sql={}: {}", lsn, sql, e.getMessage());
+                log.warn("finalizeLogDecision(abort): failed to persist ABORT table={} lsn={}: {}",
+                        tableName, lsn, e.getMessage());
                 Response r = new Response(StatusCode.ERROR);
-                r.setMessage("Replay failed: " + e.getMessage());
+                r.setMessage("Abort persistence failed: " + e.getMessage());
                 return r;
             }
         }
+        if (wal != null) {
+            wal.remove(lsn);
+        }
+        decisions.put(lsn, new DecisionRecord(false, normalizedDecisionId, decisionTs));
+        Response r = new Response(StatusCode.OK);
+        r.setMessage("DECIDED_ABORT lsn=" + lsn + " decisionId=" + normalizedDecisionId);
+        return r;
+    }
 
-        // S4-04: Mark as COMMITTED on disk
-        if (walManager != null) {
-            walManager.commit(tableName, lsn);
+    @Override
+    public LogDecisionState getLogDecisionState(String tableName, long lsn) throws TException {
+        resolveTimedOutPreparesBestEffort();
+        LogDecisionState state = new LogDecisionState(false);
+        if (tableName == null || tableName.isBlank()) {
+            return state;
         }
 
-        committed.add(lsn);
+        DecisionRecord decision = tableDecisions(tableName).get(lsn);
+        if (decision != null) {
+            state.setDecided(true);
+            state.setCommitted(decision.committed());
+            state.setDecisionId(decision.decisionId());
+            state.setDecidedAtMs(decision.decidedAtMs());
+            return state;
+        }
 
-        Response r = new Response(StatusCode.OK);
-        r.setMessage("COMMITTED lsn=" + lsn);
-        return r;
+        Set<Long> committed = COMMITTED_LSNS.get(tableName);
+        if (committed != null && committed.contains(lsn)) {
+            state.setDecided(true);
+            state.setCommitted(true);
+            state.setDecisionId("legacy-commit-" + tableName + "-" + lsn);
+            state.setDecidedAtMs(0L);
+            return state;
+        }
+
+        return state;
     }
 
     // ─────────────────────── helpers ──────────────────────────────────────────
 
     private static ConcurrentSkipListMap<Long, WalEntry> tableWal(String tableName) {
         return WAL_BY_TABLE.computeIfAbsent(tableName, k -> new ConcurrentSkipListMap<>());
+    }
+
+    private static ConcurrentHashMap<Long, DecisionRecord> tableDecisions(String tableName) {
+        return FINAL_DECISIONS_BY_TABLE.computeIfAbsent(tableName, k -> new ConcurrentHashMap<>());
     }
 
     private static long readLongEnv(String key, long fallback) {

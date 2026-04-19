@@ -281,6 +281,42 @@ public class WalManager {
         return result;
     }
 
+    /**
+     * Reads the latest persisted status byte for each LSN in a table WAL file.
+     *
+     * <p>Status encoding: 0=PREPARE, 1=COMMITTED, 2=ABORTED.
+     */
+    public java.util.Map<Long, Byte> readEntryStatuses(String tableName) throws IOException {
+        java.util.Map<Long, Byte> statuses = new java.util.LinkedHashMap<>();
+        Path walFile = walFilePath(tableName);
+        if (!Files.exists(walFile)) {
+            return statuses;
+        }
+
+        try (RandomAccessFile raf = new RandomAccessFile(walFile.toFile(), "r")) {
+            long fileLen = raf.length();
+            while (raf.getFilePointer() < fileLen) {
+                if (fileLen - raf.getFilePointer() < HEADER_SIZE) {
+                    break;
+                }
+                long lsn = raf.readLong();
+                raf.readLong(); // txnId
+                raf.readByte(); // opType
+                byte status = raf.readByte();
+                int sqlLen = raf.readInt();
+                if (sqlLen < 0 || sqlLen > 1_048_576) {
+                    break;
+                }
+                if (raf.getFilePointer() + sqlLen > fileLen) {
+                    break;
+                }
+                raf.seek(raf.getFilePointer() + sqlLen);
+                statuses.put(lsn, status);
+            }
+        }
+        return statuses;
+    }
+
     // ─────────────────────── checkpoint & cleanup ─────────────────────────────
 
     /**

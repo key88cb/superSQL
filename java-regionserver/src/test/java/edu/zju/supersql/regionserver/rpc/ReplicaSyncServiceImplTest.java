@@ -1,6 +1,7 @@
 package edu.zju.supersql.regionserver.rpc;
 
 import edu.zju.supersql.regionserver.MiniSqlProcess;
+import edu.zju.supersql.rpc.LogDecisionState;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
 import edu.zju.supersql.rpc.WalEntry;
@@ -208,6 +209,55 @@ class ReplicaSyncServiceImplTest {
         Response commitResponse = svc.commitLog(table, 201L);
         Assertions.assertEquals(StatusCode.OK, commitResponse.getCode());
         Mockito.verify(mockMiniSql).execute(sql);
+    }
+
+    @Test
+    void finalizeLogDecisionShouldCommitAndExposeDecisionState() throws Exception {
+        ReplicaSyncServiceImpl svc = service();
+        String table = "t_decision_commit";
+        long lsn = 301L;
+        String sql = "insert into t_decision_commit values(1);";
+
+        WalEntry entry = new WalEntry(lsn, System.currentTimeMillis(), table, WalOpType.INSERT, System.currentTimeMillis());
+        entry.setAfterRow(sql.getBytes());
+        Assertions.assertEquals(StatusCode.OK, svc.syncLog(entry).getCode());
+
+        Response finalize = svc.finalizeLogDecision(table, lsn, true, "decision-commit-301", System.currentTimeMillis());
+        Assertions.assertEquals(StatusCode.OK, finalize.getCode());
+        Assertions.assertTrue(finalize.getMessage().contains("DECIDED_COMMIT"));
+
+        LogDecisionState state = svc.getLogDecisionState(table, lsn);
+        Assertions.assertTrue(state.isDecided());
+        Assertions.assertTrue(state.isSetCommitted());
+        Assertions.assertTrue(state.isCommitted());
+        Assertions.assertEquals("decision-commit-301", state.getDecisionId());
+
+        Mockito.verify(mockMiniSql).execute(sql);
+    }
+
+    @Test
+    void finalizeLogDecisionShouldAbortAndRejectLaterCommit() throws Exception {
+        ReplicaSyncServiceImpl svc = service();
+        String table = "t_decision_abort";
+        long lsn = 302L;
+
+        WalEntry entry = new WalEntry(lsn, System.currentTimeMillis(), table, WalOpType.INSERT, System.currentTimeMillis());
+        entry.setAfterRow("insert into t_decision_abort values(1);".getBytes());
+        Assertions.assertEquals(StatusCode.OK, svc.syncLog(entry).getCode());
+
+        Response abort = svc.finalizeLogDecision(table, lsn, false, "decision-abort-302", System.currentTimeMillis());
+        Assertions.assertEquals(StatusCode.OK, abort.getCode());
+        Assertions.assertTrue(abort.getMessage().contains("DECIDED_ABORT"));
+
+        LogDecisionState state = svc.getLogDecisionState(table, lsn);
+        Assertions.assertTrue(state.isDecided());
+        Assertions.assertTrue(state.isSetCommitted());
+        Assertions.assertFalse(state.isCommitted());
+
+        Response commit = svc.commitLog(table, lsn);
+        Assertions.assertEquals(StatusCode.ERROR, commit.getCode());
+        Assertions.assertTrue(commit.getMessage().contains("Decision conflict"));
+        Mockito.verify(mockMiniSql, Mockito.never()).execute("insert into t_decision_abort values(1);");
     }
 
     private static WalEntry walEntry(long lsn, String table, WalOpType op) {

@@ -1,6 +1,7 @@
 package edu.zju.supersql.regionserver;
 
 import edu.zju.supersql.regionserver.rpc.ReplicaSyncServiceImpl;
+import edu.zju.supersql.rpc.LogDecisionState;
 import edu.zju.supersql.rpc.ReplicaSyncService;
 import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
@@ -731,6 +732,7 @@ class ReplicaManagerTest {
     private static class InMemoryReplicaSyncService implements ReplicaSyncService.Iface {
         private final ConcurrentSkipListMap<Long, WalEntry> walByLsn = new ConcurrentSkipListMap<>();
         private final Set<Long> committed = ConcurrentHashMap.newKeySet();
+        private final Map<Long, Boolean> decisions = new ConcurrentHashMap<>();
 
         void preload(WalEntry entry, boolean isCommitted) {
             walByLsn.put(entry.getLsn(), new WalEntry(entry));
@@ -777,20 +779,75 @@ class ReplicaManagerTest {
 
         @Override
         public Response commitLog(String tableName, long lsn) {
+            return finalizeLogDecision(tableName, lsn, true,
+                    "legacy-commit-" + tableName + "-" + lsn, System.currentTimeMillis());
+        }
+
+        @Override
+        public Response finalizeLogDecision(String tableName,
+                                            long lsn,
+                                            boolean committedDecision,
+                                            String decisionId,
+                                            long decidedAtMs) {
+            Boolean existing = decisions.get(lsn);
+            if (existing != null) {
+                if (existing == committedDecision) {
+                    Response r = new Response(StatusCode.OK);
+                    r.setMessage(committedDecision
+                            ? "ALREADY_COMMITTED lsn=" + lsn
+                            : "ALREADY_ABORTED lsn=" + lsn);
+                    return r;
+                }
+                Response r = new Response(StatusCode.ERROR);
+                r.setMessage("Decision conflict for lsn=" + lsn);
+                return r;
+            }
+
             WalEntry entry = walByLsn.get(lsn);
-            if (entry == null || !tableName.equals(entry.getTableName())) {
+            if (committedDecision && (entry == null || !tableName.equals(entry.getTableName()))) {
                 Response r = new Response(StatusCode.TABLE_NOT_FOUND);
                 r.setMessage("No wal entry found for table=" + tableName + " lsn=" + lsn);
                 return r;
             }
-            if (!committed.add(lsn)) {
+
+            if (committedDecision) {
+                if (!committed.add(lsn)) {
+                    decisions.put(lsn, true);
+                    Response r = new Response(StatusCode.OK);
+                    r.setMessage("ALREADY_COMMITTED lsn=" + lsn);
+                    return r;
+                }
+                decisions.put(lsn, true);
                 Response r = new Response(StatusCode.OK);
-                r.setMessage("ALREADY_COMMITTED lsn=" + lsn);
+                r.setMessage("COMMITTED lsn=" + lsn);
                 return r;
             }
+
+            decisions.put(lsn, false);
+            walByLsn.remove(lsn);
             Response r = new Response(StatusCode.OK);
-            r.setMessage("COMMITTED lsn=" + lsn);
+            r.setMessage("DECIDED_ABORT lsn=" + lsn);
             return r;
+        }
+
+        @Override
+        public LogDecisionState getLogDecisionState(String tableName, long lsn) {
+            LogDecisionState state = new LogDecisionState(false);
+            Boolean decision = decisions.get(lsn);
+            if (decision != null) {
+                state.setDecided(true);
+                state.setCommitted(decision);
+                state.setDecisionId("in-memory-" + tableName + "-" + lsn);
+                state.setDecidedAtMs(System.currentTimeMillis());
+                return state;
+            }
+            if (committed.contains(lsn)) {
+                state.setDecided(true);
+                state.setCommitted(true);
+                state.setDecisionId("in-memory-legacy-" + tableName + "-" + lsn);
+                state.setDecidedAtMs(0L);
+            }
+            return state;
         }
     }
 
