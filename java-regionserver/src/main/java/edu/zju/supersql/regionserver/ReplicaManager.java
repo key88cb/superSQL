@@ -324,6 +324,22 @@ public class ReplicaManager {
         stats.put("activeEscalatedCount", activeEscalatedCount);
         stats.put("activeDecisionCandidateCount", activeDecisionCandidateCount);
         stats.put("maxConsecutiveTransportFailures", maxConsecutiveTransportFailures);
+        List<Map<String, Object>> decisionCandidatesPreview = pendingCommits.values().stream()
+            .filter(pendingCommit -> pendingCommit.decisionCandidateMarked)
+            .sorted((left, right) -> Long.compare(right.attempts.get(), left.attempts.get()))
+            .limit(5)
+            .map(pendingCommit -> {
+                Map<String, Object> candidate = new LinkedHashMap<>();
+                candidate.put("table", pendingCommit.tableName);
+                candidate.put("lsn", pendingCommit.lsn);
+                candidate.put("address", pendingCommit.address);
+                candidate.put("attempts", pendingCommit.attempts.get());
+                candidate.put("consecutiveTransportFailures", pendingCommit.consecutiveTransportFailures.get());
+                candidate.put("ageMs", pendingCommit.ageMs(now));
+                return candidate;
+            })
+            .toList();
+        stats.put("decisionCandidatesPreview", decisionCandidatesPreview);
         Map<String, Long> errorBreakdown = new LinkedHashMap<>();
         for (Map.Entry<String, AtomicLong> entry : pendingCommitErrorBreakdown.entrySet()) {
             errorBreakdown.put(entry.getKey(), entry.getValue().get());

@@ -92,6 +92,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("activeEscalatedCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("activeDecisionCandidateCount")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("maxConsecutiveTransportFailures")).longValue());
+        Assertions.assertTrue(((java.util.List<?>) replicaCommitRetry.get("decisionCandidatesPreview")).isEmpty());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastSuccessAtMs")).longValue());
         Assertions.assertEquals(0L, ((Number) replicaCommitRetry.get("lastFailureAtMs")).longValue());
         Assertions.assertEquals("", replicaCommitRetry.get("lastError"));
@@ -191,6 +192,16 @@ class RegionServerMainStatusPayloadTest {
         replicaCommitRetry.put("activeEscalatedCount", 1L);
         replicaCommitRetry.put("activeDecisionCandidateCount", 1L);
         replicaCommitRetry.put("maxConsecutiveTransportFailures", 12L);
+        java.util.List<Map<String, Object>> decisionCandidatesPreview = new java.util.ArrayList<>();
+        Map<String, Object> candidate = new LinkedHashMap<>();
+        candidate.put("table", "orders");
+        candidate.put("lsn", 9191L);
+        candidate.put("address", "127.0.0.1:1");
+        candidate.put("attempts", 16L);
+        candidate.put("consecutiveTransportFailures", 16L);
+        candidate.put("ageMs", 120001L);
+        decisionCandidatesPreview.add(candidate);
+        replicaCommitRetry.put("decisionCandidatesPreview", decisionCandidatesPreview);
         replicaCommitRetry.put("lastSuccessAtMs", 321L);
         replicaCommitRetry.put("lastFailureAtMs", 654L);
         replicaCommitRetry.put("lastError", "commit returned TABLE_NOT_FOUND");
@@ -278,6 +289,11 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("activeEscalatedCount")).longValue());
         Assertions.assertEquals(1L, ((Number) commitRetryStats.get("activeDecisionCandidateCount")).longValue());
         Assertions.assertEquals(12L, ((Number) commitRetryStats.get("maxConsecutiveTransportFailures")).longValue());
+        java.util.List<?> preview = (java.util.List<?>) commitRetryStats.get("decisionCandidatesPreview");
+        Assertions.assertEquals(1, preview.size());
+        Map<?, ?> firstCandidate = (Map<?, ?>) preview.get(0);
+        Assertions.assertEquals("orders", firstCandidate.get("table"));
+        Assertions.assertEquals(9191L, ((Number) firstCandidate.get("lsn")).longValue());
         Assertions.assertEquals(321L, ((Number) commitRetryStats.get("lastSuccessAtMs")).longValue());
         Assertions.assertEquals(654L, ((Number) commitRetryStats.get("lastFailureAtMs")).longValue());
         Assertions.assertEquals("commit returned TABLE_NOT_FOUND", commitRetryStats.get("lastError"));
