@@ -170,34 +170,46 @@ public class ReplicaManager {
                     continue;
                 }
 
-                String donor = selectBestDonor(maxLsnByReplica, target);
-                if (donor == null) {
+                List<String> donorCandidates = selectDonorCandidates(maxLsnByReplica, target);
+                if (donorCandidates.isEmpty()) {
                     continue;
                 }
 
-                long startLsn = targetMaxLsn + 1L;
-                List<WalEntry> backlog = pullLogs(donor, tableName, startLsn);
-                if (backlog.isEmpty()) {
-                    continue;
-                }
-                backlog.sort(Comparator.comparingLong(WalEntry::getLsn));
-
-                int repaired = 0;
-                for (WalEntry entry : backlog) {
-                    if (entry.getLsn() > replayUpperBound) {
+                long highestAppliedLsn = targetMaxLsn;
+                long nextStartLsn = targetMaxLsn + 1L;
+                for (String donor : donorCandidates) {
+                    if (nextStartLsn > replayUpperBound) {
                         break;
                     }
-                    if (!syncOne(entry, target)) {
-                        break;
-                    }
-                    if (commitOneWithRetry(entry.getTableName(), entry.getLsn(), target)) {
-                        repaired++;
-                    }
-                }
 
-                if (repaired > 0) {
-                    log.info("reconcileReplicas repaired table={} target={} donor={} repairedEntries={} rangeStart={}",
-                            tableName, target, donor, repaired, startLsn);
+                    List<WalEntry> backlog = pullLogs(donor, tableName, nextStartLsn);
+                    if (backlog.isEmpty()) {
+                        continue;
+                    }
+                    backlog.sort(Comparator.comparingLong(WalEntry::getLsn));
+
+                    int repaired = 0;
+                    for (WalEntry entry : backlog) {
+                        if (entry.getLsn() < nextStartLsn) {
+                            continue;
+                        }
+                        if (entry.getLsn() > replayUpperBound) {
+                            break;
+                        }
+                        if (!syncOne(entry, target)) {
+                            break;
+                        }
+                        if (commitOneWithRetry(entry.getTableName(), entry.getLsn(), target)) {
+                            repaired++;
+                            highestAppliedLsn = Math.max(highestAppliedLsn, entry.getLsn());
+                        }
+                    }
+
+                    if (repaired > 0) {
+                        log.info("reconcileReplicas repaired table={} target={} donor={} repairedEntries={} rangeStart={}",
+                                tableName, target, donor, repaired, nextStartLsn);
+                    }
+                    nextStartLsn = highestAppliedLsn + 1L;
                 }
             }
         } catch (Exception e) {
@@ -295,21 +307,13 @@ public class ReplicaManager {
         }
     }
 
-    private String selectBestDonor(Map<String, Long> maxLsnByReplica, String excludedReplica) {
-        String donor = null;
-        long donorMaxLsn = -1L;
-        for (Map.Entry<String, Long> entry : maxLsnByReplica.entrySet()) {
-            String address = entry.getKey();
-            long maxLsn = entry.getValue() == null ? -1L : entry.getValue();
-            if (address.equals(excludedReplica) || maxLsn < 0L) {
-                continue;
-            }
-            if (donor == null || maxLsn > donorMaxLsn) {
-                donor = address;
-                donorMaxLsn = maxLsn;
-            }
-        }
-        return donor;
+    private List<String> selectDonorCandidates(Map<String, Long> maxLsnByReplica, String excludedReplica) {
+        return maxLsnByReplica.entrySet().stream()
+                .filter(entry -> !entry.getKey().equals(excludedReplica))
+                .filter(entry -> entry.getValue() != null && entry.getValue() >= 0L)
+                .sorted((left, right) -> Long.compare(right.getValue(), left.getValue()))
+                .map(Map.Entry::getKey)
+                .toList();
     }
 
     private long getMaxLsn(String tableName, String address) {

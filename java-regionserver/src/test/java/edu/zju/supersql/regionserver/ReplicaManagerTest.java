@@ -177,6 +177,53 @@ class ReplicaManagerTest {
         }
     }
 
+    @Test
+    void reconcileReplicasShouldFallbackToNextDonorWhenPreferredDonorHasNoBacklog() throws Exception {
+        int dryDonorPort = freePort();
+        int healthyDonorPort = freePort();
+        int laggingPort = freePort();
+
+        InMemoryReplicaSyncService dryDonor = new NoPullReplicaSyncService();
+        InMemoryReplicaSyncService healthyDonor = new InMemoryReplicaSyncService();
+        InMemoryReplicaSyncService lagging = new InMemoryReplicaSyncService();
+
+        dryDonor.preload(buildEntry(101L, "orders", "insert into orders values(101);"), true);
+        dryDonor.preload(buildEntry(102L, "orders", "insert into orders values(102);"), true);
+
+        healthyDonor.preload(buildEntry(101L, "orders", "insert into orders values(101);"), true);
+        healthyDonor.preload(buildEntry(102L, "orders", "insert into orders values(102);"), true);
+
+        lagging.preload(buildEntry(100L, "orders", "insert into orders values(100);"), true);
+
+        TServer dryDonorServer = buildServer(dryDonorPort, dryDonor);
+        TServer healthyDonorServer = buildServer(healthyDonorPort, healthyDonor);
+        TServer laggingServer = buildServer(laggingPort, lagging);
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        pool.submit(dryDonorServer::serve);
+        pool.submit(healthyDonorServer::serve);
+        pool.submit(laggingServer::serve);
+        Thread.sleep(200);
+
+        try {
+            ReplicaManager manager = new ReplicaManager();
+            String dryDonorAddress = "127.0.0.1:" + dryDonorPort;
+            String healthyDonorAddress = "127.0.0.1:" + healthyDonorPort;
+            String laggingAddress = "127.0.0.1:" + laggingPort;
+
+            manager.reconcileReplicas("orders", 102L, List.of(dryDonorAddress, healthyDonorAddress, laggingAddress));
+
+            Assertions.assertEquals(102L, getMaxLsn(laggingAddress, "orders"));
+            Response secondCommit = commitLog(laggingAddress, "orders", 102L);
+            Assertions.assertEquals(StatusCode.OK, secondCommit.getCode());
+            Assertions.assertTrue(secondCommit.getMessage().contains("ALREADY_COMMITTED"));
+        } finally {
+            dryDonorServer.stop();
+            healthyDonorServer.stop();
+            laggingServer.stop();
+            pool.shutdownNow();
+        }
+    }
+
     // ─────────────────────── helpers ──────────────────────────────────────────
 
     private static TServer buildServer(int port, ReplicaSyncService.Iface impl) throws Exception {
@@ -228,7 +275,7 @@ class ReplicaManagerTest {
         }
     }
 
-    private static final class InMemoryReplicaSyncService implements ReplicaSyncService.Iface {
+    private static class InMemoryReplicaSyncService implements ReplicaSyncService.Iface {
         private final ConcurrentSkipListMap<Long, WalEntry> walByLsn = new ConcurrentSkipListMap<>();
         private final Set<Long> committed = ConcurrentHashMap.newKeySet();
 
@@ -291,6 +338,13 @@ class ReplicaManagerTest {
             Response r = new Response(StatusCode.OK);
             r.setMessage("COMMITTED lsn=" + lsn);
             return r;
+        }
+    }
+
+    private static final class NoPullReplicaSyncService extends InMemoryReplicaSyncService {
+        @Override
+        public List<WalEntry> pullLog(String tableName, long startLsn) {
+            return Collections.emptyList();
         }
     }
 }
