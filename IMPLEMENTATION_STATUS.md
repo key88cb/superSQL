@@ -63,8 +63,7 @@
 - 启动时在 `/region_servers/{rsId}` 注册节点，每 10 秒上报心跳。
 - `MiniSqlProcess` 已支持崩溃后自动重启和显式 restart。
 - RegionServer HTTP 端点已支持 `/status` JSON 运行态输出（含 rsId/端口/zk/dataDir/walDir/miniSqlAlive/timestamp）。
-- RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/lastFailureTs/lastFailureMessage），便于定位迁移校验异常。
-- RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/lastSuccessTs/lastFailureTs/lastFailureMessage），便于定位迁移校验异常。
+- RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/duplicateAcks/lastSuccessTs/lastFailureTs/lastFailureMessage），便于定位迁移校验异常。
 - RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure/lastSuccessTs、失败原因分类与最近失败信息），便于快速定位迁移失败类型。
 - 持久化 WAL 基础能力：按表写入 `.wal` 文件，启动时扫描 WAL 恢复全局 LSN。
 - WriteGuard：per-table 写入暂停/恢复（用于迁移中的 MOVING 保护）。
@@ -90,6 +89,7 @@
 - manifest 条目已增加 `crc32` 校验和，目标端按“文件大小 + CRC32”双重校验确认迁移完整性。
 - manifest 校验已拒绝跨表文件项与重复文件项，避免错误文件混入或重复条目掩盖异常传输。
 - manifest 校验会拒绝空文件列表，避免异常空清单被误判为迁移成功。
+- manifest 校验已支持重复清单幂等确认：同表同内容重放会直接 ACK 并记录 `duplicateAcks`，避免链路重试造成误报失败。
 - `transferTable` 对 0 字节文件已支持发送最终完成块，保证空文件迁移也能触发目标端发布。
 - `copyTableData` 已增加 fileName 安全约束，禁止路径穿越写入 dataDir 外部文件。
 - `transferTable` 发送分块时已支持有界重试（默认 3 次），可吸收短暂目标端抖动导致的单次 chunk 失败。

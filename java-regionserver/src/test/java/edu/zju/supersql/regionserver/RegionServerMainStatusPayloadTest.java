@@ -39,6 +39,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("failure")).longValue());
+        Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("duplicateAcks")).longValue());
         Assertions.assertEquals(0L, ((Number) transferManifestVerification.get("lastSuccessTs")).longValue());
         Map<?, ?> transferTable = (Map<?, ?>) json.get("transferTable");
         Assertions.assertEquals(0L, ((Number) transferTable.get("total")).longValue());
@@ -54,6 +55,7 @@ class RegionServerMainStatusPayloadTest {
         manifestStats.put("total", 5L);
         manifestStats.put("success", 3L);
         manifestStats.put("failure", 2L);
+        manifestStats.put("duplicateAcks", 1L);
         manifestStats.put("lastSuccessTs", 111L);
         manifestStats.put("lastFailureTs", 123L);
         manifestStats.put("lastFailureMessage", "checksum mismatch");
@@ -92,6 +94,7 @@ class RegionServerMainStatusPayloadTest {
         Assertions.assertEquals(5L, ((Number) transferManifestVerification.get("total")).longValue());
         Assertions.assertEquals(3L, ((Number) transferManifestVerification.get("success")).longValue());
         Assertions.assertEquals(2L, ((Number) transferManifestVerification.get("failure")).longValue());
+        Assertions.assertEquals(1L, ((Number) transferManifestVerification.get("duplicateAcks")).longValue());
         Assertions.assertEquals(111L, ((Number) transferManifestVerification.get("lastSuccessTs")).longValue());
         Assertions.assertEquals(123L, ((Number) transferManifestVerification.get("lastFailureTs")).longValue());
         Assertions.assertEquals("checksum mismatch", transferManifestVerification.get("lastFailureMessage"));

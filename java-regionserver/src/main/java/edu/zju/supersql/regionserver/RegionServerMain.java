@@ -87,6 +87,7 @@ public class RegionServerMain {
             defaults.put("total", 0L);
             defaults.put("success", 0L);
             defaults.put("failure", 0L);
+            defaults.put("duplicateAcks", 0L);
             defaults.put("lastSuccessTs", 0L);
             defaults.put("lastFailureTs", 0L);
             defaults.put("lastFailureMessage", "");

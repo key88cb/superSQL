@@ -55,9 +55,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
     private final AtomicLong manifestVerificationTotal = new AtomicLong();
     private final AtomicLong manifestVerificationSuccess = new AtomicLong();
     private final AtomicLong manifestVerificationFailure = new AtomicLong();
+    private final AtomicLong manifestVerificationDuplicateAcks = new AtomicLong();
     private final AtomicLong manifestVerificationLastSuccessTs = new AtomicLong();
     private final AtomicLong manifestVerificationLastFailureTs = new AtomicLong();
     private volatile String manifestVerificationLastFailureMessage = "";
+    private final Map<String, Long> manifestVerifiedDigestByTable = new ConcurrentHashMap<>();
     private final AtomicLong transferTableTotal = new AtomicLong();
     private final AtomicLong transferTableSuccess = new AtomicLong();
     private final AtomicLong transferTableFailure = new AtomicLong();
@@ -563,6 +565,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             }
 
             Set<String> seenFileNames = new HashSet<>();
+            long manifestDigest = computeCrc32(manifestBytes);
+            Long lastDigest = manifestVerifiedDigestByTable.get(expectedTablePrefix);
+            if (lastDigest != null && lastDigest == manifestDigest) {
+                return manifestVerificationDuplicate(files.size());
+            }
 
             for (Object raw : files) {
                 if (!(raw instanceof Map<?, ?> fileItem)) {
@@ -609,6 +616,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 }
             }
 
+            manifestVerifiedDigestByTable.put(expectedTablePrefix, manifestDigest);
             return manifestVerificationSucceeded(files.size());
         } catch (Exception e) {
             log.error("transfer manifest verification failed for table={}", chunk.getTableName(), e);
@@ -621,6 +629,7 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         payload.put("total", manifestVerificationTotal.get());
         payload.put("success", manifestVerificationSuccess.get());
         payload.put("failure", manifestVerificationFailure.get());
+        payload.put("duplicateAcks", manifestVerificationDuplicateAcks.get());
         payload.put("lastSuccessTs", manifestVerificationLastSuccessTs.get());
         payload.put("lastFailureTs", manifestVerificationLastFailureTs.get());
         payload.put("lastFailureMessage", manifestVerificationLastFailureMessage);
@@ -652,6 +661,15 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         manifestVerificationLastSuccessTs.set(System.currentTimeMillis());
         Response r = new Response(StatusCode.OK);
         r.setMessage("transfer manifest verified files=" + fileCount);
+        return r;
+    }
+
+    private Response manifestVerificationDuplicate(int fileCount) {
+        manifestVerificationSuccess.incrementAndGet();
+        manifestVerificationDuplicateAcks.incrementAndGet();
+        manifestVerificationLastSuccessTs.set(System.currentTimeMillis());
+        Response r = new Response(StatusCode.OK);
+        r.setMessage("duplicate transfer manifest acknowledged files=" + fileCount);
         return r;
     }
 
@@ -774,6 +792,12 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                 crc32.update(buffer, 0, read);
             }
         }
+        return crc32.getValue();
+    }
+
+    private static long computeCrc32(byte[] data) {
+        CRC32 crc32 = new CRC32();
+        crc32.update(data, 0, data.length);
         return crc32.getValue();
     }
 

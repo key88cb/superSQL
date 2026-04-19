@@ -562,6 +562,47 @@ class RegionAdminServiceImplTest {
     }
 
         @Test
+        void copyTableDataShouldAcknowledgeDuplicateTransferManifest() throws Exception {
+        byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
+        long crc32 = crc32(data);
+        Response dataResp = service.copyTableData(new DataChunk(
+            "orders",
+            "orders_data",
+            0L,
+            ByteBuffer.wrap(data),
+            true));
+        Assertions.assertEquals(StatusCode.OK, dataResp.getCode());
+
+        byte[] manifest = ("{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_data\",\"size\":7,\"crc32\":"
+            + crc32 + "}]}")
+            .getBytes(StandardCharsets.UTF_8);
+
+        Response first = service.copyTableData(new DataChunk(
+            "orders",
+            "__supersql_transfer_manifest__.orders.json",
+            0L,
+            ByteBuffer.wrap(manifest),
+            true));
+        Assertions.assertEquals(StatusCode.OK, first.getCode());
+        Assertions.assertTrue(first.getMessage().contains("verified"));
+
+        Response duplicate = service.copyTableData(new DataChunk(
+            "orders",
+            "__supersql_transfer_manifest__.orders.json",
+            0L,
+            ByteBuffer.wrap(manifest),
+            true));
+        Assertions.assertEquals(StatusCode.OK, duplicate.getCode());
+        Assertions.assertTrue(duplicate.getMessage().contains("duplicate transfer manifest acknowledged"));
+
+        Map<String, Object> snapshot = service.getTransferManifestVerificationStats();
+        Assertions.assertEquals(2L, ((Number) snapshot.get("total")).longValue());
+        Assertions.assertEquals(2L, ((Number) snapshot.get("success")).longValue());
+        Assertions.assertEquals(0L, ((Number) snapshot.get("failure")).longValue());
+        Assertions.assertEquals(1L, ((Number) snapshot.get("duplicateAcks")).longValue());
+        }
+
+        @Test
         void copyTableDataShouldRejectTransferManifestWhenChecksumMismatch() throws Exception {
         byte[] data = "payload".getBytes(StandardCharsets.UTF_8);
         Response dataResp = service.copyTableData(new DataChunk(
@@ -591,6 +632,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(0L, ((Number) initial.get("total")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("success")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("failure")).longValue());
+        Assertions.assertEquals(0L, ((Number) initial.get("duplicateAcks")).longValue());
         Assertions.assertEquals(0L, ((Number) initial.get("lastSuccessTs")).longValue());
 
         byte[] failureManifest = "{\"tableName\":\"orders\",\"files\":[{\"fileName\":\"orders_missing\",\"size\":1,\"crc32\":0}]}"
@@ -628,6 +670,7 @@ class RegionAdminServiceImplTest {
         Assertions.assertEquals(2L, ((Number) snapshot.get("total")).longValue());
         Assertions.assertEquals(1L, ((Number) snapshot.get("success")).longValue());
         Assertions.assertEquals(1L, ((Number) snapshot.get("failure")).longValue());
+        Assertions.assertEquals(0L, ((Number) snapshot.get("duplicateAcks")).longValue());
         Assertions.assertTrue(((Number) snapshot.get("lastSuccessTs")).longValue() > 0L);
         Assertions.assertTrue(((Number) snapshot.get("lastFailureTs")).longValue() > 0L);
         Assertions.assertTrue(String.valueOf(snapshot.get("lastFailureMessage")).contains("missing"));

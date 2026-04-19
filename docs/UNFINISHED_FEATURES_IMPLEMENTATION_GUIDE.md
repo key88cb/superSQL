@@ -86,8 +86,7 @@
 
 - 注册/心跳、MiniSQL 进程管理（含自动重启）。
 - RegionServer HTTP 端点已补充 `/status` JSON 运行态输出，便于外部探活与诊断接入。
-- RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/lastFailureTs/lastFailureMessage），便于外部诊断迁移校验失败。
-- RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/lastSuccessTs/lastFailureTs/lastFailureMessage），便于外部诊断迁移校验失败。
+- RegionServer `/status` 已补充迁移 manifest 校验统计（total/success/failure/duplicateAcks/lastSuccessTs/lastFailureTs/lastFailureMessage），便于外部诊断迁移校验失败。
 - RegionServer `/status` 已补充 `transferTable` 统计（total/success/failure/lastSuccessTs、失败原因分类、最近失败信息），便于外部排查迁移失败类型。
 - `RegionServiceImpl` 读写基础路径、`executeBatch`、索引相关接口。
 - 写路径已支持最小副本 ACK 门槛（`RS_MIN_REPLICA_ACKS`）用于拒绝 ACK 不足写入。
@@ -114,6 +113,7 @@
 - manifest 数据项已增加 `crc32`，目标端会执行“size + crc32”双重校验，降低静默损坏风险。
 - manifest 校验已拒绝跨表文件项与重复文件项，降低错误清单导致的误确认风险。
 - manifest 校验会拒绝空文件列表，避免异常空清单导致误确认。
+- manifest 校验已支持重复清单幂等确认：同表同内容重放会直接 ACK，并在 `/status` 统计 `duplicateAcks`。
 - `copyTableData` 在 offset 不匹配时会重置该文件传输状态（清理 `.part` 与偏移记录），支持干净重试。
 - `copyTableData` 的传输偏移跟踪已按 `tableName + fileName` 隔离，避免跨表同名文件迁移时状态串扰。
 - `copyTableData` 在内存偏移状态缺失时可从磁盘 `.part` 文件长度恢复期望 offset，支持目标端重启后的续传。
