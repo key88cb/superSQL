@@ -52,6 +52,7 @@
 - `triggerRebalance()` 现会刷新 `statusUpdatedAt` 元数据字段，便于外部观察迁移状态推进时序。
 - `triggerRebalance()` 迁移阶段已写入 `migrationAttemptId` 并在结束（成功/回滚）后清理，为后续幂等恢复提供观测锚点。
 - `getTableLocation/listTables/repairTableRoutesBestEffort` 已支持卡死迁移超时回收：当迁移状态超时且 `migrationAttemptId` 仍存在时，自动恢复为 `ACTIVE` 并清理尝试标记。
+- 卡死迁移恢复已补充上下文补偿：基于 `migrationSourceReplicaId/migrationTargetReplicaId` 执行阶段化清理（`FINALIZING` 清理 source；`PREPARING/MOVING/ROLLBACK` 清理 target）后再恢复 `ACTIVE`，降低仅元数据回写导致的数据面残留风险。
 - `triggerRebalance()` 调度入口也会执行卡死迁移预恢复：即使本次调度因“集群已平衡”被跳过，也能先回收超时状态。
 - `triggerRebalance()` 在“跳过调度”响应中会附带本轮卡死迁移回收数量，便于外部调度器做轻量观测而不依赖日志解析。
 - `triggerRebalance()` 已限制仅对 `ACTIVE` 表挑选候选，避免迁移中的表被重复调度。

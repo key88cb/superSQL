@@ -22,6 +22,7 @@
 - `triggerRebalance()` 在被跳过（如 cluster balanced）时会在响应消息中附带本轮预恢复数量，便于上层调度/日志快速感知是否发生了状态回收。
 - `triggerRebalance()` 状态推进会刷新 `/meta/tables/{table}` 的 `statusUpdatedAt` 时间戳，便于观测迁移阶段更新时间。
 - `triggerRebalance()` 迁移中会写入 `migrationAttemptId`（PREPARING/MOVING 可观测），成功与回滚后会清理该字段，便于后续幂等恢复扩展。
+- `triggerRebalance()` 已补充迁移上下文字段（`migrationSourceReplicaId` / `migrationTargetReplicaId`）；卡死迁移超时恢复不再仅回写状态，会按阶段执行补偿：`FINALIZING` 优先清理 source，`PREPARING/MOVING/ROLLBACK` 优先清理 target，再恢复为 `ACTIVE`。
 - `triggerRebalance()` 候选选择已限制为 `ACTIVE` 表，避免对 `PREPARING/MOVING` 表重复触发迁移。
 - `createTable` 成功落盘元数据后也会初始化 `statusUpdatedAt`，保证新表从创建时起具备状态时间戳。
 - 已落地基础 RebalanceScheduler：按配置周期定时触发 `triggerRebalance()`，支持开关与最小触发间隔节流。

@@ -579,6 +579,104 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertEquals("ACTIVE", location.getTableStatus());
     }
 
+        @Test
+        void getTableLocationShouldRecoverStuckFinalizingAndCleanupSourceReplica() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_stuck_finalizing_recover(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_finalizing_recover").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "FINALIZING");
+        meta.put("migrationAttemptId", "attempt-finalizing");
+        meta.put("migrationSourceReplicaId", "rs-2");
+        meta.put("migrationTargetReplicaId", "rs-4");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_finalizing_recover",
+            MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        RecordingRegionAdminExecutor recoveringAdmin = new RecordingRegionAdminExecutor();
+        MasterServiceImpl recoveringService = new MasterServiceImpl(
+            new MetaManager(zkClient),
+            new AssignmentManager(zkClient),
+            new LoadBalancer(),
+            ddlExecutor,
+            recoveringAdmin,
+            clock::get,
+            1_000L,
+            10,
+            5_000L);
+
+        TableLocation recovered = recoveringService.getTableLocation("t_stuck_finalizing_recover");
+        Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+        Assertions.assertTrue(recoveringAdmin.operations.stream().anyMatch(op ->
+            "delete".equals(op.method())
+                && "rs-2".equals(op.replicaId())
+                && "t_stuck_finalizing_recover".equals(op.tableName())));
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_finalizing_recover");
+        Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
+        Assertions.assertFalse(finalMeta.containsKey("migrationSourceReplicaId"));
+        Assertions.assertFalse(finalMeta.containsKey("migrationTargetReplicaId"));
+        }
+
+        @Test
+        void getTableLocationShouldRecoverStuckMovingAndCleanupTargetReplica() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        Response create = service.createTable("create table t_stuck_moving_recover(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        Map<String, Object> meta = new HashMap<>();
+        for (Map.Entry<?, ?> entry : readJson("/meta/tables/t_stuck_moving_recover").entrySet()) {
+            meta.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        meta.put("tableStatus", "MOVING");
+        meta.put("migrationAttemptId", "attempt-moving");
+        meta.put("migrationSourceReplicaId", "rs-2");
+        meta.put("migrationTargetReplicaId", "rs-4");
+        meta.put("version", 1L);
+        zkClient.setData().forPath("/meta/tables/t_stuck_moving_recover",
+            MAPPER.writeValueAsString(meta).getBytes(StandardCharsets.UTF_8));
+
+        AtomicLong clock = new AtomicLong(20_000L);
+        RecordingRegionAdminExecutor recoveringAdmin = new RecordingRegionAdminExecutor();
+        MasterServiceImpl recoveringService = new MasterServiceImpl(
+            new MetaManager(zkClient),
+            new AssignmentManager(zkClient),
+            new LoadBalancer(),
+            ddlExecutor,
+            recoveringAdmin,
+            clock::get,
+            1_000L,
+            10,
+            5_000L);
+
+        TableLocation recovered = recoveringService.getTableLocation("t_stuck_moving_recover");
+        Assertions.assertEquals("ACTIVE", recovered.getTableStatus());
+        Assertions.assertTrue(recoveringAdmin.operations.stream().anyMatch(op ->
+            "delete".equals(op.method())
+                && "rs-4".equals(op.replicaId())
+                && "t_stuck_moving_recover".equals(op.tableName())));
+
+        Map<?, ?> finalMeta = readJson("/meta/tables/t_stuck_moving_recover");
+        Assertions.assertEquals("ACTIVE", String.valueOf(finalMeta.get("tableStatus")));
+        Assertions.assertFalse(finalMeta.containsKey("migrationAttemptId"));
+        Assertions.assertFalse(finalMeta.containsKey("migrationSourceReplicaId"));
+        Assertions.assertFalse(finalMeta.containsKey("migrationTargetReplicaId"));
+        }
+
     @Test
     void getTableLocationShouldRecoverStuckMovingStatusToActive() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);

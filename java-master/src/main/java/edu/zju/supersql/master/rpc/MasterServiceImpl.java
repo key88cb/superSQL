@@ -57,6 +57,11 @@ public class MasterServiceImpl implements MasterService.Iface {
                                           double avgRepairedCount) {
     }
 
+    private record MigrationContext(String attemptId,
+                                    String sourceReplicaId,
+                                    String targetReplicaId) {
+    }
+
     private static final Logger log = LoggerFactory.getLogger(MasterServiceImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final long DEFAULT_ROUTE_HEAL_MIN_GAP_MS = 1_000L;
@@ -795,7 +800,13 @@ public class MasterServiceImpl implements MasterService.Iface {
         log.info("triggerRebalance executing table={} primary={} source={} target={} replicasBefore={}",
                 tableName, primary.getId(), source.getId(), target.getId(), beforeReplicas);
 
-        if (!markTableStatus(tableName, primary, location.getReplicas(), STATUS_PREPARING, migrationAttemptId)) {
+        if (!markTableStatus(tableName,
+            primary,
+            location.getReplicas(),
+            STATUS_PREPARING,
+            migrationAttemptId,
+            source.getId(),
+            target.getId())) {
             Response error = new Response(StatusCode.ERROR);
             error.setMessage("Failed to mark table as PREPARING before pause: " + tableName);
             return error;
@@ -805,13 +816,29 @@ public class MasterServiceImpl implements MasterService.Iface {
         if (pause.getCode() != StatusCode.OK) {
             log.warn("triggerRebalance pause failed table={} primary={} code={}",
                     tableName, primary.getId(), pause.getCode());
-            rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
+                rollbackRebalanceMetadata(tableName,
+                    originalLocation,
+                    originalReplicas,
+                    migrationAttemptId,
+                    source.getId(),
+                    target.getId());
             return pause;
         }
 
         try {
-            if (!markTableStatus(tableName, primary, location.getReplicas(), STATUS_MOVING, migrationAttemptId)) {
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
+                if (!markTableStatus(tableName,
+                    primary,
+                    location.getReplicas(),
+                    STATUS_MOVING,
+                    migrationAttemptId,
+                    source.getId(),
+                    target.getId())) {
+                rollbackRebalanceMetadata(tableName,
+                    originalLocation,
+                    originalReplicas,
+                    migrationAttemptId,
+                    source.getId(),
+                    target.getId());
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as MOVING before transfer: " + tableName);
                 return error;
@@ -819,7 +846,12 @@ public class MasterServiceImpl implements MasterService.Iface {
 
             Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
             if (transfer.getCode() != StatusCode.OK) {
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
+                rollbackRebalanceMetadata(tableName,
+                    originalLocation,
+                    originalReplicas,
+                    migrationAttemptId,
+                    source.getId(),
+                    target.getId());
                 cleanupTargetReplicaBestEffort(target, tableName, "transfer_failed");
                 return transfer;
             }
@@ -829,8 +861,19 @@ public class MasterServiceImpl implements MasterService.Iface {
                 updatedReplicas.add(replica.getId().equals(source.getId()) ? target : replica);
             }
 
-            if (!markTableStatus(tableName, primary, updatedReplicas, STATUS_FINALIZING, migrationAttemptId)) {
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
+            if (!markTableStatus(tableName,
+                    primary,
+                    updatedReplicas,
+                    STATUS_FINALIZING,
+                    migrationAttemptId,
+                    source.getId(),
+                    target.getId())) {
+                rollbackRebalanceMetadata(tableName,
+                        originalLocation,
+                        originalReplicas,
+                        migrationAttemptId,
+                        source.getId(),
+                        target.getId());
                 cleanupTargetReplicaBestEffort(target, tableName, "finalizing_mark_failed");
                 Response error = new Response(StatusCode.ERROR);
                 error.setMessage("Failed to mark table as FINALIZING before metadata finalize: " + tableName);
@@ -845,7 +888,12 @@ public class MasterServiceImpl implements MasterService.Iface {
                         tableName,
                         originalReplicas.stream().map(RegionServerInfo::getId).toList(),
                         metadataError.getMessage());
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
+                rollbackRebalanceMetadata(tableName,
+                    originalLocation,
+                    originalReplicas,
+                    migrationAttemptId,
+                    source.getId(),
+                    target.getId());
                 cleanupTargetReplicaBestEffort(target, tableName, "metadata_persist_failed");
                 throw metadataError;
             }
@@ -856,7 +904,12 @@ public class MasterServiceImpl implements MasterService.Iface {
             if (delete.getCode() != StatusCode.OK) {
                 log.warn("triggerRebalance deleteLocalTable failed table={} source={} code={}",
                         tableName, source.getId(), delete.getCode());
-                rollbackRebalanceMetadata(tableName, originalLocation, originalReplicas, migrationAttemptId);
+                rollbackRebalanceMetadata(tableName,
+                    originalLocation,
+                    originalReplicas,
+                    migrationAttemptId,
+                    source.getId(),
+                    target.getId());
                 cleanupTargetReplicaBestEffort(target, tableName, "source_delete_failed");
                 return delete;
             }
@@ -868,7 +921,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 metaManager.saveTableLocation(updatedLocation);
                 assignmentManager.saveAssignment(tableName, updatedReplicas);
                 touchStatusUpdatedAtBestEffort(tableName);
-                clearMigrationAttemptIdBestEffort(tableName);
+                clearMigrationContextBestEffort(tableName);
             } catch (Exception metadataError) {
                 log.error("triggerRebalance final ACTIVE persist failed table={} cause={}",
                         tableName, metadataError.getMessage());
@@ -892,14 +945,16 @@ public class MasterServiceImpl implements MasterService.Iface {
                                     RegionServerInfo primary,
                                     List<RegionServerInfo> replicas,
                         String status,
-                        String migrationAttemptId) {
+                        String migrationAttemptId,
+                        String sourceReplicaId,
+                        String targetReplicaId) {
         try {
             TableLocation intermediate = new TableLocation(tableName, primary, replicas);
             intermediate.setTableStatus(status);
             intermediate.setVersion(System.currentTimeMillis());
             metaManager.saveTableLocation(intermediate);
             touchStatusUpdatedAtBestEffort(tableName);
-            setMigrationAttemptIdBestEffort(tableName, migrationAttemptId);
+            setMigrationContextBestEffort(tableName, migrationAttemptId, sourceReplicaId, targetReplicaId);
             log.info("triggerRebalance marked table {} table={} replicas={}",
                     status, tableName, replicas.stream().map(RegionServerInfo::getId).toList());
             return true;
@@ -913,19 +968,23 @@ public class MasterServiceImpl implements MasterService.Iface {
     private void rollbackRebalanceMetadata(String tableName,
                                            TableLocation originalLocation,
                                            List<RegionServerInfo> originalReplicas,
-                                           String migrationAttemptId) {
+                                           String migrationAttemptId,
+                                           String sourceReplicaId,
+                                           String targetReplicaId) {
         if (originalLocation != null && originalLocation.isSetPrimaryRS()) {
             markTableStatus(tableName,
                     originalLocation.getPrimaryRS(),
                     originalReplicas,
                     STATUS_ROLLBACK,
-                    migrationAttemptId);
+                    migrationAttemptId,
+                    sourceReplicaId,
+                    targetReplicaId);
         }
         try {
             metaManager.saveTableLocation(originalLocation);
             assignmentManager.saveAssignment(tableName, originalReplicas);
             touchStatusUpdatedAtBestEffort(tableName);
-                clearMigrationAttemptIdBestEffort(tableName);
+            clearMigrationContextBestEffort(tableName);
             log.info("triggerRebalance metadata rollback completed table={} replicasRestored={}",
                     tableName,
                     originalReplicas.stream().map(RegionServerInfo::getId).toList());
@@ -961,18 +1020,28 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     private void cleanupTargetReplicaBestEffort(RegionServerInfo target, String tableName, String reason) {
+        cleanupReplicaBestEffort(target, tableName, reason, "target");
+    }
+
+    private void cleanupReplicaBestEffort(RegionServerInfo replica,
+                                          String tableName,
+                                          String reason,
+                                          String role) {
+        if (replica == null || !replica.isSetId()) {
+            return;
+        }
         try {
-            Response response = regionAdminExecutor.deleteLocalTable(target, tableName);
+            Response response = regionAdminExecutor.deleteLocalTable(replica, tableName);
             if (response.getCode() == StatusCode.OK || response.getCode() == StatusCode.TABLE_NOT_FOUND) {
-                log.info("triggerRebalance cleanup target replica table={} target={} reason={} code={}",
-                        tableName, target.getId(), reason, response.getCode());
+                log.info("triggerRebalance cleanup {} replica table={} replica={} reason={} code={}",
+                        role, tableName, replica.getId(), reason, response.getCode());
             } else {
-                log.warn("triggerRebalance cleanup target replica failed table={} target={} reason={} code={} msg={}",
-                        tableName, target.getId(), reason, response.getCode(), response.getMessage());
+                log.warn("triggerRebalance cleanup {} replica failed table={} replica={} reason={} code={} msg={}",
+                        role, tableName, replica.getId(), reason, response.getCode(), response.getMessage());
             }
         } catch (Exception e) {
-            log.warn("triggerRebalance cleanup target replica exception table={} target={} reason={} cause={}",
-                    tableName, target.getId(), reason, e.getMessage());
+            log.warn("triggerRebalance cleanup {} replica exception table={} replica={} reason={} cause={}",
+                    role, tableName, replica.getId(), reason, e.getMessage());
         }
     }
 
@@ -1265,9 +1334,41 @@ public class MasterServiceImpl implements MasterService.Iface {
             return location;
         }
 
-        String attemptId = readMigrationAttemptIdBestEffort(location.getTableName());
-        if (attemptId == null || attemptId.isBlank()) {
+        MigrationContext migrationContext = readMigrationContextBestEffort(location.getTableName());
+        if (migrationContext == null
+                || migrationContext.attemptId() == null
+                || migrationContext.attemptId().isBlank()) {
             return location;
+        }
+
+        String attemptId = migrationContext.attemptId();
+        String sourceReplicaId = migrationContext.sourceReplicaId();
+        String targetReplicaId = migrationContext.targetReplicaId();
+
+        if (STATUS_FINALIZING.equalsIgnoreCase(currentStatus)
+                && sourceReplicaId != null
+                && !sourceReplicaId.isBlank()) {
+            RegionServerInfo sourceReplica = resolveRegionServerForRecovery(location, sourceReplicaId);
+            if (sourceReplica != null) {
+                cleanupReplicaBestEffort(sourceReplica,
+                        location.getTableName(),
+                        "recover_stuck_finalizing",
+                        "source");
+            }
+        }
+
+        if ((STATUS_PREPARING.equalsIgnoreCase(currentStatus)
+                || STATUS_MOVING.equalsIgnoreCase(currentStatus)
+                || STATUS_ROLLBACK.equalsIgnoreCase(currentStatus))
+                && targetReplicaId != null
+                && !targetReplicaId.isBlank()) {
+            RegionServerInfo targetReplica = resolveRegionServerForRecovery(location, targetReplicaId);
+            if (targetReplica != null) {
+                cleanupReplicaBestEffort(targetReplica,
+                        location.getTableName(),
+                        "recover_stuck_" + currentStatus.toLowerCase(),
+                        "target");
+            }
         }
 
         TableLocation recovered = new TableLocation(location);
@@ -1277,12 +1378,14 @@ public class MasterServiceImpl implements MasterService.Iface {
             metaManager.saveTableLocation(recovered);
             assignmentManager.saveAssignment(recovered.getTableName(), recovered.getReplicas());
             touchStatusUpdatedAtBestEffort(recovered.getTableName());
-            clearMigrationAttemptIdBestEffort(recovered.getTableName());
-            log.warn("recoverStuckMigration finalized timed-out migration table={} status={} stuckFor={}ms attemptId={}",
+            clearMigrationContextBestEffort(recovered.getTableName());
+            log.warn("recoverStuckMigration finalized timed-out migration table={} status={} stuckFor={}ms attemptId={} source={} target={}",
                     recovered.getTableName(),
                     currentStatus,
                     now - version,
-                    attemptId);
+                    attemptId,
+                    sourceReplicaId,
+                    targetReplicaId);
             return recovered;
         } catch (Exception e) {
             log.error("recoverStuckMigration failed table={} status={} cause={}",
@@ -1343,8 +1446,41 @@ public class MasterServiceImpl implements MasterService.Iface {
         return tableName + "-" + source.getId() + "-" + target.getId() + "-" + System.currentTimeMillis();
     }
 
+    private RegionServerInfo resolveRegionServerForRecovery(TableLocation location, String replicaId) {
+        if (replicaId == null || replicaId.isBlank()) {
+            return null;
+        }
+        if (location != null && location.isSetReplicas()) {
+            for (RegionServerInfo replica : location.getReplicas()) {
+                if (replica != null
+                        && replica.isSetId()
+                        && replicaId.equals(replica.getId())) {
+                    return replica;
+                }
+            }
+        }
+        try {
+            for (RegionServerInfo regionServerInfo : listRegionServers()) {
+                if (regionServerInfo != null
+                        && regionServerInfo.isSetId()
+                        && replicaId.equals(regionServerInfo.getId())) {
+                    return regionServerInfo;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("resolveRegionServerForRecovery failed table={} replicaId={} cause={}",
+                    location == null ? "" : location.getTableName(),
+                    replicaId,
+                    e.getMessage());
+        }
+        return null;
+    }
+
     @SuppressWarnings("unchecked")
-    private void setMigrationAttemptIdBestEffort(String tableName, String migrationAttemptId) {
+    private void setMigrationContextBestEffort(String tableName,
+                                               String migrationAttemptId,
+                                               String sourceReplicaId,
+                                               String targetReplicaId) {
         CuratorFramework zk = zk();
         if (migrationAttemptId == null || migrationAttemptId.isBlank() || isZkUnavailable(zk)) {
             return;
@@ -1359,8 +1495,23 @@ public class MasterServiceImpl implements MasterService.Iface {
                 return;
             }
             Map<String, Object> root = MAPPER.readValue(data, Map.class);
-            if (!Objects.equals(root.get("migrationAttemptId"), migrationAttemptId)) {
+            Object existingAttempt = root.get("migrationAttemptId");
+            Object existingSource = root.get("migrationSourceReplicaId");
+            Object existingTarget = root.get("migrationTargetReplicaId");
+            if (!Objects.equals(existingAttempt, migrationAttemptId)
+                    || !Objects.equals(existingSource, sourceReplicaId)
+                    || !Objects.equals(existingTarget, targetReplicaId)) {
                 root.put("migrationAttemptId", migrationAttemptId);
+                if (sourceReplicaId != null && !sourceReplicaId.isBlank()) {
+                    root.put("migrationSourceReplicaId", sourceReplicaId);
+                } else {
+                    root.remove("migrationSourceReplicaId");
+                }
+                if (targetReplicaId != null && !targetReplicaId.isBlank()) {
+                    root.put("migrationTargetReplicaId", targetReplicaId);
+                } else {
+                    root.remove("migrationTargetReplicaId");
+                }
                 zk.setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
             }
         } catch (Exception e) {
@@ -1370,7 +1521,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     @SuppressWarnings("unchecked")
-    private void clearMigrationAttemptIdBestEffort(String tableName) {
+    private void clearMigrationContextBestEffort(String tableName) {
         CuratorFramework zk = zk();
         if (isZkUnavailable(zk)) {
             return;
@@ -1385,7 +1536,10 @@ public class MasterServiceImpl implements MasterService.Iface {
                 return;
             }
             Map<String, Object> root = MAPPER.readValue(data, Map.class);
-            if (root.remove("migrationAttemptId") != null) {
+            Object removedAttempt = root.remove("migrationAttemptId");
+            Object removedSource = root.remove("migrationSourceReplicaId");
+            Object removedTarget = root.remove("migrationTargetReplicaId");
+            if (removedAttempt != null || removedSource != null || removedTarget != null) {
                 zk.setData().forPath(path, stringifyMap(root).getBytes(StandardCharsets.UTF_8));
             }
         } catch (Exception e) {
@@ -1395,7 +1549,7 @@ public class MasterServiceImpl implements MasterService.Iface {
     }
 
     @SuppressWarnings("unchecked")
-    private String readMigrationAttemptIdBestEffort(String tableName) {
+    private MigrationContext readMigrationContextBestEffort(String tableName) {
         CuratorFramework zk = zk();
         if (isZkUnavailable(zk)) {
             return null;
@@ -1411,9 +1565,17 @@ public class MasterServiceImpl implements MasterService.Iface {
             }
             Map<String, Object> root = MAPPER.readValue(data, Map.class);
             Object attempt = root.get("migrationAttemptId");
-            return attempt == null ? null : String.valueOf(attempt);
+            if (attempt == null) {
+                return null;
+            }
+            Object source = root.get("migrationSourceReplicaId");
+            Object target = root.get("migrationTargetReplicaId");
+            return new MigrationContext(
+                    String.valueOf(attempt),
+                    source == null ? null : String.valueOf(source),
+                    target == null ? null : String.valueOf(target));
         } catch (Exception e) {
-            log.warn("read migrationAttemptId failed table={} cause={}", tableName, e.getMessage());
+            log.warn("read migration context failed table={} cause={}", tableName, e.getMessage());
             return null;
         }
     }
