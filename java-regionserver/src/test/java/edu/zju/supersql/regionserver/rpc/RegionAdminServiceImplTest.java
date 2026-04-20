@@ -993,11 +993,16 @@ class RegionAdminServiceImplTest {
     // ── heartbeat / registerRegionServer ──────────────────────────────────────
 
     @Test
-    void heartbeatAndRegisterReturnOk() throws Exception {
+    void heartbeatAndRegisterShouldFailWhenZkUnavailable() throws Exception {
         edu.zju.supersql.rpc.RegionServerInfo info =
                 new edu.zju.supersql.rpc.RegionServerInfo("rs-test", "localhost", 9090);
-        Assertions.assertEquals(StatusCode.OK, service.heartbeat(info).getCode());
-        Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(info).getCode());
+        Response heartbeat = service.heartbeat(info);
+        Response register = service.registerRegionServer(info);
+
+        Assertions.assertEquals(StatusCode.ERROR, heartbeat.getCode());
+        Assertions.assertTrue(String.valueOf(heartbeat.getMessage()).contains("zk unavailable"));
+        Assertions.assertEquals(StatusCode.ERROR, register.getCode());
+        Assertions.assertTrue(String.valueOf(register.getMessage()).contains("zk unavailable"));
     }
 
     private static TServer buildServer(int port, RegionAdminService.Iface impl) throws Exception {

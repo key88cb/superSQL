@@ -458,8 +458,8 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         log.info("registerRegionServer: {}", info.getId());
 
         if (zkClient == null) {
-            Response r = new Response(StatusCode.OK);
-            r.setMessage("register skipped (zk unavailable)");
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("registerRegionServer failed: zk unavailable");
             return r;
         }
 
@@ -494,7 +494,9 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         }
 
         if (zkClient == null) {
-            return new Response(StatusCode.OK);
+            Response r = new Response(StatusCode.ERROR);
+            r.setMessage("heartbeat failed: zk unavailable");
+            return r;
         }
 
         try {
