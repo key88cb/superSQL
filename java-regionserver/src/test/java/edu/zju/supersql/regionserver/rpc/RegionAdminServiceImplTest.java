@@ -1000,9 +1000,9 @@ class RegionAdminServiceImplTest {
         Response register = service.registerRegionServer(info);
 
         Assertions.assertEquals(StatusCode.ERROR, heartbeat.getCode());
-        Assertions.assertTrue(String.valueOf(heartbeat.getMessage()).contains("zk unavailable"));
+        Assertions.assertTrue(String.valueOf(heartbeat.getMessage()).contains("deprecated"));
         Assertions.assertEquals(StatusCode.ERROR, register.getCode());
-        Assertions.assertTrue(String.valueOf(register.getMessage()).contains("zk unavailable"));
+        Assertions.assertTrue(String.valueOf(register.getMessage()).contains("deprecated"));
     }
 
     private static TServer buildServer(int port, RegionAdminService.Iface impl) throws Exception {

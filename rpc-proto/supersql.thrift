@@ -182,10 +182,10 @@ service RegionAdminService {
     /** Master 命令 RS 删除本地某张表的所有数据（迁移完成后）。 */
     Response deleteLocalTable(1: string tableName),
 
-    /** RS 向 Master 注册自身（启动时调用一次）。 */
+    /** 兼容接口（已弃用）：生产链路由 RegionServerRegistrar 直写 ZooKeeper。 */
     Response registerRegionServer(1: RegionServerInfo info),
 
-    /** RS 向 Master 发送心跳（含最新负载指标，每 10 秒一次）。 */
+    /** 兼容接口（已弃用）：生产链路由 RegionServerRegistrar 直写 ZooKeeper。 */
     Response heartbeat(1: RegionServerInfo info),
 
     /** Master 通知 RS 广播缓存失效消息（表迁移后）。 */

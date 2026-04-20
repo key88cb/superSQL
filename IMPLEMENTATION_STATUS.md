@@ -107,9 +107,7 @@
 - RegionServiceImpl 已实现基础读路径：直接 MiniSQL 执行，跳过 WAL 与 replica sync。
 - executeBatch：按序执行，遇错即停。
 - RegionAdminServiceImpl 已实现 pause/resume、deleteLocalTable、invalidateClientCache、transferTable、copyTableData 的基础路径。
-- RegionAdminServiceImpl 的 `registerRegionServer/heartbeat` 已支持回写 `/region_servers/{rsId}` 节点负载与 `lastHeartbeat`。
-- RegionAdminServiceImpl 的 `registerRegionServer/heartbeat` 已兼容保留扩展节点字段（`httpPort` 与 replica-decision 信号），避免辅助链路调用时覆盖主链路写入语义。
-- RegionAdminServiceImpl 的 `registerRegionServer/heartbeat` 在 `zkClient` 不可用时改为 fail-fast 返回 `ERROR`（不再返回 OK），避免“空跑成功”语义掩盖控制面异常。
+- RegionAdminServiceImpl 的 `registerRegionServer/heartbeat` 已收敛为弃用兼容接口并默认返回 `ERROR`；生产链路统一走 `RegionServerRegistrar` 直写 ZooKeeper，避免双轨实现漂移。
 - RegionServer 主循环 heartbeat 已接入实时负载采样：`tableCount` 来自 assignment 统计，`qps1min` 来自 SQL 执行计数增量，`cpuUsage/memUsage` 来自进程采样，不再固定上报 0。
 - RegionServer 启动阶段已接入 ZooKeeper 连接重试：初次连接失败不会直接以“无 ZK 降级模式”继续对外服务，而是按固定间隔重试直到连通后再启动。
 - RegionAdminServiceImpl 的 `invalidateClientCache` 已支持通过更新 `/meta/tables/{table}` version 广播失效信号，驱动 Client 端主动失效。

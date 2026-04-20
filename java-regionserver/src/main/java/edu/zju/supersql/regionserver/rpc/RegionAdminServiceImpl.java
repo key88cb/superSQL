@@ -455,34 +455,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             r.setMessage("registerRegionServer failed: missing region server id");
             return r;
         }
-        log.info("registerRegionServer: {}", info.getId());
+        log.warn("registerRegionServer RPC is deprecated and disabled; use RegionServerRegistrar. rs={}", info.getId());
 
-        if (zkClient == null) {
-            Response r = new Response(StatusCode.ERROR);
-            r.setMessage("registerRegionServer failed: zk unavailable");
-            return r;
-        }
-
-        try {
-            String path = ZkPaths.regionServer(info.getId());
-            org.apache.zookeeper.data.Stat stat = zkClient.checkExists().forPath(path);
-            Map<?, ?> existingNode = readExistingRegionServerNode(path, stat);
-            byte[] payload = regionServerInfoBytes(info, System.currentTimeMillis(), existingNode);
-            if (stat == null) {
-                zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
-                        .forPath(path, payload);
-            } else {
-                zkClient.setData().forPath(path, payload);
-            }
-            Response r = new Response(StatusCode.OK);
-            r.setMessage("registered " + info.getId());
-            return r;
-        } catch (Exception e) {
-            log.error("registerRegionServer failed for rs={}", info.getId(), e);
-            Response r = new Response(StatusCode.ERROR);
-            r.setMessage("registerRegionServer failed: " + e.getMessage());
-            return r;
-        }
+        Response r = new Response(StatusCode.ERROR);
+        r.setMessage("registerRegionServer RPC is deprecated; production path uses RegionServerRegistrar");
+        return r;
     }
 
     @Override
@@ -493,30 +470,11 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             return r;
         }
 
-        if (zkClient == null) {
-            Response r = new Response(StatusCode.ERROR);
-            r.setMessage("heartbeat failed: zk unavailable");
-            return r;
-        }
+        log.warn("heartbeat RPC is deprecated and disabled; use RegionServerRegistrar. rs={}", info.getId());
 
-        try {
-            String path = ZkPaths.regionServer(info.getId());
-            org.apache.zookeeper.data.Stat stat = zkClient.checkExists().forPath(path);
-            Map<?, ?> existingNode = readExistingRegionServerNode(path, stat);
-            byte[] payload = regionServerInfoBytes(info, System.currentTimeMillis(), existingNode);
-            if (stat == null) {
-                zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
-                        .forPath(path, payload);
-            } else {
-                zkClient.setData().forPath(path, payload);
-            }
-            return new Response(StatusCode.OK);
-        } catch (Exception e) {
-            log.error("heartbeat failed for rs={}", info.getId(), e);
-            Response r = new Response(StatusCode.ERROR);
-            r.setMessage("heartbeat failed: " + e.getMessage());
-            return r;
-        }
+        Response r = new Response(StatusCode.ERROR);
+        r.setMessage("heartbeat RPC is deprecated; production path uses RegionServerRegistrar");
+        return r;
     }
 
     // ─────────────────────── helpers ──────────────────────────────────────────
@@ -1083,73 +1041,6 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
             copy.put(String.valueOf(entry.getKey()), entry.getValue());
         }
         return copy;
-    }
-
-    private Map<?, ?> readExistingRegionServerNode(String path, org.apache.zookeeper.data.Stat stat) throws Exception {
-        if (stat == null) {
-            return null;
-        }
-        byte[] existing = zkClient.getData().forPath(path);
-        if (existing == null || existing.length == 0) {
-            return null;
-        }
-        return MAPPER.readValue(existing, Map.class);
-    }
-
-    private byte[] regionServerInfoBytes(RegionServerInfo info, long heartbeatTs, Map<?, ?> existingNode) throws Exception {
-        Map<String, Object> payload = new ConcurrentHashMap<>();
-        payload.put("id", info.getId());
-        payload.put("host", info.getHost());
-        payload.put("port", info.getPort());
-        payload.put("httpPort", toInt(existingNode == null ? null : existingNode.get("httpPort"), info.getPort() + 100));
-        payload.put("tableCount", info.isSetTableCount() ? info.getTableCount() : 0);
-        payload.put("qps1min", info.isSetQps1min() ? info.getQps1min() : 0.0);
-        payload.put("cpuUsage", info.isSetCpuUsage() ? info.getCpuUsage() : 0.0);
-        payload.put("memUsage", info.isSetMemUsage() ? info.getMemUsage() : 0.0);
-        payload.put("lastHeartbeat", heartbeatTs);
-        payload.put("manualInterventionRequired", toBoolean(existingNode == null ? null : existingNode.get("manualInterventionRequired"), false));
-        payload.put("terminalQueueCount", toLong(existingNode == null ? null : existingNode.get("terminalQueueCount"), 0L));
-        payload.put("activeDecisionReadyCount", toLong(existingNode == null ? null : existingNode.get("activeDecisionReadyCount"), 0L));
-        payload.put("activeDecisionCandidateCount", toLong(existingNode == null ? null : existingNode.get("activeDecisionCandidateCount"), 0L));
-        return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
-    }
-
-    private static int toInt(Object value, int fallback) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        if (value == null) {
-            return fallback;
-        }
-        try {
-            return Integer.parseInt(String.valueOf(value));
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private static long toLong(Object value, long fallback) {
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        if (value == null) {
-            return fallback;
-        }
-        try {
-            return Long.parseLong(String.valueOf(value));
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private static boolean toBoolean(Object value, boolean fallback) {
-        if (value instanceof Boolean bool) {
-            return bool;
-        }
-        if (value == null) {
-            return fallback;
-        }
-        return "true".equalsIgnoreCase(String.valueOf(value));
     }
 
     private static void publishCompletedFile(Path stagingPath, Path finalPath) throws IOException {

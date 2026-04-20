@@ -3,6 +3,7 @@ package edu.zju.supersql.regionserver.rpc;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.zju.supersql.regionserver.WriteGuard;
 import edu.zju.supersql.regionserver.ZkPaths;
+import edu.zju.supersql.rpc.Response;
 import edu.zju.supersql.rpc.StatusCode;
 import edu.zju.supersql.testutil.EmbeddedZkServer;
 import edu.zju.supersql.testutil.EmbeddedZkServerFactory;
@@ -138,68 +139,56 @@ class RegionAdminServiceAssignmentIntegrationTest {
     }
 
     @Test
-    void registerRegionServerShouldPersistNodeInZooKeeper() throws Exception {
+    void registerRegionServerShouldReturnErrorAndNotCreateNode() throws Exception {
         RegionAdminServiceImpl service = new RegionAdminServiceImpl(
                 new WriteGuard(), zkClient, dataDir.toString(), "rs-1");
 
         edu.zju.supersql.rpc.RegionServerInfo info = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
         info.setTableCount(4);
 
-        Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(info).getCode());
-
-        Map<?, ?> payload = readJson(ZkPaths.regionServer("rs-1"));
-        Assertions.assertEquals("rs-1", payload.get("id"));
-        Assertions.assertEquals("127.0.0.1", payload.get("host"));
-        Assertions.assertEquals(9090, ((Number) payload.get("port")).intValue());
-        Assertions.assertEquals(9190, ((Number) payload.get("httpPort")).intValue());
-        Assertions.assertEquals(4, ((Number) payload.get("tableCount")).intValue());
-        Assertions.assertEquals(false, payload.get("manualInterventionRequired"));
-        Assertions.assertEquals(0L, ((Number) payload.get("terminalQueueCount")).longValue());
-        Assertions.assertEquals(0L, ((Number) payload.get("activeDecisionReadyCount")).longValue());
-        Assertions.assertEquals(0L, ((Number) payload.get("activeDecisionCandidateCount")).longValue());
-        Assertions.assertTrue(((Number) payload.get("lastHeartbeat")).longValue() > 0L);
+        Response response = service.registerRegionServer(info);
+        Assertions.assertEquals(StatusCode.ERROR, response.getCode());
+        Assertions.assertTrue(String.valueOf(response.getMessage()).contains("deprecated"));
+        Assertions.assertNull(zkClient.checkExists().forPath(ZkPaths.regionServer("rs-1")));
     }
 
     @Test
-    void heartbeatShouldRefreshLastHeartbeatAndMetrics() throws Exception {
+    void heartbeatShouldReturnErrorAndNotCreateNode() throws Exception {
         RegionAdminServiceImpl service = new RegionAdminServiceImpl(
                 new WriteGuard(), zkClient, dataDir.toString(), "rs-1");
-
-        edu.zju.supersql.rpc.RegionServerInfo initial = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
-        initial.setTableCount(1);
-        Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(initial).getCode());
-        long before = ((Number) readJson(ZkPaths.regionServer("rs-1")).get("lastHeartbeat")).longValue();
 
         edu.zju.supersql.rpc.RegionServerInfo heartbeat = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
         heartbeat.setTableCount(6);
         heartbeat.setQps1min(12.5);
-        Assertions.assertEquals(StatusCode.OK, service.heartbeat(heartbeat).getCode());
-
-        Map<?, ?> payload = readJson(ZkPaths.regionServer("rs-1"));
-        Assertions.assertTrue(((Number) payload.get("lastHeartbeat")).longValue() >= before);
-        Assertions.assertEquals(6, ((Number) payload.get("tableCount")).intValue());
-        Assertions.assertEquals(12.5, ((Number) payload.get("qps1min")).doubleValue(), 0.0001);
+        Response response = service.heartbeat(heartbeat);
+        Assertions.assertEquals(StatusCode.ERROR, response.getCode());
+        Assertions.assertTrue(String.valueOf(response.getMessage()).contains("deprecated"));
+        Assertions.assertNull(zkClient.checkExists().forPath(ZkPaths.regionServer("rs-1")));
     }
 
     @Test
-    void heartbeatShouldPreserveExtendedNodeFields() throws Exception {
+    void heartbeatShouldNotMutateExistingNode() throws Exception {
         RegionAdminServiceImpl service = new RegionAdminServiceImpl(
                 new WriteGuard(), zkClient, dataDir.toString(), "rs-1");
 
-        edu.zju.supersql.rpc.RegionServerInfo initial = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
-        initial.setTableCount(1);
-        Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(initial).getCode());
-
         Map<String, Object> original = new HashMap<>();
-        Map<?, ?> existing = readJson(ZkPaths.regionServer("rs-1"));
-        for (Map.Entry<?, ?> entry : existing.entrySet()) {
-            original.put(String.valueOf(entry.getKey()), entry.getValue());
-        }
+        original.put("id", "rs-1");
+        original.put("host", "127.0.0.1");
+        original.put("port", 9090);
         original.put("httpPort", 19090);
         original.put("manualInterventionRequired", true);
         original.put("terminalQueueCount", 7L);
         original.put("activeDecisionReadyCount", 3L);
         original.put("activeDecisionCandidateCount", 5L);
+        original.put("tableCount", 1);
+        original.put("qps1min", 1.5);
+        original.put("lastHeartbeat", 123456L);
+        zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
+                .forPath(
+                        ZkPaths.regionServer("rs-1"),
+                        MAPPER.writeValueAsString(original).getBytes(StandardCharsets.UTF_8));
+
+        byte[] beforeBytes = zkClient.getData().forPath(ZkPaths.regionServer("rs-1"));
         zkClient.setData().forPath(
                 ZkPaths.regionServer("rs-1"),
                 MAPPER.writeValueAsString(original).getBytes(StandardCharsets.UTF_8));
@@ -207,16 +196,11 @@ class RegionAdminServiceAssignmentIntegrationTest {
         edu.zju.supersql.rpc.RegionServerInfo heartbeat = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
         heartbeat.setTableCount(9);
         heartbeat.setQps1min(22.0);
-        Assertions.assertEquals(StatusCode.OK, service.heartbeat(heartbeat).getCode());
+        Response response = service.heartbeat(heartbeat);
+        Assertions.assertEquals(StatusCode.ERROR, response.getCode());
 
-        Map<?, ?> payload = readJson(ZkPaths.regionServer("rs-1"));
-        Assertions.assertEquals(19090, ((Number) payload.get("httpPort")).intValue());
-        Assertions.assertEquals(true, payload.get("manualInterventionRequired"));
-        Assertions.assertEquals(7L, ((Number) payload.get("terminalQueueCount")).longValue());
-        Assertions.assertEquals(3L, ((Number) payload.get("activeDecisionReadyCount")).longValue());
-        Assertions.assertEquals(5L, ((Number) payload.get("activeDecisionCandidateCount")).longValue());
-        Assertions.assertEquals(9, ((Number) payload.get("tableCount")).intValue());
-        Assertions.assertEquals(22.0, ((Number) payload.get("qps1min")).doubleValue(), 0.0001);
+        byte[] afterBytes = zkClient.getData().forPath(ZkPaths.regionServer("rs-1"));
+        Assertions.assertArrayEquals(beforeBytes, afterBytes);
     }
 
     private void createPathIfMissing(String path) throws Exception {
