@@ -403,6 +403,64 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void getTableLocationShouldRollbackRefillWhenResumeWriteFails() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_refill_resume_fail(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+
+        RecordingRegionAdminExecutor resumeFailingAdmin = new RecordingRegionAdminExecutor() {
+            @Override
+            public Response resumeTableWrite(RegionServerInfo regionServer, String tableName) {
+                if ("t_refill_resume_fail".equals(tableName)) {
+                    super.resumeTableWrite(regionServer, tableName);
+                    Response fail = new Response(StatusCode.ERROR);
+                    fail.setMessage("simulated resume failure");
+                    return fail;
+                }
+                return super.resumeTableWrite(regionServer, tableName);
+            }
+        };
+
+        MasterServiceImpl resumeFailingService = new MasterServiceImpl(
+                new MetaManager(zkClient),
+                new AssignmentManager(zkClient),
+                new LoadBalancer(),
+                ddlExecutor,
+                resumeFailingAdmin);
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+
+        TableLocation after = resumeFailingService.getTableLocation("t_refill_resume_fail");
+        List<String> replicaIds = after.getReplicas().stream().map(RegionServerInfo::getId).toList();
+
+        Assertions.assertEquals("ACTIVE", after.getTableStatus());
+        Assertions.assertEquals(2, after.getReplicasSize());
+        Assertions.assertFalse(replicaIds.contains("rs-4"));
+        Assertions.assertTrue(resumeFailingAdmin.operations.stream().anyMatch(op ->
+                "pause".equals(op.method)
+                        && "t_refill_resume_fail".equals(op.tableName)));
+        Assertions.assertTrue(resumeFailingAdmin.operations.stream().anyMatch(op ->
+                "transfer".equals(op.method)
+                        && "t_refill_resume_fail".equals(op.tableName)));
+        Assertions.assertTrue(resumeFailingAdmin.operations.stream().anyMatch(op ->
+                "resume".equals(op.method)
+                        && "t_refill_resume_fail".equals(op.tableName)));
+        Assertions.assertTrue(resumeFailingAdmin.operations.stream().anyMatch(op ->
+                "delete".equals(op.method)
+                        && "t_refill_resume_fail".equals(op.tableName)
+                        && "rs-4".equals(op.replicaId)));
+
+        Map<?, ?> meta = readJson("/meta/tables/t_refill_resume_fail");
+        List<?> persistedReplicas = (List<?>) meta.get("replicas");
+        Assertions.assertEquals(2, persistedReplicas.size());
+    }
+
+    @Test
     void listTablesShouldRefillReplicasAfterPrimaryOffline() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);

@@ -1244,6 +1244,8 @@ public class MasterServiceImpl implements MasterService.Iface {
                                            RegionServerInfo target) {
         boolean writePaused = false;
         boolean transferAttempted = false;
+        boolean transferSucceeded = false;
+        boolean resumeSucceeded = true;
         try {
             Response pause = regionAdminExecutor.pauseTableWrite(source, tableName);
             if (pause.getCode() != StatusCode.OK) {
@@ -1260,14 +1262,15 @@ public class MasterServiceImpl implements MasterService.Iface {
             transferAttempted = true;
             Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
             if (transfer.getCode() == StatusCode.OK) {
-                return true;
+                transferSucceeded = true;
+            } else {
+                log.warn("healTableLocation transfer failed table={} source={} target={} code={} msg={}",
+                        tableName,
+                        source.getId(),
+                        target.getId(),
+                        transfer.getCode(),
+                        transfer.getMessage());
             }
-            log.warn("healTableLocation transfer failed table={} source={} target={} code={} msg={}",
-                    tableName,
-                    source.getId(),
-                    target.getId(),
-                    transfer.getCode(),
-                    transfer.getMessage());
         } catch (Exception e) {
             log.warn("healTableLocation transfer exception table={} source={} target={} cause={}",
                     tableName,
@@ -1279,6 +1282,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                 try {
                     Response resume = regionAdminExecutor.resumeTableWrite(source, tableName);
                     if (resume.getCode() != StatusCode.OK) {
+                        resumeSucceeded = false;
                         log.warn("healTableLocation resume failed table={} source={} target={} code={} msg={}",
                                 tableName,
                                 source.getId(),
@@ -1287,6 +1291,7 @@ public class MasterServiceImpl implements MasterService.Iface {
                                 resume.getMessage());
                     }
                 } catch (Exception resumeException) {
+                    resumeSucceeded = false;
                     log.warn("healTableLocation resume exception table={} source={} target={} cause={}",
                             tableName,
                             source.getId(),
@@ -1294,6 +1299,15 @@ public class MasterServiceImpl implements MasterService.Iface {
                             resumeException.getMessage());
                 }
             }
+        }
+        if (transferSucceeded && resumeSucceeded) {
+            return true;
+        }
+        if (transferSucceeded) {
+            log.warn("healTableLocation transfer reverted due to resume failure table={} source={} target={}",
+                    tableName,
+                    source.getId(),
+                    target.getId());
         }
         if (transferAttempted) {
             cleanupTargetReplicaWithConfirmation(target, tableName, "heal_transfer_failed");

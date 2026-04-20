@@ -55,6 +55,7 @@
 - `listTables` 同样会在返回前执行主副本离线检测与 lazy failover，减少批量查询场景下的陈旧主路由。
 - lazy failover 补副本已升级为“先数据迁移后元数据落盘”：Master 会先触发 RegionAdmin `transferTable` 把表数据复制到新副本，成功后才回写 `/meta/tables` 与 `/assignments`。
 - lazy failover 补副本的数据迁移已增加写冻结保护：Master 会对 clone source 执行 `pauseTableWrite -> transferTable -> resumeTableWrite`，降低补副本过程中的并发写快照不一致风险。
+- 若 lazy failover 补副本阶段出现 `resumeTableWrite` 失败，流程会按失败处理并清理目标副本，不会把“解冻失败”的迁移误记为成功，避免写冻结异常下产生假闭环。
 - lazy failover 的补副本迁移失败时会保持降副本状态，并对目标残留执行确认重试清理（`OK/TABLE_NOT_FOUND` 视为完成），避免出现“元数据已宣告副本存在但数据未到位”的假副本。
 - 当表的所有副本都离线时，路由自愈会将表状态标记为 `UNAVAILABLE`；有副本恢复在线后会自动回升到 `ACTIVE`。
 - 路由自愈写回已增加按表去抖节流（相同目标拓扑在最小间隔内不重复写 ZK），降低高频查询下写放大。
