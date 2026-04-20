@@ -151,7 +151,12 @@ class RegionAdminServiceAssignmentIntegrationTest {
         Assertions.assertEquals("rs-1", payload.get("id"));
         Assertions.assertEquals("127.0.0.1", payload.get("host"));
         Assertions.assertEquals(9090, ((Number) payload.get("port")).intValue());
+        Assertions.assertEquals(9190, ((Number) payload.get("httpPort")).intValue());
         Assertions.assertEquals(4, ((Number) payload.get("tableCount")).intValue());
+        Assertions.assertEquals(false, payload.get("manualInterventionRequired"));
+        Assertions.assertEquals(0L, ((Number) payload.get("terminalQueueCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) payload.get("activeDecisionReadyCount")).longValue());
+        Assertions.assertEquals(0L, ((Number) payload.get("activeDecisionCandidateCount")).longValue());
         Assertions.assertTrue(((Number) payload.get("lastHeartbeat")).longValue() > 0L);
     }
 
@@ -174,6 +179,44 @@ class RegionAdminServiceAssignmentIntegrationTest {
         Assertions.assertTrue(((Number) payload.get("lastHeartbeat")).longValue() >= before);
         Assertions.assertEquals(6, ((Number) payload.get("tableCount")).intValue());
         Assertions.assertEquals(12.5, ((Number) payload.get("qps1min")).doubleValue(), 0.0001);
+    }
+
+    @Test
+    void heartbeatShouldPreserveExtendedNodeFields() throws Exception {
+        RegionAdminServiceImpl service = new RegionAdminServiceImpl(
+                new WriteGuard(), zkClient, dataDir.toString(), "rs-1");
+
+        edu.zju.supersql.rpc.RegionServerInfo initial = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        initial.setTableCount(1);
+        Assertions.assertEquals(StatusCode.OK, service.registerRegionServer(initial).getCode());
+
+        Map<String, Object> original = new HashMap<>();
+        Map<?, ?> existing = readJson(ZkPaths.regionServer("rs-1"));
+        for (Map.Entry<?, ?> entry : existing.entrySet()) {
+            original.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        original.put("httpPort", 19090);
+        original.put("manualInterventionRequired", true);
+        original.put("terminalQueueCount", 7L);
+        original.put("activeDecisionReadyCount", 3L);
+        original.put("activeDecisionCandidateCount", 5L);
+        zkClient.setData().forPath(
+                ZkPaths.regionServer("rs-1"),
+                MAPPER.writeValueAsString(original).getBytes(StandardCharsets.UTF_8));
+
+        edu.zju.supersql.rpc.RegionServerInfo heartbeat = new edu.zju.supersql.rpc.RegionServerInfo("rs-1", "127.0.0.1", 9090);
+        heartbeat.setTableCount(9);
+        heartbeat.setQps1min(22.0);
+        Assertions.assertEquals(StatusCode.OK, service.heartbeat(heartbeat).getCode());
+
+        Map<?, ?> payload = readJson(ZkPaths.regionServer("rs-1"));
+        Assertions.assertEquals(19090, ((Number) payload.get("httpPort")).intValue());
+        Assertions.assertEquals(true, payload.get("manualInterventionRequired"));
+        Assertions.assertEquals(7L, ((Number) payload.get("terminalQueueCount")).longValue());
+        Assertions.assertEquals(3L, ((Number) payload.get("activeDecisionReadyCount")).longValue());
+        Assertions.assertEquals(5L, ((Number) payload.get("activeDecisionCandidateCount")).longValue());
+        Assertions.assertEquals(9, ((Number) payload.get("tableCount")).intValue());
+        Assertions.assertEquals(22.0, ((Number) payload.get("qps1min")).doubleValue(), 0.0001);
     }
 
     private void createPathIfMissing(String path) throws Exception {

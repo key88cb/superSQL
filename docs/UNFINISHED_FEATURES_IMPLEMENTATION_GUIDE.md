@@ -157,6 +157,7 @@
 - `copyTableData` 对“同偏移但内容不一致”的重复包会拒绝且保持当前传输进度，不再通过 reset 清空已写入分块。
 - `transferTable` 已忽略源端 `.part` 临时文件，避免未完成传输文件再次被迁移。
 - RegionAdmin 基础管理路径；`deleteLocalTable` 对 assignment 已修复为“仅移除当前 RS”。
+- RegionAdmin `registerRegionServer/heartbeat` 已兼容保留扩展节点字段（`httpPort` 与 replica-decision 信号），降低辅助链路调用时覆盖主链路节点语义的漂移风险。
 
 ### 仍待实现
 

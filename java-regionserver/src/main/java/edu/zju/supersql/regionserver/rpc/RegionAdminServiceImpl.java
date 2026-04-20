@@ -465,8 +465,10 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
         try {
             String path = ZkPaths.regionServer(info.getId());
-            byte[] payload = regionServerInfoBytes(info, System.currentTimeMillis());
-            if (zkClient.checkExists().forPath(path) == null) {
+            org.apache.zookeeper.data.Stat stat = zkClient.checkExists().forPath(path);
+            Map<?, ?> existingNode = readExistingRegionServerNode(path, stat);
+            byte[] payload = regionServerInfoBytes(info, System.currentTimeMillis(), existingNode);
+            if (stat == null) {
                 zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
                         .forPath(path, payload);
             } else {
@@ -497,8 +499,10 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
 
         try {
             String path = ZkPaths.regionServer(info.getId());
-            byte[] payload = regionServerInfoBytes(info, System.currentTimeMillis());
-            if (zkClient.checkExists().forPath(path) == null) {
+            org.apache.zookeeper.data.Stat stat = zkClient.checkExists().forPath(path);
+            Map<?, ?> existingNode = readExistingRegionServerNode(path, stat);
+            byte[] payload = regionServerInfoBytes(info, System.currentTimeMillis(), existingNode);
+            if (stat == null) {
                 zkClient.create().creatingParentsIfNeeded().withMode(org.apache.zookeeper.CreateMode.EPHEMERAL)
                         .forPath(path, payload);
             } else {
@@ -1079,17 +1083,71 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
         return copy;
     }
 
-    private byte[] regionServerInfoBytes(RegionServerInfo info, long heartbeatTs) throws Exception {
+    private Map<?, ?> readExistingRegionServerNode(String path, org.apache.zookeeper.data.Stat stat) throws Exception {
+        if (stat == null) {
+            return null;
+        }
+        byte[] existing = zkClient.getData().forPath(path);
+        if (existing == null || existing.length == 0) {
+            return null;
+        }
+        return MAPPER.readValue(existing, Map.class);
+    }
+
+    private byte[] regionServerInfoBytes(RegionServerInfo info, long heartbeatTs, Map<?, ?> existingNode) throws Exception {
         Map<String, Object> payload = new ConcurrentHashMap<>();
         payload.put("id", info.getId());
         payload.put("host", info.getHost());
         payload.put("port", info.getPort());
+        payload.put("httpPort", toInt(existingNode == null ? null : existingNode.get("httpPort"), info.getPort() + 100));
         payload.put("tableCount", info.isSetTableCount() ? info.getTableCount() : 0);
         payload.put("qps1min", info.isSetQps1min() ? info.getQps1min() : 0.0);
         payload.put("cpuUsage", info.isSetCpuUsage() ? info.getCpuUsage() : 0.0);
         payload.put("memUsage", info.isSetMemUsage() ? info.getMemUsage() : 0.0);
         payload.put("lastHeartbeat", heartbeatTs);
+        payload.put("manualInterventionRequired", toBoolean(existingNode == null ? null : existingNode.get("manualInterventionRequired"), false));
+        payload.put("terminalQueueCount", toLong(existingNode == null ? null : existingNode.get("terminalQueueCount"), 0L));
+        payload.put("activeDecisionReadyCount", toLong(existingNode == null ? null : existingNode.get("activeDecisionReadyCount"), 0L));
+        payload.put("activeDecisionCandidateCount", toLong(existingNode == null ? null : existingNode.get("activeDecisionCandidateCount"), 0L));
         return MAPPER.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static int toInt(Object value, int fallback) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static long toLong(Object value, long fallback) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static boolean toBoolean(Object value, boolean fallback) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return fallback;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(value));
     }
 
     private static void publishCompletedFile(Path stagingPath, Path finalPath) throws IOException {
