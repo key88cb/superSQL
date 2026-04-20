@@ -1242,7 +1242,22 @@ public class MasterServiceImpl implements MasterService.Iface {
     private boolean cloneReplicaBestEffort(String tableName,
                                            RegionServerInfo source,
                                            RegionServerInfo target) {
+        boolean writePaused = false;
+        boolean transferAttempted = false;
         try {
+            Response pause = regionAdminExecutor.pauseTableWrite(source, tableName);
+            if (pause.getCode() != StatusCode.OK) {
+                log.warn("healTableLocation pause failed table={} source={} target={} code={} msg={}",
+                        tableName,
+                        source.getId(),
+                        target.getId(),
+                        pause.getCode(),
+                        pause.getMessage());
+                return false;
+            }
+            writePaused = true;
+
+            transferAttempted = true;
             Response transfer = regionAdminExecutor.transferTable(source, tableName, target);
             if (transfer.getCode() == StatusCode.OK) {
                 return true;
@@ -1259,8 +1274,30 @@ public class MasterServiceImpl implements MasterService.Iface {
                     source.getId(),
                     target.getId(),
                     e.getMessage());
+        } finally {
+            if (writePaused) {
+                try {
+                    Response resume = regionAdminExecutor.resumeTableWrite(source, tableName);
+                    if (resume.getCode() != StatusCode.OK) {
+                        log.warn("healTableLocation resume failed table={} source={} target={} code={} msg={}",
+                                tableName,
+                                source.getId(),
+                                target.getId(),
+                                resume.getCode(),
+                                resume.getMessage());
+                    }
+                } catch (Exception resumeException) {
+                    log.warn("healTableLocation resume exception table={} source={} target={} cause={}",
+                            tableName,
+                            source.getId(),
+                            target.getId(),
+                            resumeException.getMessage());
+                }
+            }
         }
-        cleanupTargetReplicaWithConfirmation(target, tableName, "heal_transfer_failed");
+        if (transferAttempted) {
+            cleanupTargetReplicaWithConfirmation(target, tableName, "heal_transfer_failed");
+        }
         return false;
     }
 

@@ -347,10 +347,29 @@ class MasterServiceMetadataIntegrationTest {
         Assertions.assertTrue(replicaIds.contains("rs-2"));
         Assertions.assertTrue(replicaIds.contains("rs-3"));
         Assertions.assertTrue(replicaIds.contains("rs-4"));
-        Assertions.assertTrue(adminExecutor.operations.stream().anyMatch(op ->
-            "transfer".equals(op.method)
-                && "t_failover_refill".equals(op.tableName)
-                && op.targetReplicaId != null));
+
+        int pauseIndex = -1;
+        int transferIndex = -1;
+        int resumeIndex = -1;
+        for (int i = 0; i < adminExecutor.operations.size(); i++) {
+            AdminOperation op = adminExecutor.operations.get(i);
+            if (!"t_failover_refill".equals(op.tableName)) {
+                continue;
+            }
+            if (pauseIndex < 0 && "pause".equals(op.method)) {
+                pauseIndex = i;
+            }
+            if (transferIndex < 0 && "transfer".equals(op.method) && op.targetReplicaId != null) {
+                transferIndex = i;
+            }
+            if (resumeIndex < 0 && "resume".equals(op.method)) {
+                resumeIndex = i;
+            }
+        }
+
+        Assertions.assertTrue(pauseIndex >= 0);
+        Assertions.assertTrue(transferIndex > pauseIndex);
+        Assertions.assertTrue(resumeIndex > transferIndex);
     }
 
     @Test
