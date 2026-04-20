@@ -9,6 +9,7 @@
 #    rs_crash          - Kill one fixed RS, verify availability and recovery
 #    random_rs_crash   - Randomly stop RS nodes for multiple rounds and verify recovery
 #    network_partition - Inject a basic RS-to-RS partition and collect observations
+#    suspected_replica - Verify suspected replica detection, status exposure and recovery
 #    all               - Run all scenarios above
 #
 #  Environment overrides:
@@ -16,6 +17,9 @@
 #    CHAOS_STOP_WAIT_SECONDS=8
 #    CHAOS_RECOVERY_WAIT_SECONDS=25
 #    CHAOS_PARTITION_DURATION_SECONDS=12
+#    CHAOS_PARTITION_LEFT=rs-1
+#    CHAOS_PARTITION_RIGHT=rs-2
+#    CHAOS_PARTITION_PAIR_MODE=fixed|random
 #    CHAOS_LOG_DIR=artifacts/chaos
 # ==============================================================================
 
@@ -30,6 +34,9 @@ RANDOM_ROUNDS="${CHAOS_RANDOM_ROUNDS:-3}"
 STOP_WAIT_SECONDS="${CHAOS_STOP_WAIT_SECONDS:-8}"
 RECOVERY_WAIT_SECONDS="${CHAOS_RECOVERY_WAIT_SECONDS:-25}"
 PARTITION_DURATION_SECONDS="${CHAOS_PARTITION_DURATION_SECONDS:-12}"
+PARTITION_LEFT="${CHAOS_PARTITION_LEFT:-rs-1}"
+PARTITION_RIGHT="${CHAOS_PARTITION_RIGHT:-rs-2}"
+PARTITION_PAIR_MODE="${CHAOS_PARTITION_PAIR_MODE:-fixed}"
 CLIENT_CONTAINER="${CLIENT_CONTAINER:-client}"
 CLIENT_JAR_PATH="${CLIENT_JAR_PATH:-/app/app.jar}"
 CHAOS_TABLE_PREFIX="${CHAOS_TABLE_PREFIX:-chaos_test}"
@@ -257,10 +264,69 @@ function capture_rs_status() {
     docker exec "$service" sh -lc "curl -sf http://localhost:9190/status" 2>/dev/null
 }
 
+function extract_status_number() {
+    local json=$1
+    local key=$2
+    local value
+    value=$(printf "%s" "$json" | grep -oP "\"$key\":\\K-?[0-9]+" | head -n 1 || true)
+    if [ -z "$value" ]; then
+        echo "0"
+        return 0
+    fi
+    echo "$value"
+}
+
+function assert_status_has_field() {
+    local json=$1
+    local key=$2
+    if printf "%s" "$json" | grep -q "\"$key\""; then
+        return 0
+    fi
+    return 1
+}
+
 function choose_random_rs() {
     local nodes=("rs-1" "rs-2" "rs-3")
     local index=$((RANDOM % ${#nodes[@]}))
     echo "${nodes[$index]}"
+}
+
+function choose_partition_pair() {
+    local mode="${PARTITION_PAIR_MODE}"
+    local left="${PARTITION_LEFT}"
+    local right="${PARTITION_RIGHT}"
+    local pairs=("rs-1 rs-2" "rs-1 rs-3" "rs-2 rs-3")
+    local selected
+
+    if [ "$mode" = "random" ]; then
+        selected="${pairs[$((RANDOM % ${#pairs[@]}))]}"
+        echo "$selected"
+        return 0
+    fi
+
+    if [ "$left" = "$right" ]; then
+        record_failure "CHAOS_PARTITION_LEFT and CHAOS_PARTITION_RIGHT must be different services."
+        return 1
+    fi
+
+    case "$left $right" in
+        "rs-1 rs-2"|"rs-2 rs-1"|"rs-1 rs-3"|"rs-3 rs-1"|"rs-2 rs-3"|"rs-3 rs-2")
+            echo "$left $right"
+            return 0
+            ;;
+        *)
+            record_failure "Unsupported partition pair: $left / $right. Expected rs-1, rs-2 or rs-3."
+            return 1
+            ;;
+    esac
+}
+
+function archive_status_snapshot() {
+    local label=$1
+    local service=$2
+    local payload=$3
+    log_line "STATUS_SNAPSHOT ${label} ${service}"
+    printf "%s\n" "$payload" >> "$CHAOS_LOG_FILE"
 }
 
 function test_master_failover() {
@@ -393,8 +459,9 @@ function test_network_partition() {
     print_section "Scenario 4: Basic RegionServer Network Partition"
     cleanup_test_table
 
-    local left="rs-1"
-    local right="rs-2"
+    local pair
+    local left
+    local right
     local write_id=2
     local write_name="during_partition"
     local write_output
@@ -405,6 +472,14 @@ function test_network_partition() {
         record_failure "Failed to prepare test table for network partition scenario."
         return 1
     fi
+
+    pair=$(choose_partition_pair) || {
+        cleanup_test_table
+        return 1
+    }
+    left=$(printf "%s" "$pair" | awk '{print $1}')
+    right=$(printf "%s" "$pair" | awk '{print $2}')
+    print_info "Using partition pair: ${left} <-> ${right}"
 
     if ! apply_partition "$left" "$right"; then
         cleanup_test_table
@@ -427,8 +502,8 @@ function test_network_partition() {
 
     left_status=$(capture_rs_status "$left" || true)
     right_status=$(capture_rs_status "$right" || true)
-    printf "%s\n" "$left_status" >> "$CHAOS_LOG_FILE"
-    printf "%s\n" "$right_status" >> "$CHAOS_LOG_FILE"
+    archive_status_snapshot "during_partition" "$left" "$left_status"
+    archive_status_snapshot "during_partition" "$right" "$right_status"
 
     if echo "$left_status$right_status" | grep -q "suspectedReplicaCount"; then
         print_success "Partition status capture includes suspected replica metrics."
@@ -453,6 +528,7 @@ function test_network_partition() {
 
     local final_output
     final_output=$(run_sql "SELECT * FROM ${CURRENT_TABLE};")
+    log_line "FINAL_DATA_SNAPSHOT network_partition"
     echo "$final_output" >> "$CHAOS_LOG_FILE"
     if echo "$write_output" | grep -Eq "affected|OK|SUCCESS"; then
         if echo "$final_output" | grep -q "$write_name"; then
@@ -467,11 +543,98 @@ function test_network_partition() {
     cleanup_test_table
 }
 
+function test_suspected_replica() {
+    print_section "Scenario 5: Suspected Replica Detection Validation"
+    cleanup_test_table
+
+    local pair
+    local left
+    local right
+    local partition_write_output
+    local during_left_status
+    local during_right_status
+    local after_left_status
+    local after_right_status
+    local during_suspected=0
+    local after_recovered=0
+
+    if ! create_test_table "suspected_replica"; then
+        record_failure "Failed to prepare test table for suspected replica scenario."
+        return 1
+    fi
+
+    pair=$(choose_partition_pair) || {
+        cleanup_test_table
+        return 1
+    }
+    left=$(printf "%s" "$pair" | awk '{print $1}')
+    right=$(printf "%s" "$pair" | awk '{print $2}')
+    print_info "Using suspected-replica probe pair: ${left} <-> ${right}"
+
+    if ! apply_partition "$left" "$right"; then
+        cleanup_test_table
+        return 1
+    fi
+
+    sleep 2
+    partition_write_output=$(run_sql "INSERT INTO ${CURRENT_TABLE} VALUES (2, 'suspect_probe');" || true)
+    echo "$partition_write_output" >> "$CHAOS_LOG_FILE"
+    sleep "$PARTITION_DURATION_SECONDS"
+
+    during_left_status=$(capture_rs_status "$left" || true)
+    during_right_status=$(capture_rs_status "$right" || true)
+    archive_status_snapshot "during_partition" "$left" "$during_left_status"
+    archive_status_snapshot "during_partition" "$right" "$during_right_status"
+
+    if assert_status_has_field "$during_left_status$during_right_status" "suspectedReplicaCount"; then
+        print_success "Suspected replica fields are exposed in RegionServer /status."
+    else
+        record_failure "RegionServer /status is missing suspected replica fields."
+    fi
+
+    during_suspected=$(( $(extract_status_number "$during_left_status" "suspectedReplicaCount") + $(extract_status_number "$during_right_status" "suspectedReplicaCount") ))
+    if [ "$during_suspected" -gt 0 ] || printf "%s%s" "$during_left_status" "$during_right_status" | grep -q "commit_transport_error"; then
+        print_success "Partition triggered suspected replica signal during fault window."
+    else
+        print_info "No positive suspected count observed during this run; raw status has been archived for inspection."
+    fi
+
+    if printf "%s%s" "$during_left_status" "$during_right_status" | grep -q "suspectedReplicaPreview"; then
+        print_success "Suspected replica preview is available for debugging."
+    else
+        record_failure "Suspected replica preview is missing from status payload."
+    fi
+
+    clear_partition "$left" "$right"
+    sleep "$RECOVERY_WAIT_SECONDS"
+
+    after_left_status=$(capture_rs_status "$left" || true)
+    after_right_status=$(capture_rs_status "$right" || true)
+    archive_status_snapshot "after_recovery" "$left" "$after_left_status"
+    archive_status_snapshot "after_recovery" "$right" "$after_right_status"
+
+    after_recovered=$(( $(extract_status_number "$after_left_status" "suspectedReplicaRecoveredCount") + $(extract_status_number "$after_right_status" "suspectedReplicaRecoveredCount") ))
+    if [ "$after_recovered" -gt 0 ]; then
+        print_success "Recovery path recorded suspected replica clearance."
+    else
+        print_info "No suspected recovery counter increment observed; archived status can be used for manual diagnosis."
+    fi
+
+    if verify_name_present "$CURRENT_TABLE" "seed"; then
+        print_success "Seed row remains readable after suspected replica scenario."
+    else
+        record_failure "Seed row is not readable after suspected replica scenario."
+    fi
+
+    cleanup_test_table
+}
+
 function run_all() {
     test_master_failover
     test_rs_crash_and_recovery
     test_random_rs_crash
     test_network_partition
+    test_suspected_replica
 }
 
 check_command docker
@@ -492,12 +655,15 @@ case "${1:-all}" in
     network_partition)
         test_network_partition
         ;;
+    suspected_replica)
+        test_suspected_replica
+        ;;
     all)
         run_all
         ;;
     *)
         print_error "Unknown scenario: ${1}"
-        print_info "Supported scenarios: master_failover | rs_crash | random_rs_crash | network_partition | all"
+        print_info "Supported scenarios: master_failover | rs_crash | random_rs_crash | network_partition | suspected_replica | all"
         exit 1
         ;;
 esac

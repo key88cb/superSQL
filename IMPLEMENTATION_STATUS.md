@@ -279,6 +279,8 @@ mvn test -DskipTests=false
 - 2026-04-19 已补充覆盖：`RegionMigrator` 迁移指标快照（总量 + `rebalance/recovery` 分项 + 分项最近错误）与 Master `/status` 中 `migration` 字段契约。
 - 2026-04-20 已补充覆盖：`deleteLocalTable/transferTable` 的同前缀跨表隔离回归（`orders` 不再误作用 `orders2_*`）。
 - 已补充基础版网络分区混沌脚本：`scripts/chaos_test.sh network_partition` 会对 `rs-1` / `rs-2` 注入双向网络阻断，归档分区期间 SQL 返回与 `/status` 观测结果，用于推进 S7-05 的脚本、注入方式与结果归档闭环。
+- 已补充 `scripts/chaos_test.sh suspected_replica` 场景：复用网络分区注入，专门验证 `suspectedReplica*` 状态暴露、故障窗口观测与恢复统计，作为 S6-05 “前半部分验证”的独立验收入口。
+- 网络分区/可疑副本混沌脚本已支持通过 `CHAOS_PARTITION_LEFT/RIGHT` 指定分区对象，或使用 `CHAOS_PARTITION_PAIR_MODE=random` 随机选择 RS 对，并在日志中按 `STATUS_SNAPSHOT during_partition/after_recovery` 归档状态快照，便于形成测试记录。
 - 2026-04-10 在仓库根目录执行 `mvn test -DskipTests=false`，当前结果为 `BUILD SUCCESS`。
 - 2026-04-10 `docker compose build` 已验证 master 与 regionserver 关键阶段可正常推进；client 镜像构建稳定性已通过切换官方源并增加 apt 重试得到改善，但完整 build 仍受外部 apt 仓库可用性影响。
 

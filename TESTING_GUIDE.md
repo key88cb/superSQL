@@ -192,6 +192,9 @@ chmod +x scripts/chaos_test.sh
 # 仅测试 S7-05 基础版网络分区场景
 ./scripts/chaos_test.sh network_partition
 
+# 仅验证 S6-05 前半部分：suspected 副本检测/状态暴露/恢复统计
+./scripts/chaos_test.sh suspected_replica
+
 # 自定义随机宕机轮数与等待时间
 CHAOS_RANDOM_ROUNDS=5 \
 CHAOS_STOP_WAIT_SECONDS=10 \
@@ -202,6 +205,14 @@ CHAOS_RECOVERY_WAIT_SECONDS=30 \
 CHAOS_PARTITION_DURATION_SECONDS=15 \
 CHAOS_LOG_DIR=artifacts/chaos \
 ./scripts/chaos_test.sh network_partition
+
+# 指定或随机选择 RS 分区对
+CHAOS_PARTITION_LEFT=rs-1 \
+CHAOS_PARTITION_RIGHT=rs-3 \
+./scripts/chaos_test.sh network_partition
+
+CHAOS_PARTITION_PAIR_MODE=random \
+./scripts/chaos_test.sh suspected_replica
 ```
  
 ### 验证项：
@@ -287,6 +298,12 @@ docker logs --tail=200 rs-3
 - 重点观察 `transport_error`、`suspectedReplica*`、`replicaCommitRetry` 等字段
 - 分区恢复后再次查询，观察数据是否追赶成功、是否有明显脏状态
 
+补充说明：
+
+- 默认使用 `rs-1 <-> rs-2`，也可以通过 `CHAOS_PARTITION_LEFT/RIGHT` 指定分区对象
+- 将 `CHAOS_PARTITION_PAIR_MODE=random` 设为 `random` 后，脚本会从 3 个 RS 里随机选一对执行分区探测
+- 日志中会额外标注 `STATUS_SNAPSHOT during_partition/after_recovery`，便于后续抽取结果
+
 脚本执行后的归档日志默认落在：
 
 - `artifacts/chaos/`
@@ -305,4 +322,59 @@ docker logs --tail=200 rs-3
 - 分区期间写入返回值
 - `suspectedReplicaCount` 是否大于 0
 - `transport_error` 是否出现
+- 恢复后数据快照
+
+### S6-05 前半部分验证说明
+
+该场景用于专门验证 `S6-05` 的前半部分，而不是“自动摘除并替换副本”的完整闭环。当前目标聚焦于：
+
+- suspected 副本是否会被检测到
+- suspected 相关状态是否会暴露到 RegionServer `/status`
+- 故障恢复后是否会记录 suspected 清除/恢复信号
+
+补充说明：
+
+- 默认复用 `rs-1 <-> rs-2` 作为探测对象，也支持通过 `CHAOS_PARTITION_LEFT/RIGHT` 或 `CHAOS_PARTITION_PAIR_MODE=random` 切换分区对
+- 归档日志会按 `during_partition` / `after_recovery` 标记 `/status` 快照，便于对比 suspected 计数与预览项变化
+
+对应脚本场景：
+
+```bash
+./scripts/chaos_test.sh suspected_replica
+```
+
+场景执行逻辑：
+
+1. 创建临时测试表并写入种子数据。
+2. 对 `rs-1` 与 `rs-2` 注入双向网络阻断。
+3. 分区期间执行写入，诱发同步失败或 transport error。
+4. 抓取 `rs-1` / `rs-2` 的 `/status`，检查 `suspectedReplica*` 字段。
+5. 恢复网络后再次抓取 `/status`，观察 `suspectedReplicaRecoveredCount` 是否增长。
+6. 最后再次查询种子数据，确认场景没有导致明显持久错误。
+
+基础验收标准：
+
+1. `replicaCommitRetry` 中存在 suspected 相关字段：
+   `suspectedReplicaCount`
+   `suspectedReplicaMarkCount`
+   `suspectedReplicaSyncFailureMarkCount`
+   `suspectedReplicaCommitTransportMarkCount`
+   `suspectedReplicaRecoveredCount`
+   `suspectedReplicaPreview`
+2. 故障窗口内至少满足以下其一：
+   `suspectedReplicaCount > 0`
+   或状态中出现 `commit_transport_error`
+3. 故障恢复后至少满足以下其一：
+   `suspectedReplicaRecoveredCount > 0`
+   或 suspected 预览项明显消失/减少
+4. 恢复后种子数据仍然可查询。
+
+建议记录项：
+
+- 分区对象
+- 分区持续时间
+- 分区期间 SQL 返回结果
+- 分区期间 `suspectedReplicaCount`
+- 分区期间 `suspectedReplicaPreview` 内容
+- 恢复后 `suspectedReplicaRecoveredCount`
 - 恢复后数据快照
