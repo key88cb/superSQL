@@ -119,7 +119,7 @@ docker exec -it client java -jar /app/client.jar   # interactive SQL REPL
 ### Java module build (from repo root)
 ```bash
 mvn install -DskipTests         # build all modules
-mvn -pl java-master package     # build single module
+mvn -pl java-master -am package # build single module with required dependencies
 ```
 
 ### Generate Thrift stubs (run after editing supersql.thrift)
