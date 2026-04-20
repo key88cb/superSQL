@@ -123,27 +123,39 @@ mvn test -DskipTests=false
 
 ```powershell
 # 只跑 Master 测试
-mvn -pl java-master test
+mvn -pl java-master -am test
 
 # 只跑 RegionServer 测试
-mvn -pl java-regionserver test
+mvn -pl java-regionserver -am test
 
 # 只跑 Client 测试
-mvn -pl java-client test
+mvn -pl java-client -am test
 ```
 
 ### 可按类定向执行
 
 ```powershell
 # Master 元数据集成测试（内嵌 ZooKeeper）
-mvn -pl java-master -Dtest=MasterServiceMetadataIntegrationTest test
+mvn -pl java-master -am -Dtest=MasterServiceMetadataIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test
 
 # RegionServer 注册器集成测试（内嵌 ZooKeeper）
-mvn -pl java-regionserver -Dtest=RegionServerRegistrarIntegrationTest test
+mvn -pl java-regionserver -am -Dtest=RegionServerRegistrarIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test
 
 # Client 路由与 active-master 解析测试
-mvn -pl java-client -Dtest=SqlClientRoutingTest test
+mvn -pl java-client -am -Dtest=SqlClientRoutingTest -Dsurefire.failIfNoSpecifiedTests=false test
 ```
+
+### 脚本入口（Windows PowerShell）
+
+```powershell
+# 运行某模块全部测试（自动携带 -am）
+pwsh -File scripts/mvn-module-test.ps1 -Module java-regionserver
+
+# 运行某个测试类（自动携带 -am）
+pwsh -File scripts/mvn-module-test.ps1 -Module java-regionserver -TestClass RegionServiceImplTest
+```
+
+说明：`-am` 会联动构建上游依赖模块（如 `rpc-proto`），可避免单模块直跑时依赖类未更新导致的 `NoClassDefFoundError` 假失败。
 
 ### 当前 Java 侧重点用例
 
