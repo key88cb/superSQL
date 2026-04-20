@@ -161,10 +161,10 @@
 - ReplicaManager 追赶编排已增加连续 LSN 回放约束：对 donor 返回的非连续 backlog 会跳过并回退到下一 donor，避免跨缺口回放导致的日志洞。
 - RegionServiceImpl 写成功后会异步触发副本追赶编排（`reconcileReplicasAsync`），使 `pullLog/getMaxLsn` 从“能力预留”进入主写链路后的收敛路径。
 - RegionServer `/status` 已补充 `prepareDecision` 与 `replicaCommitRetry` 统计，支持观测 PREPARE 超时决议与副本提交通知重试收敛情况；其中 `replicaCommitRetry` 进一步包含 repair 计数与错误分类分布（如 `table_not_found`/`transport_error`）。
+- Master 路由自愈链路已形成自治恢复闭环：当表进入 `UNAVAILABLE` 后，可在副本恢复时自动完成主副本晋升与补齐目标副本数（含写冻结保护与失败清理回滚），并回写 `/meta/tables` 与 `/assignments`。
 
 当前限制：
 - WAL、ReplicaManager 与 ReplicaSyncService 已落地显式最终决议 RPC 与自动终局主链路；后续仍需继续加强极端网络分区下的跨节点一致性混沌验证与运维处置自动化。
-- Region 迁移、主副本晋升、恢复 3 副本等自治能力还未打通完整闭环。
 - transfer/copyTableData 已完成迁移协议主链路完整化：manifest 已包含块级签名（offset/length/crc32）并在目标端逐块校验；manifest 校验失败会触发表级回滚清理（本次迁移文件与 staging 状态）。
 
 ## 3. Client 侧已实现内容

@@ -534,6 +534,55 @@ class MasterServiceMetadataIntegrationTest {
     }
 
     @Test
+    void repairTableRoutesShouldCloseUnavailablePromotionAndReplicaRefillLoop() throws Exception {
+        registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-3", "127.0.0.1", 9092, 2);
+
+        Response create = service.createTable("create table t_unavailable_loop(id int, primary key(id));");
+        Assertions.assertEquals(StatusCode.OK, create.getCode());
+
+        zkClient.delete().forPath("/region_servers/rs-1");
+        zkClient.delete().forPath("/region_servers/rs-2");
+        zkClient.delete().forPath("/region_servers/rs-3");
+        Assertions.assertEquals("UNAVAILABLE", service.getTableLocation("t_unavailable_loop").getTableStatus());
+
+        registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
+        registerRegionServer("rs-4", "127.0.0.1", 9093, 0);
+        registerRegionServer("rs-5", "127.0.0.1", 9094, 0);
+
+        adminExecutor.operations.clear();
+        int repaired = service.repairTableRoutesWithConfirmation();
+        Assertions.assertTrue(repaired >= 1);
+
+        TableLocation healed = service.getTableLocation("t_unavailable_loop");
+        List<String> replicaIds = healed.getReplicas().stream().map(RegionServerInfo::getId).toList();
+        Assertions.assertEquals("ACTIVE", healed.getTableStatus());
+        Assertions.assertEquals("rs-2", healed.getPrimaryRS().getId());
+        Assertions.assertEquals(3, healed.getReplicasSize());
+        Assertions.assertTrue(replicaIds.contains("rs-2"));
+        Assertions.assertTrue(replicaIds.contains("rs-4"));
+        Assertions.assertTrue(replicaIds.contains("rs-5"));
+
+        long pauseOps = adminExecutor.operations.stream()
+                .filter(op -> "pause".equals(op.method) && "t_unavailable_loop".equals(op.tableName))
+                .count();
+        long transferOps = adminExecutor.operations.stream()
+                .filter(op -> "transfer".equals(op.method) && "t_unavailable_loop".equals(op.tableName))
+                .count();
+        long resumeOps = adminExecutor.operations.stream()
+                .filter(op -> "resume".equals(op.method) && "t_unavailable_loop".equals(op.tableName))
+                .count();
+        Assertions.assertEquals(2, transferOps);
+        Assertions.assertEquals(transferOps, pauseOps);
+        Assertions.assertEquals(transferOps, resumeOps);
+
+        Map<?, ?> assignment = readJson("/assignments/t_unavailable_loop");
+        List<?> persistedReplicas = (List<?>) assignment.get("replicas");
+        Assertions.assertEquals(3, persistedReplicas.size());
+    }
+
+    @Test
     void getTableLocationShouldThrottleRepeatedHealWrites() throws Exception {
         registerRegionServer("rs-1", "127.0.0.1", 9090, 0);
         registerRegionServer("rs-2", "127.0.0.1", 9091, 1);
