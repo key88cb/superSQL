@@ -23,7 +23,7 @@
 按 docs/TEST_PLAN.md §5 的顺序循环执行所有测试套件，每轮：
   1. 跑套件 → 产物落到 artifacts/<suite>/<timestamp>/
   2. 把结果写回 docs/TEST_STATUS.md §3（每轮一行追加，不覆盖历史）
-  3. 新失败 → 追加到 docs/TEST_STATUS.md §5 Bug 表（ID: BUG-YYYYMMDD-NN）
+  3. 新失败 → 追加到 docs/TEST_STATUS.md §5 Bug 表（ID: BUG-NN，递增，不带日期）
   4. 原有 bug 复现通过 → 状态置 FIXED（保留历史记录）
   5. 连续 3 轮全绿且无 OPEN bug → 任务完成，退出
 
@@ -102,7 +102,7 @@ for round in 1..∞:
     | R<n> | <YYYY-MM-DD HH:MM> | <suite> | PASS/FAIL | <秒> | <失败用例 or —> | artifacts/<suite>/<ts>/ |
 
 ### §5 新 bug 行
-    | BUG-YYYYMMDD-NN | P0/P1/P2 | OPEN | <file:line 或 跨模块> | <1 行现象> | <1 行复现> | <待定位：... / 根因：... / 修复：commit xxx> | <artifact path> |
+    | BUG-NN | P0/P1/P2 | OPEN | <file:line 或 跨模块> | <1 行现象> | <1 行复现> | <待定位：... / 根因：... / 修复：commit xxx> | <artifact path> |
 
 ### §5 bug 关闭
     同一行把 `OPEN` 改为 `FIXED`，保留原行信息，在「修复动作」列追加 commit/PR 引用。不要删除 FIXED 行。

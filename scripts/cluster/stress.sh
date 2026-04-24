@@ -28,10 +28,13 @@ run_sql_script() {
 }
 
 count_rows() {
-    # returns integer row count in $1
+    # returns integer row count in $1. SqlClient prints a trailing
+    # "(N rows)" footer after SELECT; extract N from there.
     local out
     out=$(run_sql "SELECT * FROM $1;")
-    echo "$out" | grep -cE '^\|.*\|$' || true
+    local n
+    n=$(echo "$out" | grep -oE '\([0-9]+ rows?\)' | tail -n 1 | grep -oE '[0-9]+')
+    echo "${n:-0}"
 }
 
 phase1_concurrent_insert() {

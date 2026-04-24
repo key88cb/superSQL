@@ -1,0 +1,12 @@
+CREATE TABLE e2e_idx(id int, code char(8), name char(16), primary key(id));
+INSERT INTO e2e_idx VALUES (1, 'aaa', 'alice');
+INSERT INTO e2e_idx VALUES (2, 'bbb', 'bob');
+INSERT INTO e2e_idx VALUES (3, 'ccc', 'carol');
+INSERT INTO e2e_idx VALUES (4, 'ddd', 'dave');
+CREATE INDEX idx_e2e_code ON e2e_idx(code);
+SELECT * FROM e2e_idx WHERE code = 'bbb';
+SELECT * FROM e2e_idx WHERE code = 'ccc';
+DROP INDEX idx_e2e_code ON e2e_idx;
+SELECT * FROM e2e_idx WHERE code = 'aaa';
+DROP TABLE e2e_idx;
+exit;

@@ -33,22 +33,41 @@ public class OutputParser {
             return result;
         }
 
-        // Parse Table Output
+        // Parse Table Output.
+        // miniSQL (basic.cc#showTable/showTuple) emits tab-separated values,
+        // one header row and one row per tuple, with a trailing tab per field.
+        // We primarily split on \t; if a line contains no \t but does contain
+        // '|' (legacy test fixtures and pretty-printed outputs), fall back to
+        // '|' so we remain compatible with OutputParserTest's format.
         String[] lines = raw.split("\n");
         List<Row> rows = new ArrayList<>();
-        
+
         boolean headerFound = false;
 
-        for (String line : lines) {
+        for (String rawLine : lines) {
+            String line = rawLine;
+            // Strip a stray leading ">>> " prompt that may be glued to the
+            // first line when the engine has not flushed a newline yet.
+            if (line.startsWith(">>> ")) {
+                line = line.substring(4);
+            }
             line = line.trim();
             if (line.isEmpty() || line.startsWith(">>>") || line.contains("Welcome") || line.contains("Bye bye")) continue;
-            
-            if (line.contains("---") || line.contains("---+---")) {
+
+            if (line.chars().allMatch(ch -> ch == '-' || ch == '+')) {
                 continue;
             }
 
-            String[] parts = line.split("\\|");
-            List<String> values = Arrays.stream(parts).map(String::trim).collect(Collectors.toList());
+            String[] parts = line.contains("\t")
+                    ? line.split("\t")
+                    : line.split("\\|");
+            List<String> values = Arrays.stream(parts)
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toList());
+            if (values.isEmpty()) {
+                continue;
+            }
 
             if (!headerFound) {
                 result.setColumnNames(values);
@@ -57,7 +76,7 @@ public class OutputParser {
                 rows.add(new Row(values));
             }
         }
-        
+
         result.setRows(rows);
         return result;
     }

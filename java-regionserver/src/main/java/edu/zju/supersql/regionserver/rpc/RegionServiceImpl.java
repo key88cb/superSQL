@@ -173,9 +173,18 @@ public class RegionServiceImpl implements RegionService.Iface {
                     System.currentTimeMillis());
             entry.setAfterRow(sql.getBytes(StandardCharsets.UTF_8));
 
-            // 3. Sync to replicas
-            List<String> replicas = getReplicaAddresses(tableName);
-            int requiredAcks = minReplicaAcks;
+            // 3. Sync to replicas.
+            //    CREATE TABLE / DROP TABLE are master-orchestrated: the master
+            //    fans the DDL out to every replica directly (MasterServiceImpl
+            //    iterates all selected replicas), so the per-RS replica-sync
+            //    step is redundant and would deadlock on CREATE because
+            //    /assignments/<table> is only written after the fan-out.
+            boolean masterOrchestratedDdl =
+                    opType == WalOpType.CREATE_TABLE || opType == WalOpType.DROP_TABLE;
+            List<String> replicas = masterOrchestratedDdl
+                    ? Collections.emptyList()
+                    : getReplicaAddresses(tableName);
+            int requiredAcks = masterOrchestratedDdl ? 0 : minReplicaAcks;
             if (replicas.size() < requiredAcks) {
                 log.warn("executeWrite: insufficient replica targets lsn={} table={} required={} available={}",
                         lsn, tableName, requiredAcks, replicas.size());
@@ -185,7 +194,9 @@ public class RegionServiceImpl implements RegionService.Iface {
                         + ", available=" + replicas.size());
                 return new QueryResult(r);
             }
-            int acks = replicaManager.syncToReplicas(entry, replicas, requiredAcks);
+            int acks = masterOrchestratedDdl
+                    ? 0
+                    : replicaManager.syncToReplicas(entry, replicas, requiredAcks);
             if (acks < requiredAcks) {
                 log.warn("executeWrite: insufficient replica ACKs lsn={} table={} required={} actual={} replicas={}",
                         lsn, tableName, requiredAcks, acks, replicas.size());

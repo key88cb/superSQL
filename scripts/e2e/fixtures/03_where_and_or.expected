@@ -1,0 +1,9 @@
+# WHERE = : rows 1 & 4 (grade=90)
+# WHERE = AND = : row 1 only (grade=90, dept=eng)
+# WHERE = OR = : rows 1, 2, 5 (dept ∈ {eng, phys})
+# SqlClient prints "(N rows)" footer per SELECT.
+Table metadata created: e2e_flt
+\(2 rows\)
+\(1 row\)
+\(3 rows\)
+Table dropped: e2e_flt

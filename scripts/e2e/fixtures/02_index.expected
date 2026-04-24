@@ -1,0 +1,10 @@
+# 关键行正则（每行一个），全部需在输出中命中。
+# CREATE/DROP 表返回 "Table metadata created" / "Table dropped"；
+# CREATE/DROP INDEX 返回 "OK"；
+# SELECT 结果里精确匹配 code + name；
+# "(1 row)" 是 SqlClient 的行数页脚。
+Table metadata created: e2e_idx
+bob
+carol
+alice
+Table dropped: e2e_idx

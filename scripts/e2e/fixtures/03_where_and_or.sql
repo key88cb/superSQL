@@ -1,0 +1,11 @@
+CREATE TABLE e2e_flt(id int, grade int, dept char(8), primary key(id));
+INSERT INTO e2e_flt VALUES (1, 90, 'eng');
+INSERT INTO e2e_flt VALUES (2, 80, 'eng');
+INSERT INTO e2e_flt VALUES (3, 70, 'math');
+INSERT INTO e2e_flt VALUES (4, 90, 'math');
+INSERT INTO e2e_flt VALUES (5, 60, 'phys');
+SELECT * FROM e2e_flt WHERE grade = 90;
+SELECT * FROM e2e_flt WHERE grade = 90 AND dept = 'eng';
+SELECT * FROM e2e_flt WHERE dept = 'eng' OR dept = 'phys';
+DROP TABLE e2e_flt;
+exit;

@@ -1,6 +1,7 @@
 package edu.zju.supersql.regionserver.rpc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.zju.supersql.regionserver.MiniSqlProcess;
 import edu.zju.supersql.regionserver.WriteGuard;
 import edu.zju.supersql.regionserver.ZkPaths;
 import edu.zju.supersql.rpc.*;
@@ -102,12 +103,29 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                                   CuratorFramework zkClient,
                                   String dataDir,
                                   String rsId) {
+        this(writeGuard, zkClient, dataDir, rsId, null);
+    }
+
+    public RegionAdminServiceImpl(WriteGuard writeGuard,
+                                  CuratorFramework zkClient,
+                                  String dataDir,
+                                  String rsId,
+                                  MiniSqlProcess miniSql) {
         this.writeGuard = writeGuard;
         this.zkClient   = zkClient;
         this.dataDir    = dataDir;
         this.rsId       = rsId;
         this.dataRootPath = new File(dataDir).toPath().toAbsolutePath().normalize();
+        this.miniSql    = miniSql;
     }
+
+    /**
+     * Optional handle to the miniSQL engine. When present, transferTable forces
+     * a checkpoint before listing files on disk so lazily-buffered CREATE /
+     * DML writes are flushed. When null (in unit tests), transferTable skips
+     * the checkpoint and behaves exactly as before.
+     */
+    private final MiniSqlProcess miniSql;
 
     @Override
     public Response pauseTableWrite(String tableName) throws TException {
@@ -250,6 +268,22 @@ public class RegionAdminServiceImpl implements RegionAdminService.Iface {
                         StatusCode.ERROR,
                         "other",
                         "dataDir not found: " + dataDir);
+            }
+
+            // miniSQL buffers CREATE / DML writes in its buffer pool and only
+            // flushes lazily. If we list files immediately after CREATE, the
+            // table file may not exist on disk yet — which would return
+            // TABLE_NOT_FOUND here and make the master's healTableLocation
+            // shrink the replica set. Force a checkpoint first so disk state
+            // matches what the engine believes it has.
+            if (miniSql != null) {
+                try {
+                    long lsn = miniSql.checkpoint();
+                    log.info("transferTable: checkpoint before listing table={} lsn={}", tableName, lsn);
+                } catch (Exception checkpointEx) {
+                    log.warn("transferTable: checkpoint failed (continuing with disk listing) table={} cause={}",
+                            tableName, checkpointEx.getMessage());
+                }
             }
 
                 File[] tableFiles = dir.listFiles(f -> isTableOwnedDataFile(tableName, f.getName())

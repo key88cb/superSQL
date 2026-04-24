@@ -703,15 +703,56 @@ public class SqlClient {
                                                  RouteCache routeCache,
                                                  ClientConfig config) throws Exception {
         TableLocation loc = routeCache.get(tableName);
-        if (loc == null) {
+        if (loc != null && !isSentinelLocation(loc)) {
+            return loc;
+        }
+        // Do NOT cache a sentinel location — master returns a placeholder
+        // RegionServerInfo("none"/"unavailable"/"redirect", "0.0.0.0", 0)
+        // together with tableStatus ∈ {TABLE_NOT_FOUND, ZK_UNAVAILABLE,
+        // NOT_LEADER} when the real metadata isn't available yet (e.g.,
+        // a race right after CREATE TABLE, before /supersql/meta/tables
+        // is visible to the master's read path). Caching it would pin every
+        // subsequent retry to 0.0.0.0:0 → "Invalid port 0".
+        // Fetch up to 3 times with a short backoff to tolerate that race.
+        RuntimeException lastError = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
             loc = fetchTableLocationWithRedirect(activeMaster, tableName, config);
-            if (loc != null) {
+            if (loc != null && !isSentinelLocation(loc)) {
                 routeCache.put(tableName, loc);
-            } else {
-                throw new RuntimeException("Table not found: " + tableName);
+                return loc;
+            }
+            lastError = new RuntimeException("Table not found: " + tableName
+                    + " (status=" + (loc != null && loc.isSetTableStatus() ? loc.getTableStatus() : "null")
+                    + ", attempt=" + attempt + "/3)");
+            try {
+                Thread.sleep(100L * attempt);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw lastError;
             }
         }
-        return loc;
+        throw lastError;
+    }
+
+    private static boolean isSentinelLocation(TableLocation loc) {
+        if (loc == null) return true;
+        String status = loc.isSetTableStatus() ? loc.getTableStatus() : null;
+        if ("TABLE_NOT_FOUND".equals(status)
+                || "ZK_UNAVAILABLE".equals(status)
+                || "NOT_LEADER".equals(status)) {
+            return true;
+        }
+        if (!loc.isSetPrimaryRS()) {
+            return true;
+        }
+        RegionServerInfo primary = loc.getPrimaryRS();
+        if (primary.getPort() <= 0) {
+            return true;
+        }
+        String host = primary.isSetHost() ? primary.getHost() : null;
+        return host == null || host.isEmpty()
+                || "0.0.0.0".equals(host) || "none".equals(host)
+                || "unavailable".equals(host);
     }
 
     static Map<String, ClientRoutingMetrics.MetricsSnapshot> snapshotRoutingMetrics() {

@@ -1,0 +1,13 @@
+CREATE TABLE e2e_del(id int, tag char(8), primary key(id));
+INSERT INTO e2e_del VALUES (1, 'keep');
+INSERT INTO e2e_del VALUES (2, 'drop');
+INSERT INTO e2e_del VALUES (3, 'keep');
+INSERT INTO e2e_del VALUES (4, 'drop');
+INSERT INTO e2e_del VALUES (5, 'keep');
+SELECT * FROM e2e_del;
+DELETE FROM e2e_del WHERE tag = 'drop';
+SELECT * FROM e2e_del;
+INSERT INTO e2e_del VALUES (2, 'keep');
+SELECT * FROM e2e_del WHERE id = 2;
+DROP TABLE e2e_del;
+exit;

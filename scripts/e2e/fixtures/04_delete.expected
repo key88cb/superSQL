@@ -1,0 +1,9 @@
+# After 5 inserts: SELECT * → 5 rows
+# After DELETE WHERE tag='drop' (ids 2,4): SELECT * → 3 rows
+# Re-INSERT id=2 with same PK should succeed because soft-deleted rows free the PK
+# (verifies soft-delete invariant); SELECT id=2 → 1 row with 'keep'
+Table metadata created: e2e_del
+\(5 rows\)
+\(3 rows\)
+\(1 row\)
+Table dropped: e2e_del

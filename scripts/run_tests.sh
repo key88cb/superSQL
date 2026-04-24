@@ -128,7 +128,7 @@ suite_cpp_wal() {
 
 suite_cpp_stress() {
     precheck_cpp
-    local cmd='cd minisql/cpp-core && make clear >/dev/null 2>&1; make test_exhaustive && g++ -o test_pin_count -Wall -O2 tests/test_pin_count.cc buffer_manager.cc log_manager.cc && ./test_pin_count'
+    local cmd='cd minisql/cpp-core && make clear >/dev/null 2>&1; make test_exhaustive && g++ -o test_pin_count -Wall -O2 tests/test_pin_count.cc api.cc record_manager.cc index_manager.cc catalog_manager.cc buffer_manager.cc log_manager.cc basic.cc && ./test_pin_count'
     run_and_capture cpp.stress "$cmd"
 }
 

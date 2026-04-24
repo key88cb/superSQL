@@ -553,7 +553,7 @@ public class RegionServerMain {
         RegionServiceImpl regionService = new RegionServiceImpl(
             miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, minReplicaAcks);
         RegionAdminServiceImpl adminService = new RegionAdminServiceImpl(
-                writeGuard, zkClient, dataDir, rsId);
+                writeGuard, zkClient, dataDir, rsId, miniSql);
         adminServiceRef[0] = adminService;
 
         // ── Thrift TMultiplexedProcessor ──────────────────────────────────────
