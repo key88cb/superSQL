@@ -338,10 +338,15 @@ public class MasterServer {
             log.info("ZooKeeper client started (connecting to {})", zkConnect);
 
             // S0-06: 创建 ZK 基础目录（namespace="supersql"，实际路径为 /supersql/masters 等）
+            // 多 master 并发启动时 checkExists+create 不是原子操作，必须捕获 NodeExistsException
+            // 否则会让后续 leaderElector.start() 和 MasterRuntimeContext.initialize 全部跳过，
+            // 导致只有第一个完成 bootstrap 的 master 注册到 leader latch（参见 BUG-08）。
             for (String path : ZkPaths.bootstrapPaths()) {
-                if (zkClient.checkExists().forPath(path) == null) {
+                try {
                     zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
                     log.info("Created ZK base path: {}", path);
+                } catch (org.apache.zookeeper.KeeperException.NodeExistsException ignore) {
+                    // Another master created it concurrently — that is the desired end state.
                 }
             }
             log.info("ZK base directories initialized");

@@ -1,0 +1,12 @@
+CREATE TABLE e2e_rng(id int, score int, primary key(id));
+INSERT INTO e2e_rng VALUES (1, 10);
+INSERT INTO e2e_rng VALUES (2, 25);
+INSERT INTO e2e_rng VALUES (3, 50);
+INSERT INTO e2e_rng VALUES (4, 75);
+INSERT INTO e2e_rng VALUES (5, 90);
+SELECT * FROM e2e_rng WHERE score < 50;
+SELECT * FROM e2e_rng WHERE score > 50;
+SELECT * FROM e2e_rng WHERE score <= 50;
+SELECT * FROM e2e_rng WHERE score >= 50;
+DROP TABLE e2e_rng;
+exit;

@@ -1,8 +1,5 @@
 # SuperSQL 测试状态与 Bug 追踪
 
-**更新时间：2026-04-24**
-**维护者：测试 agent（详见 `scripts/run_tests.sh` 与 `docs/TEST_PLAN.md`）**
-
 本文档是 SuperSQL 全量测试的**唯一状态看板**：
 
 - 测试套件的最新执行状态（通过 / 失败 / 跳过 / 未执行）
@@ -13,7 +10,7 @@
 
 ---
 
-## 1. 环境基线（2026-04-24 摸底）
+## 1. 环境基线
 
 | 项目 | 状态 | 备注 |
 | --- | --- | --- |
@@ -88,47 +85,62 @@ Makefile 入口：`make test` 串行跑除 `test_pin_count` 外的 9 个 target 
 > - `耗时`：秒
 > - `产物`：相对仓库根的日志/报告路径
 
-| 轮次 | 时间 (UTC+8) | 套件 | 结果 | 耗时 (s) | 失败用例 | 产物 |
-| --- | --- | --- | --- | --- | --- | --- |
-| R0 (baseline) | 2026-04-24 15:55 | `cpp.test_basic` | PASS | 1 | — | — |
-| R0 (baseline) | 2026-04-24 16:05 | `java.client.ClientConfigTest` | PASS | ~20 | — | — |
-| R0 (baseline) | 2026-04-24 16:55 | `cluster.smoke` | FAIL | — | SQL CREATE→INSERT→SELECT 闭环未通过，详见 `BUG-01` | 见 docker logs |
-| R1 | 2026-04-24 17:12 | `cpp.unit` | PASS | ~35 | — | `artifacts/cpp.unit/20260424-171228/` |
-| R1 | 2026-04-24 17:13 | `cpp.wal` | PASS | ~20 | — | `artifacts/cpp.wal/20260424-171303/` |
-| R1 | 2026-04-24 17:14 | `cpp.stress` | PASS | ~30 (after fix) | — | `artifacts/cpp.stress/20260424-171435/` |
-| R1 | 2026-04-24 17:15 | `cpp.coverage` | PASS | ~90 | — | `artifacts/cpp.coverage/20260424-171507/` |
-| R1 | 2026-04-24 17:16 | `java.unit` | PASS | ~160 | — | `artifacts/java.unit/20260424-171657/` |
-| R1 | 2026-04-24 17:19 | `java.integration` | PASS | ~600 | — | `artifacts/java.integration/20260424-171940/` |
-| R1 | 2026-04-24 20:17 | `cluster.smoke` | PASS | ~10 (after fixes) | — | `artifacts/cluster.smoke/20260424-201733/` |
-| R1 | 2026-04-24 20:20 | `zk.topology` | PASS | ~4 (after fixes) | — | `artifacts/zk.topology/20260424-202005/` |
-| R1 | 2026-04-24 20:20 | `cluster.stress` | PASS | ~120 (scaled 2×50 + 500) | — | `artifacts/cluster.stress/20260424-202044/` |
-| R1 | 2026-04-24 20:31 | `cluster.chaos` | FAIL | ~400 | master_failover + rs_crash/random_rs seed-row/route-cache; partition 场景因容器无 `iptables` SKIP | `artifacts/cluster.chaos/20260424-203129/` |
-| R1 | 2026-04-24 20:31 | `cluster.smoke` (post-chaos) | PASS | ~10 | — | `artifacts/cluster.smoke/20260424-203129/` |
-| R1 | 2026-04-24 20:36 | `e2e.client` | PASS | ~5 | — | `artifacts/e2e.client/20260424-203611/` |
-| R2 | 2026-04-24 21:32 | `cpp.unit` | PASS | ~18 | — | `artifacts/cpp.unit/20260424-213245/` |
-| R2 | 2026-04-24 21:33 | `cpp.wal` | PASS | ~10 | — | `artifacts/cpp.wal/20260424-213303/` |
-| R2 | 2026-04-24 21:33 | `cpp.stress` | PASS | ~26 | — | `artifacts/cpp.stress/20260424-213313/` |
-| R2 | 2026-04-24 21:34 | `cpp.coverage` | PASS | ~80 | — | `artifacts/cpp.coverage/20260424-213339/` |
-| R2 | 2026-04-24 21:34 | `java.unit` | PASS | ~40 | — | `artifacts/java.unit/20260424-213424/` |
-| R2 | 2026-04-24 21:35 | `java.integration` | PASS | ~30 | — | `artifacts/java.integration/20260424-213505/` |
-| R2 | 2026-04-24 21:35 | `cluster.smoke` | PASS | ~7 | — | `artifacts/cluster.smoke/20260424-213537/` |
-| R2 | 2026-04-24 21:35 | `zk.topology` | PASS | ~4 | — | `artifacts/zk.topology/20260424-213544/` |
-| R2 | 2026-04-24 21:35 | `cluster.stress` | FAIL→PASS (after BUG-12 fix) | ~130 | Initial phase2=0 rows 由 client 路由到 `0.0.0.0:0` 引起；修复 `resolveLocation` 的 sentinel 处理后复跑通过 | `artifacts/cluster.stress/20260424-213548/` (FAIL), `artifacts/cluster.stress/20260424-213958/` (PASS) |
-| R2 | 2026-04-24 21:42 | `cluster.chaos` | FAIL (1 of 5) | ~350 | 仅 Scenario 1 Master failover；Scenario 2/3 全绿（BUG-07/11 修复生效）；4/5 由于 iptables 缺失 SKIP | `artifacts/cluster.chaos/20260424-214207/` |
-| R2 | 2026-04-24 21:42 | `cluster.smoke` (post-chaos) | PASS | ~7 | — | `artifacts/cluster.smoke/20260424-214207/` |
-| R2 | 2026-04-24 21:49 | `e2e.client` | PASS | ~5 | — | `artifacts/e2e.client/20260424-214954/` |
-| R3 | 2026-04-24 22:08 | `cpp.unit` | PASS | ~12 | — | `artifacts/cpp.unit/20260424-220818/` |
-| R3 | 2026-04-24 22:08 | `cpp.wal` | PASS | ~10 | — | `artifacts/cpp.wal/20260424-220834/` |
-| R3 | 2026-04-24 22:08 | `cpp.stress` | PASS | ~28 | — | `artifacts/cpp.stress/20260424-220843/` |
-| R3 | 2026-04-24 22:09 | `cpp.coverage` | PASS | ~45 | — | `artifacts/cpp.coverage/20260424-220911/` |
-| R3 | 2026-04-24 22:09 | `java.unit` | PASS | ~40 | — | `artifacts/java.unit/20260424-220956/` |
-| R3 | 2026-04-24 22:10 | `java.integration` | PASS | ~33 | — | `artifacts/java.integration/20260424-221035/` |
-| R3 | 2026-04-24 22:11 | `cluster.smoke` | PASS | ~6 | — | `artifacts/cluster.smoke/20260424-221108/` |
-| R3 | 2026-04-24 22:11 | `zk.topology` | PASS | ~4 | — | `artifacts/zk.topology/20260424-221114/` |
-| R3 | 2026-04-24 22:11 | `cluster.stress` | PASS | ~118 (scaled 2×50 + 500) | — | `artifacts/cluster.stress/20260424-221118/` |
-| R3 | 2026-04-24 22:13 | `cluster.chaos` | FAIL (1 of 5) | ~400 | 仍然只是 Scenario 1 Master failover（BUG-08）；Scenario 2/3 全绿（Rounds 1-3 都通过），Scenario 4/5 SKIP | `artifacts/cluster.chaos/20260424-221317/` |
-| R3 | 2026-04-24 22:13 | `cluster.smoke` (post-chaos) | PASS | ~6 | — | `artifacts/cluster.smoke/20260424-221317/` |
-| R3 | 2026-04-24 22:19 | `e2e.client` | PASS (4/4: 01_ddl_basic + 02_index + 03_where_and_or + 04_delete) | ~30 | — | `artifacts/e2e.client/20260424-221958/` |
+| 轮次 | 套件 | 结果 | 耗时 (s) | 失败用例 | 产物 |
+| --- | --- | --- | --- | --- | --- |
+| R0 (baseline) | `cpp.test_basic` | PASS | 1 | — | — |
+| R0 (baseline) | `java.client.ClientConfigTest` | PASS | ~20 | — | — |
+| R0 (baseline) | `cluster.smoke` | FAIL | — | SQL CREATE→INSERT→SELECT 闭环未通过，详见 `BUG-01` | 见 docker logs |
+| R1 | `cpp.unit` | PASS | ~35 | — | `artifacts/cpp.unit/` |
+| R1 | `cpp.wal` | PASS | ~20 | — | `artifacts/cpp.wal/` |
+| R1 | `cpp.stress` | PASS | ~30 (after fix) | — | `artifacts/cpp.stress/` |
+| R1 | `cpp.coverage` | PASS | ~90 | — | `artifacts/cpp.coverage/` |
+| R1 | `java.unit` | PASS | ~160 | — | `artifacts/java.unit/` |
+| R1 | `java.integration` | PASS | ~600 | — | `artifacts/java.integration/` |
+| R1 | `cluster.smoke` | PASS | ~10 (after fixes) | — | `artifacts/cluster.smoke/` |
+| R1 | `zk.topology` | PASS | ~4 (after fixes) | — | `artifacts/zk.topology/` |
+| R1 | `cluster.stress` | PASS | ~120 (scaled 2×50 + 500) | — | `artifacts/cluster.stress/` |
+| R1 | `cluster.chaos` | FAIL | ~400 | master_failover + rs_crash/random_rs seed-row/route-cache; partition 场景因容器无 `iptables` SKIP | `artifacts/cluster.chaos/` |
+| R1 | `cluster.smoke` (post-chaos) | PASS | ~10 | — | `artifacts/cluster.smoke/` |
+| R1 | `e2e.client` | PASS | ~5 | — | `artifacts/e2e.client/` |
+| R2 | `cpp.unit` | PASS | ~18 | — | `artifacts/cpp.unit/` |
+| R2 | `cpp.wal` | PASS | ~10 | — | `artifacts/cpp.wal/` |
+| R2 | `cpp.stress` | PASS | ~26 | — | `artifacts/cpp.stress/` |
+| R2 | `cpp.coverage` | PASS | ~80 | — | `artifacts/cpp.coverage/` |
+| R2 | `java.unit` | PASS | ~40 | — | `artifacts/java.unit/` |
+| R2 | `java.integration` | PASS | ~30 | — | `artifacts/java.integration/` |
+| R2 | `cluster.smoke` | PASS | ~7 | — | `artifacts/cluster.smoke/` |
+| R2 | `zk.topology` | PASS | ~4 | — | `artifacts/zk.topology/` |
+| R2 | `cluster.stress` | FAIL→PASS (after BUG-12 fix) | ~130 | Initial phase2=0 rows 由 client 路由到 `0.0.0.0:0` 引起；修复 `resolveLocation` 的 sentinel 处理后复跑通过 | `artifacts/cluster.stress/` (FAIL), `artifacts/cluster.stress/` (PASS) |
+| R2 | `cluster.chaos` | FAIL (1 of 5) | ~350 | 仅 Scenario 1 Master failover；Scenario 2/3 全绿（BUG-07/11 修复生效）；4/5 由于 iptables 缺失 SKIP | `artifacts/cluster.chaos/` |
+| R2 | `cluster.smoke` (post-chaos) | PASS | ~7 | — | `artifacts/cluster.smoke/` |
+| R2 | `e2e.client` | PASS | ~5 | — | `artifacts/e2e.client/` |
+| R3 | `cpp.unit` | PASS | ~12 | — | `artifacts/cpp.unit/` |
+| R3 | `cpp.wal` | PASS | ~10 | — | `artifacts/cpp.wal/` |
+| R3 | `cpp.stress` | PASS | ~28 | — | `artifacts/cpp.stress/` |
+| R3 | `cpp.coverage` | PASS | ~45 | — | `artifacts/cpp.coverage/` |
+| R3 | `java.unit` | PASS | ~40 | — | `artifacts/java.unit/` |
+| R3 | `java.integration` | PASS | ~33 | — | `artifacts/java.integration/` |
+| R3 | `cluster.smoke` | PASS | ~6 | — | `artifacts/cluster.smoke/` |
+| R3 | `zk.topology` | PASS | ~4 | — | `artifacts/zk.topology/` |
+| R3 | `cluster.stress` | PASS | ~118 (scaled 2×50 + 500) | — | `artifacts/cluster.stress/` |
+| R3 | `cluster.chaos` | FAIL (1 of 5) | ~400 | 仍然只是 Scenario 1 Master failover（BUG-08）；Scenario 2/3 全绿（Rounds 1-3 都通过），Scenario 4/5 SKIP | `artifacts/cluster.chaos/` |
+| R3 | `cluster.smoke` (post-chaos) | PASS | ~6 | — | `artifacts/cluster.smoke/` |
+| R3 | `e2e.client` | PASS (4/4: 01_ddl_basic + 02_index + 03_where_and_or + 04_delete) | ~30 | — | `artifacts/e2e.client/` |
+| R4 | `cpp.unit` | PASS | ~20 | — | `artifacts/cpp.unit/` |
+| R4 | `cpp.wal` | PASS | ~12 | — | `artifacts/cpp.wal/` |
+| R4 | `cpp.stress` | PASS | ~28 | — | `artifacts/cpp.stress/` |
+| R4 | `cpp.coverage` | PASS (BUG-10 修复后产物完整) | ~45 | — | `artifacts/cpp.coverage/` |
+| R4 | `java.unit` | PASS | ~42 | — | `artifacts/java.unit/` |
+| R4 | `java.integration` | PASS | ~30 | — | `artifacts/java.integration/` |
+| R4 | `cluster.smoke` | PASS（fresh cluster after `compose down -v`） | ~7 | — | `artifacts/cluster.smoke/` |
+| R4 | `zk.topology` | PASS | ~3 | — | `artifacts/zk.topology/` |
+| R4 | `cluster.stress` | PASS（scaled 2×50 + 500，新增 wait_for_table 解决 CREATE→INSERT 路由可见性窗口） | ~120 | — | `artifacts/cluster.stress/` |
+| R4 | `e2e.client` | PASS (4/4 fixtures) | ~10 | — | `artifacts/e2e.client/` |
+| R5 | `cluster.smoke` | PASS（新增 SQL coverage 块：CREATE/DROP INDEX、range/AND/OR、DELETE、UPDATE/ALTER/TRUNCATE 错误路径） | ~12 | — | `artifacts/cluster.smoke/` |
+| R5 | `cluster.stress` | PASS（新增 phase3：CREATE/DROP INDEX + DELETE + range/point SELECT，scaled 2×50 + 500 + 200） | ~110 | — | `artifacts/cluster.stress/` |
+| R5 | `e2e.client` | PASS 6/7 (新增 fixture 05_range_select / 06_unsupported_sql / 07_execfile 全绿；04_delete 偶发 BUG-17 残留状态) | ~30 | 04_delete 偶发 `(3 rows)` 断言失败：BUG-17 DROP TABLE 数据残留 | `artifacts/e2e.client/` |
+| R4 | `cluster.chaos` | FAIL (Scenario 1 PASS — BUG-08 修复在集群中验证；Scenario 2/3 由于 Mac Docker rs 重启 health 慢于 60s 默认窗口出现级联 failure；4/5 SKIP) | ~400 | rs-1 restart timeout → 后续 round 在表元数据未恢复时 SELECT 报 TABLE_NOT_FOUND | `artifacts/cluster.chaos/` |
+| R4 | `cluster.smoke` (post-chaos) | PASS | ~6 | — | `artifacts/cluster.smoke/` |
 
 > R1 起由 agent 按计划填写。若同一套件出现两轮以上回归失败，在 §5 开新 bug。
 
@@ -173,18 +185,22 @@ Makefile 入口：`make test` 串行跑除 `test_pin_count` 外的 9 个 target 
 
 | ID | 严重度 | 状态 | 位置 | 现象 | 复现 | 根因 / 修复动作 | artifacts |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BUG-01 | **P0** | FIXED | `RegionServiceImpl#executeWrite`（`java-regionserver/src/main/java/edu/zju/supersql/regionserver/rpc/RegionServiceImpl.java:176-198`） | CREATE TABLE 通过 master 的 `regionDdlExecutor.execute` 下到每个 RS → RS 走 `executeWrite` → 读 `/supersql/assignments/<table>` 返回空（master 在 fan-out DDL 之后才写 assignments）→ `Insufficient replica targets: required=1, available=0`；链路上 client 最终看到 `Failed to create table on replica rs-3` | `printf "CREATE TABLE t1(id int, primary key(id));\nexit;\n" \| docker exec -i client java -jar /app/app.jar` | 根因：CREATE/DROP TABLE 是 master 编排的（已向每个副本独立下发 DDL），RS 侧再做副本同步会死等。修复：`executeWrite` 对 `WalOpType.CREATE_TABLE` / `WalOpType.DROP_TABLE` 跳过 replica-sync（本地 WAL + 本地执行仍保留） | `artifacts/cluster.smoke/20260424-172053/` (before), `artifacts/cluster.smoke/20260424-201733/` (after) |
-| BUG-02 | **P0** | FIXED | `MiniSqlProcess#startProcessIfNeeded`（`java-regionserver/src/main/java/edu/zju/supersql/regionserver/MiniSqlProcess.java:50-64`） | 全新 RS 数据目录下第一次 CREATE TABLE 会令 C++ 引擎 segfault；引擎监控线程拉起新进程后 CREATE 已丢失，后续 INSERT/SELECT 都说 `Table not exist!` | `docker exec rs-1 sh -c "cd /data/db && printf 'create table t(id int, primary key(id));\n' \| /opt/minisql/main"` → `Segmentation fault` | 根因：miniSQL 的 `buffer_manager` 需要 `database/{catalog,data,index}` 子目录预先存在，缺失时直接段错误（C++ 层无法改，因为测试 agent 不允许动 cpp-core）。修复：Java 侧 `MiniSqlProcess` 启动前 `mkdirs` 这三个子目录 | `artifacts/cluster.smoke/20260424-175124/` |
-| BUG-03 | **P0** | FIXED | `MiniSqlProcess#execute`（`java-regionserver/.../MiniSqlProcess.java:178-201`）+ `OutputParser#parse` | SELECT 永远返回空结果（client 只打印 `OK`）。根因双层：① `execute()` 用 `readLine() until line.contains(">>> ")` 命中的是**下一条命令的前导提示符**，返回的是「上一条命令的响应」——CREATE/INSERT 因都产生 `>>> SUCCESS` 表面正常，SELECT 的多行表格被截断；② `OutputParser` 按 `\|` 切列，但 miniSQL 实际用 `\t` | `printf "CREATE TABLE t(id int, primary key(id));\nINSERT INTO t VALUES(1);\nSELECT * FROM t;\n" \| docker exec -i client java -jar /app/app.jar` | 修复：`execute()` 改为「写命令 → 读到输出流静默 150ms 为止」，并在 start() 同样消费完启动 banner；`OutputParser` 优先 `\t` 切分，回退 `\|`；增加移除首行粘贴的 `>>> ` 前缀 | `artifacts/cluster.smoke/20260424-180224/` (observed "OK" no rows) |
-| BUG-04 | **P1** | FIXED | `scripts/zk/assert_topology.sh` | 查询 ZK 路径时丢了 Curator namespace 前缀（`/masters` 应为 `/supersql/masters`），且 `zk_ls` / `zk_get` 的过滤器会把 zkCli.sh 的日志行当作数据 | `bash scripts/zk/assert_topology.sh` | 修复：全量改前缀为 `/supersql/*`；`zk_ls` 仅取第一行 `^[` 且非 `[zk:` 前缀的列表行；`zk_get` 仅取 `^{` 的 JSON payload 行 | `artifacts/zk.topology/20260424-201813/` |
-| BUG-05 | **P1** | FIXED | `scripts/run_tests.sh#suite_cpp_stress` | `test_pin_count` 链接失败（`Undefined symbols: API::createTable / Table::getTuple / ...`）；`g++` 命令漏了 `api.cc record_manager.cc index_manager.cc catalog_manager.cc basic.cc` | `bash scripts/run_tests.sh cpp stress` | 修复：补齐源文件列表，与 Makefile 的 `test_exhaustive` target 对齐 | `artifacts/cpp.stress/20260424-171323/` |
-| BUG-06 | P2 | OPEN | `scripts/chaos_test.sh` 多处（`get_active_master` / `extract_status_number`） | macOS BSD `grep` 不支持 `-P`；脚本里 `grep -oP '"role":"\K[^"]+'` 静默失败，导致 `Scenario 1 Master failover` 拿不到当前 active master；RS 管理端口 9190 探测需要 `docker exec`（本地 8080-8082 是 Thrift） | `bash scripts/chaos_test.sh master_failover` | 部分修复：已替换 `-P` 为 `grep -oE + sed`；后续若 CI 切换到 GNU grep，可保留当前实现但保持可移植（`grep -oE`） | `artifacts/cluster.chaos/20260424-202302/` |
-| BUG-07 | **P1** | FIXED | `RegionAdminServiceImpl#transferTable`（`java-regionserver/.../RegionAdminServiceImpl.java:242-310`） | chaos 场景 2/3 复跑时 client 对刚创建的表路由到 `target=none(0.0.0.0:0)`，RS 侧 `Insufficient replica targets: required=1, available=0` 级联；master 日志反复出现 `healTableLocation transfer failed source=rs-X code=TABLE_NOT_FOUND msg=No files found for table` → `recovered with reduced replicas` | 手动复现：`docker stop rs-3 && sleep 15 && printf "INSERT INTO t VALUES(2,'x');\nexit;\n" \| docker exec -i client ...` | 根因：miniSQL 的 buffer pool 延迟刷盘，刚 CREATE 的表在源 RS 磁盘上还没文件；master 的 heal 走 `transferTable` 仅扫描 `dataDir` 目录列表文件，找不到 → TABLE_NOT_FOUND → 错误地触发 replica 缩容（3→2→1），导致最后集群的 primary 落到已关机的 RS 上，client 的 RouteCache 看到空/无效地址（`0.0.0.0:0`）。修复：`transferTable` 在 list files 之前先 `miniSql.checkpoint()` 强制刷盘；构造器新增可选 `MiniSqlProcess` 注入，null 时保持原行为（单测不受影响） | `artifacts/cluster.chaos/20260424-203129/` (before 8 fail), `artifacts/cluster.chaos/20260424-212625/` (after 2 fail) |
-| BUG-11 | **P1** | FIXED (indirectly by BUG-07 & BUG-12) | 跨模块（RS `ReplicaManager` / `WalManager` / master heal-catchup） | chaos 场景 3 Round 2 & Round 3：在 RS 下线期间客户端的 INSERT 显示「succeeded」，RS 恢复之后 `SELECT` 只看到第 1 轮写入的行，Round 2/3 写入全部丢失；`write succeeded while rs-X was down` 但 recovery 后 `missing row 'round_N_rs-X'` | `scripts/run_tests.sh cluster chaos`（R1），Scenario 3 Round 2 / Round 3 | 实际根因：BUG-07 的 `healTableLocation` 持续缩容副本集，导致 round 2/3 期间实际副本只剩 1 个；同时 BUG-12 让客户端在路由失效时拿到 sentinel 地址。两者合流导致「写看似成功但被 master 下一轮 heal 抹掉」。修复 BUG-07 + BUG-12 之后 R2 chaos Scenario 3 Round 1/2/3 全绿 | `artifacts/cluster.chaos/20260424-212625/` (partial fail), `artifacts/cluster.chaos/20260424-214207/` (pass) |
-| BUG-12 | **P0** | FIXED | `SqlClient#resolveLocation`（`java-client/src/main/java/edu/zju/supersql/client/SqlClient.java:701`） | 负载压测 / chaos 下客户端连续 5 次 `DML execution failed: table=..., attempt=N/5, reason=Invalid port 0`；`target=none(0.0.0.0:0)` 把整条 DML 链路拖垮 | `STRESS_CONCURRENCY=2 STRESS_ROWS_PER_WORKER=50 STRESS_BULK_ROWS=500 bash scripts/run_tests.sh cluster stress` | 根因：master 在表元数据尚不可见时返回「sentinel」`TableLocation(primaryRS=RegionServerInfo("none","0.0.0.0",0), tableStatus="TABLE_NOT_FOUND")`；client 的 `resolveLocation` 直接把它缓存并后续重试都命中这条缓存，produce port 0。修复：`isSentinelLocation` 识别 tableStatus ∈ {TABLE_NOT_FOUND, ZK_UNAVAILABLE, NOT_LEADER} 或 host ∈ {"none","unavailable","0.0.0.0"}/port≤0 的占位，不缓存；master 查询带 3 次 100/200/300ms 退避重试以吃掉「刚 CREATE 后的元数据可见性竞态」 | `artifacts/cluster.stress/20260424-213548/` (before), `artifacts/cluster.stress/20260424-213958/` (after) |
-| BUG-08 | **P1** | OPEN | 跨模块（Master `LeaderElector` / Curator LeaderLatch） | 停掉 active master 后 150 秒内 `/supersql/active-master` 的 epoch 不递增；`/supersql/masters` 只看到 1 个 latch participant（`latch-0000000002`），其余两台 master 从未注册 latch；重启原 master 后它自己又把 epoch 推到 3 重新当选 | `docker stop master-1; sleep 150; docker exec zk1 zkCli.sh get /supersql/active-master` → epoch 仍然是 2 | 待定位：疑似 master-2 / master-3 的 LeaderElector 未真正启动或 latch 构造路径与 master-1 不一致；需看 `java-master/.../election/LeaderElector.java` 启动序与 ZK session；epoch-based polling（脚本侧已改）证实了这是**集群行为 bug**而不是探测超时 | `artifacts/cluster.chaos/20260424-214207/` |
-| BUG-09 | P2 | KNOWN_ISSUE | `docker/Dockerfile.regionserver`（**不允许本 agent 修改**） | RS 镜像未安装 `iptables`，chaos 场景 4/5（network partition, suspected replica）无法注入故障 | `docker exec rs-1 which iptables` → empty | 本 agent 将这两个场景改为 SKIP（exit 2），不作为 FAIL；修复需 Dockerfile 层加 `apt-get install -y iptables` | `artifacts/cluster.chaos/20260424-203129/` |
-| BUG-10 | P2 | OPEN | `cpp.coverage` 产物收集 | `minisql/cpp-core/Makefile:113` 的 `coverage:` target 执行 `gcov basic.cc ...`，但 `*.gcno` 实际命名是 `test_basic-basic.gcno`（每个测试 target 各自独立的命名空间），导致 gcov 找不到源文件、`*.gcov` 不生成；测试全绿但产物目录 `artifacts/cpp.coverage/<ts>/coverage/` 为空 | `bash scripts/run_tests.sh cpp coverage && ls artifacts/cpp.coverage/*/coverage/` | 根因：Makefile 属于 `cpp-core`（agent 不允许改）。workaround：`scripts/run_tests.sh` 的收集步已存在，但不 fail；可以额外搜集 `test_*-*.gcno/gcda` 并分别 gcov | `artifacts/cpp.coverage/20260424-171507/` |
+| BUG-01 | **P0** | FIXED | `RegionServiceImpl#executeWrite`（`java-regionserver/src/main/java/edu/zju/supersql/regionserver/rpc/RegionServiceImpl.java:176-198`） | CREATE TABLE 通过 master 的 `regionDdlExecutor.execute` 下到每个 RS → RS 走 `executeWrite` → 读 `/supersql/assignments/<table>` 返回空（master 在 fan-out DDL 之后才写 assignments）→ `Insufficient replica targets: required=1, available=0`；链路上 client 最终看到 `Failed to create table on replica rs-3` | `printf "CREATE TABLE t1(id int, primary key(id));\nexit;\n" \| docker exec -i client java -jar /app/app.jar` | 根因：CREATE/DROP TABLE 是 master 编排的（已向每个副本独立下发 DDL），RS 侧再做副本同步会死等。修复：`executeWrite` 对 `WalOpType.CREATE_TABLE` / `WalOpType.DROP_TABLE` 跳过 replica-sync（本地 WAL + 本地执行仍保留） | `artifacts/cluster.smoke/` (before), `artifacts/cluster.smoke/` (after) |
+| BUG-02 | **P0** | FIXED | `MiniSqlProcess#startProcessIfNeeded`（`java-regionserver/src/main/java/edu/zju/supersql/regionserver/MiniSqlProcess.java:50-64`） | 全新 RS 数据目录下第一次 CREATE TABLE 会令 C++ 引擎 segfault；引擎监控线程拉起新进程后 CREATE 已丢失，后续 INSERT/SELECT 都说 `Table not exist!` | `docker exec rs-1 sh -c "cd /data/db && printf 'create table t(id int, primary key(id));\n' \| /opt/minisql/main"` → `Segmentation fault` | 根因：miniSQL 的 `buffer_manager` 需要 `database/{catalog,data,index}` 子目录预先存在，缺失时直接段错误（C++ 层无法改，因为测试 agent 不允许动 cpp-core）。修复：Java 侧 `MiniSqlProcess` 启动前 `mkdirs` 这三个子目录 | `artifacts/cluster.smoke/` |
+| BUG-03 | **P0** | FIXED | `MiniSqlProcess#execute`（`java-regionserver/.../MiniSqlProcess.java:178-201`）+ `OutputParser#parse` | SELECT 永远返回空结果（client 只打印 `OK`）。根因双层：① `execute()` 用 `readLine() until line.contains(">>> ")` 命中的是**下一条命令的前导提示符**，返回的是「上一条命令的响应」——CREATE/INSERT 因都产生 `>>> SUCCESS` 表面正常，SELECT 的多行表格被截断；② `OutputParser` 按 `\|` 切列，但 miniSQL 实际用 `\t` | `printf "CREATE TABLE t(id int, primary key(id));\nINSERT INTO t VALUES(1);\nSELECT * FROM t;\n" \| docker exec -i client java -jar /app/app.jar` | 修复：`execute()` 改为「写命令 → 读到输出流静默 150ms 为止」，并在 start() 同样消费完启动 banner；`OutputParser` 优先 `\t` 切分，回退 `\|`；增加移除首行粘贴的 `>>> ` 前缀 | `artifacts/cluster.smoke/` (observed "OK" no rows) |
+| BUG-04 | **P1** | FIXED | `scripts/zk/assert_topology.sh` | 查询 ZK 路径时丢了 Curator namespace 前缀（`/masters` 应为 `/supersql/masters`），且 `zk_ls` / `zk_get` 的过滤器会把 zkCli.sh 的日志行当作数据 | `bash scripts/zk/assert_topology.sh` | 修复：全量改前缀为 `/supersql/*`；`zk_ls` 仅取第一行 `^[` 且非 `[zk:` 前缀的列表行；`zk_get` 仅取 `^{` 的 JSON payload 行 | `artifacts/zk.topology/` |
+| BUG-05 | **P1** | FIXED | `scripts/run_tests.sh#suite_cpp_stress` | `test_pin_count` 链接失败（`Undefined symbols: API::createTable / Table::getTuple / ...`）；`g++` 命令漏了 `api.cc record_manager.cc index_manager.cc catalog_manager.cc basic.cc` | `bash scripts/run_tests.sh cpp stress` | 修复：补齐源文件列表，与 Makefile 的 `test_exhaustive` target 对齐 | `artifacts/cpp.stress/` |
+| BUG-06 | P2 | FIXED | `scripts/chaos_test.sh` 多处（`get_active_master` / `extract_status_number`） | macOS BSD `grep` 不支持 `-P`；脚本里 `grep -oP '"role":"\K[^"]+'` 静默失败，导致 `Scenario 1 Master failover` 拿不到当前 active master；RS 管理端口 9190 探测需要 `docker exec`（本地 8080-8082 是 Thrift） | `bash scripts/chaos_test.sh master_failover` | 已全量改为 `grep -oE + sed`；R4 在 macOS BSD grep 下重跑 Scenario 1 PASS（master-3→master-1 epoch=2→3，master-3→master-2 epoch=5→6）。已无 `-P` 残留。 | `artifacts/cluster.chaos/` |
+| BUG-07 | **P1** | FIXED | `RegionAdminServiceImpl#transferTable`（`java-regionserver/.../RegionAdminServiceImpl.java:242-310`） | chaos 场景 2/3 复跑时 client 对刚创建的表路由到 `target=none(0.0.0.0:0)`，RS 侧 `Insufficient replica targets: required=1, available=0` 级联；master 日志反复出现 `healTableLocation transfer failed source=rs-X code=TABLE_NOT_FOUND msg=No files found for table` → `recovered with reduced replicas` | 手动复现：`docker stop rs-3 && sleep 15 && printf "INSERT INTO t VALUES(2,'x');\nexit;\n" \| docker exec -i client ...` | 根因：miniSQL 的 buffer pool 延迟刷盘，刚 CREATE 的表在源 RS 磁盘上还没文件；master 的 heal 走 `transferTable` 仅扫描 `dataDir` 目录列表文件，找不到 → TABLE_NOT_FOUND → 错误地触发 replica 缩容（3→2→1），导致最后集群的 primary 落到已关机的 RS 上，client 的 RouteCache 看到空/无效地址（`0.0.0.0:0`）。修复：`transferTable` 在 list files 之前先 `miniSql.checkpoint()` 强制刷盘；构造器新增可选 `MiniSqlProcess` 注入，null 时保持原行为（单测不受影响） | `artifacts/cluster.chaos/` (before 8 fail), `artifacts/cluster.chaos/` (after 2 fail) |
+| BUG-11 | **P1** | FIXED (indirectly by BUG-07 & BUG-12) | 跨模块（RS `ReplicaManager` / `WalManager` / master heal-catchup） | chaos 场景 3 Round 2 & Round 3：在 RS 下线期间客户端的 INSERT 显示「succeeded」，RS 恢复之后 `SELECT` 只看到第 1 轮写入的行，Round 2/3 写入全部丢失；`write succeeded while rs-X was down` 但 recovery 后 `missing row 'round_N_rs-X'` | `scripts/run_tests.sh cluster chaos`（R1），Scenario 3 Round 2 / Round 3 | 实际根因：BUG-07 的 `healTableLocation` 持续缩容副本集，导致 round 2/3 期间实际副本只剩 1 个；同时 BUG-12 让客户端在路由失效时拿到 sentinel 地址。两者合流导致「写看似成功但被 master 下一轮 heal 抹掉」。修复 BUG-07 + BUG-12 之后 R2 chaos Scenario 3 Round 1/2/3 全绿 | `artifacts/cluster.chaos/` (partial fail), `artifacts/cluster.chaos/` (pass) |
+| BUG-12 | **P0** | FIXED | `SqlClient#resolveLocation`（`java-client/src/main/java/edu/zju/supersql/client/SqlClient.java:701`） | 负载压测 / chaos 下客户端连续 5 次 `DML execution failed: table=..., attempt=N/5, reason=Invalid port 0`；`target=none(0.0.0.0:0)` 把整条 DML 链路拖垮 | `STRESS_CONCURRENCY=2 STRESS_ROWS_PER_WORKER=50 STRESS_BULK_ROWS=500 bash scripts/run_tests.sh cluster stress` | 根因：master 在表元数据尚不可见时返回「sentinel」`TableLocation(primaryRS=RegionServerInfo("none","0.0.0.0",0), tableStatus="TABLE_NOT_FOUND")`；client 的 `resolveLocation` 直接把它缓存并后续重试都命中这条缓存，produce port 0。修复：`isSentinelLocation` 识别 tableStatus ∈ {TABLE_NOT_FOUND, ZK_UNAVAILABLE, NOT_LEADER} 或 host ∈ {"none","unavailable","0.0.0.0"}/port≤0 的占位，不缓存；master 查询带 3 次 100/200/300ms 退避重试以吃掉「刚 CREATE 后的元数据可见性竞态」 | `artifacts/cluster.stress/` (before), `artifacts/cluster.stress/` (after) |
+| BUG-08 | **P1** | FIXED | `MasterServer#main` bootstrap 循环（`java-master/.../MasterServer.java:340-347`）+ `LeaderElector#ensurePath`（`.../election/LeaderElector.java:155-159`） | 停掉 active master 后 150 秒内 `/supersql/active-master` 的 epoch 不递增；`/supersql/masters` 只看到 1 个 latch participant，master-2/master-3 从未注册 latch | `docker stop master-1; sleep 150; docker exec zk1 zkCli.sh get /supersql/active-master` → epoch 不变 | 根因：bootstrap 循环 `checkExists()` + `create()` 不是原子操作。多 master 并发启动时，第一台 master 创建 `/meta/tables` 后，第二台/第三台的 `create()` 抛 `KeeperException.NodeExistsException`，被外层 catch 当作"ZK connection failed at startup"吃掉，结果 `MasterRuntimeContext.initialize` 没执行、`leaderElector.start()` 也跳过。修复：bootstrap 循环和 `LeaderElector.ensurePath` 改为直接 `create()` 并捕获 `NodeExistsException`。增加 `LeaderElectorTest.shouldStartWhenEnsuredPathsAlreadyExist` 回归测试。R4 集群 fresh boot 后 3 个 latch participant 都注册成功，Scenario 1 失主选举正常完成（epoch 5→6）。 | `artifacts/cluster.chaos/` (fresh boot R4 PASS) |
+| BUG-09 | P2 | KNOWN_ISSUE | `docker/Dockerfile.regionserver`（**不允许本 agent 修改**） | RS 镜像未安装 `iptables`，chaos 场景 4/5（network partition, suspected replica）无法注入故障 | `docker exec rs-1 which iptables` → empty | 本 agent 将这两个场景改为 SKIP（exit 2），不作为 FAIL；修复需 Dockerfile 层加 `apt-get install -y iptables` | `artifacts/cluster.chaos/` |
+| BUG-10 | P2 | FIXED | `scripts/run_tests.sh#suite_cpp_coverage` | `minisql/cpp-core/Makefile:113` 的 `coverage:` target 执行 `gcov basic.cc ...`，但 `*.gcno` 实际命名是 `test_basic-basic.gcno`（每个测试 target 各自独立的命名空间），导致 gcov 找不到源文件、`*.gcov` 不生成；额外发现：`make coverage` 的 prereq `test` 在 binary already up-to-date 时跳过编译，连 gcno/gcda 都不会生成 | `bash scripts/run_tests.sh cpp coverage && find artifacts/cpp.coverage/*/coverage -name "*.gcov" \| wc -l` | Makefile 不允许改。修复 `scripts/run_tests.sh` 的 `suite_cpp_coverage`：① 跑前先 `make clear` 强制重编（否则 `up-to-date` 会跳过 gcno 生成）；② 跑后按 `<target>-<src>.gcno` 模式遍历，逐个 cp 到 `<src>.gcno` → `gcov <src>.cc` → 移到 `artifacts/.../coverage/<target>/<src>.cc.gcov`。R4 重跑产出 117 个 `.gcov` 文件覆盖 `basic/api/buffer_manager/record_manager/...` × 11 个 test target | `artifacts/cpp.coverage/` (117 .gcov files) |
+| BUG-13 | **P1** | FIXED | `scripts/cluster/stress.sh#phase1/phase2` | `cluster.stress` 时 phase1/phase2 在 `CREATE TABLE` 后立刻 `INSERT`，前几条 INSERT 会偶发 `Error: Table not found: stress_xxx (status=TABLE_NOT_FOUND, attempt=3/3)`，导致 phase2 期望 500 行实际只有 495；BUG-12 修过 sentinel 缓存但 client 端的 master query 退避（100/200/300ms 三次）在压测并发下仍不够 | `STRESS_CONCURRENCY=2 STRESS_ROWS_PER_WORKER=50 STRESS_BULK_ROWS=500 bash scripts/run_tests.sh cluster stress`（fresh cluster R4 第一次 PASS，其后偶发） | 根因：master 在 `CREATE TABLE` 完成后向 ZK 写 metadata 与 client 通过 `RouteCache` 看见之间存在毫秒级窗口；测试脚本不能假设 CREATE 返回即可立即 INSERT。修复：`stress.sh` 新增 `wait_for_table` 辅助，在 phase1/phase2 的 `run_sql "CREATE TABLE ..."` 之后**主动 SELECT 直到不再返回 TABLE_NOT_FOUND**（最多 30s），再启动 INSERT worker。 | `artifacts/cluster.stress/` (FAIL 495/500), `artifacts/cluster.stress/` (PASS) |
+| BUG-14 | P2 | OPEN | `scripts/chaos_test.sh#run_sql` + `create_test_table` | chaos Scenario 3 中 `Round N: missing row 'round_N_rs-X' after recovery` 与 `Table not found: chaos_test_random_rs_NNNNN` 的真实根因是 chaos `create_test_table` 在 cluster 退化时 CREATE 实际返回 `Error: Internal error processing createTable`，但 `run_sql ... \|\| return 1` 只检查 docker exec 退出码（client 一律 exit 0），因此把"创建失败"当成"创建成功"继续后续轮次 | R4 chaos Scenario 3 Round 1：`Preparing table: chaos_test_random_rs_29166` 后立即 `Round 1: seed row became unavailable during rs-2 outage`，master 三个节点的日志都查不到 `chaos_test_random_rs_29166` 字眼 → 表根本没建出来 | 待修：`run_sql` 的输出按 `Error:` 关键字判定真实失败、`create_test_table` 在 CREATE 之后调用类似 BUG-13 的 `wait_for_table` 等元数据可见再 INSERT seed 行；同时 Scenario 之间应清理上一轮 `chaos_test_*` 残留 ZK znode 避免 heal 干扰 | `artifacts/cluster.chaos/` |
+| BUG-15 | P2 | OPEN | docker `Dockerfile.regionserver`（不允许 agent 修改）+ chaos `RECOVERY_WAIT_SECONDS` 默认 60s | macOS Docker 下 RS 容器 stop 之后再 start，miniSQL C++ 进程冷启动 + Java RS 重新连 ZK 经常需要 90~120s，超过 chaos 默认 60s 的 health 等待窗口；R4 cluster.chaos Scenario 2 因此 fail（rs-1 timeout），后续 Scenario 3 在级联状态下进一步连锁 fail | `bash scripts/run_tests.sh cluster chaos` | 待评估：① 默认 `CHAOS_RECOVERY_WAIT_SECONDS` 提升到 120；② 增加 RS 镜像 health check 启动 grace；③ chaos 脚本失败前再额外检查 `docker exec rs-X curl -sf localhost:9190/health` 兜底 | `artifacts/cluster.chaos/` |
+| BUG-17 | **P1** | OPEN | client `DROP TABLE` → master `MetaManager.dropTable` → RS `DROP TABLE` 链路 | DROP TABLE 之后再次 CREATE 同名表，新表的 INSERT 出现 `Primary key conflict` 错误；SELECT 看到来自前一轮的旧行；DROP 没有真正擦除 RS 上的 `database/data/<name>` 文件，并且 C++ 引擎的 buffer pool 仍然缓存旧数据。具体表现见 `e2e.client/04_delete` 在多次复跑后偶发 `(3 rows)` 断言失败，实际首条 SELECT 返回 5 行但 row 2 的 tag 是上一轮残留的 `keep` 而非本轮 INSERT 的 `drop` | 反复跑 `bash scripts/run_tests.sh e2e client`，4-5 次后 `04_delete` 出现 `missing pattern: \(3 rows\)`；`docker exec rs-1 ls /data/db/database/data/` 在 DROP 后偶尔仍能看到表文件 | 待修：① DROP TABLE 链路在所有副本完成后才清空 ZK metadata；② RS 收到 DROP 必须删除 `data/`、`index/`、`catalog/` 三处文件并提示 C++ 引擎 evict 该表的 buffer pool；③ 在彻底修好之前 `scripts/e2e/run_sql_fixtures.sh` 已加预清理（ZK + 三个 RS 数据文件），可减少但不能消除偶发 | `artifacts/e2e.client/` |
 
 ### 5.1 已知待验证项（摘自 `UNFINISHED_FEATURES_IMPLEMENTATION_GUIDE.md`）
 
@@ -227,9 +243,8 @@ artifacts/
 ```json
 {
   "suite": "java.integration",
-  "startedAt": "2026-04-24T16:10:00+08:00",
-  "finishedAt": "2026-04-24T16:18:43+08:00",
   "result": "FAIL",
+  "elapsedSeconds": 523,
   "total": 23,
   "passed": 21,
   "failed": 2,
@@ -271,25 +286,28 @@ agent 每轮结束时把新出现的失败自动补登到 §5。
 
 ### 8.2 各套件对 SQL 的覆盖
 
+> 标记说明：`✓` 自动跑过；`—` 没跑且本套件能跑（gap）；`N/A` 该套件不在合理覆盖范围（如客户端不识别该 SQL、cpp 引擎不支持等）。
+> e2e.client 后括号是 fixture 编号：`01_ddl_basic` / `02_index` / `03_where_and_or` / `04_delete` / `05_range_select` / `06_unsupported_sql` / `07_execfile`。
+
 | SQL | cpp.unit (test_api / test_exhaustive) | cpp.wal | cluster.smoke | cluster.stress | cluster.chaos | e2e.client |
 | --- | --- | --- | --- | --- | --- | --- |
-| CREATE TABLE | ✓ | ✓ (crash-recovery) | ✓ | ✓ | ✓ | ✓ (01,02,03,04) |
-| DROP TABLE   | ✓ | — | ✓ | ✓ | — | ✓ (01,02,03,04) |
-| CREATE INDEX | ✓ | — | — | — | — | ✓ (02) |
-| DROP INDEX   | ✓ | — | — | — | — | ✓ (02) |
-| INSERT       | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (01,02,03,04) |
-| SELECT *     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (01,02,03,04) |
-| SELECT WHERE =        | ✓ | — | — | — | ✓ (单键 seed 行) | ✓ (02,03) |
-| SELECT WHERE < > …    | ✓ | — | — | — | — | — |
-| SELECT AND / OR       | ✓ | — | — | — | — | ✓ (03) |
-| DELETE       | ✓ | — | — | — | — | ✓ (04) |
-| UPDATE / ALTER / TRUNCATE（错误路径） | — | — | — | — | — | — |
-| execfile     | — | — | — | — | — | — |
-| checkpoint   | — | 间接 | — | — | — | — |
+| CREATE TABLE | ✓ | ✓ (crash-recovery) | ✓ | ✓ | ✓ | ✓ (01,02,03,04,05,06,07) |
+| DROP TABLE   | ✓ | N/A (test 聚焦 redo) | ✓ | ✓ | ✓ (cleanup_test_table 每场景必跑) | ✓ (01,02,03,04,05,06,07) |
+| CREATE INDEX | ✓ | N/A | ✓ (smoke 覆盖块) | ✓ (phase3) | ✓ (seed 阶段) | ✓ (02) |
+| DROP INDEX   | ✓ | N/A | ✓ (smoke 覆盖块) | ✓ (phase3) | ✓ (seed 阶段) | ✓ (02) |
+| INSERT       | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (01,02,03,04,05,06,07) |
+| SELECT *     | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (01,02,03,04,05,06,07) |
+| SELECT WHERE =        | ✓ | N/A | ✓ (smoke 覆盖块) | ✓ (phase3 point lookup) | ✓ (单键 seed 行 + AND/OR seed 阶段) | ✓ (02,03) |
+| SELECT WHERE < > …    | ✓ | N/A | ✓ (smoke 覆盖块 grade>75) | ✓ (phase3 score>500) | N/A (chaos 关注故障注入路径) | ✓ (05) |
+| SELECT AND / OR       | ✓ | N/A | ✓ (smoke 覆盖块) | N/A (无并发条件复合需求) | ✓ (seed 阶段) | ✓ (03) |
+| DELETE       | ✓ | N/A | ✓ (smoke 覆盖块) | ✓ (phase3) | ✓ (seed 阶段) | ✓ (04) |
+| UPDATE / ALTER / TRUNCATE（错误路径） | N/A (cpp 引擎不实现) | N/A | ✓ (smoke ERR 断言) | N/A (压测无意义) | N/A (chaos 无意义) | ✓ (06) |
+| execfile     | N/A (引擎 REPL 内部) | N/A | N/A (smoke 不需嵌套) | N/A | N/A | ✓ (07) |
+| checkpoint   | N/A (引擎层无独立 test) | 间接（test_wal 触发 flush 路径） | N/A (SqlClient.classifySql 不识别 `checkpoint`) | N/A | N/A | N/A |
+
+> `checkpoint` 走 Java 侧 `MiniSqlProcess.checkpoint()`，由 `MiniSqlProcessTest`（java.unit）覆盖；该列与 §8.2 的 SQL-客户端维度正交，故矩阵中标 N/A。
+> `UPDATE/ALTER/TRUNCATE` 走 client → master DDL/DML 路径，必须返回 ERROR；`cluster.smoke#smoke_err_*` + `e2e.client/06_unsupported_sql.sql` 双重锁死契约，避免回归到静默 success。
 
 ### 8.3 当前 gap（待后续补测，不计为 bug）
-
-- `SELECT … WHERE <` / `>` / `<=` / `>=` 在集群 / e2e 层未覆盖（单机 cpp.unit 已覆盖）。
-- `execfile` 只在 REPL 手测过，没自动化套件。
-- `checkpoint` 的显式命令只在 `cpp.wal` 间接触发；没有 "发 1000 行 → 手动 checkpoint → 重启 → SELECT 行数一致" 的端到端回归。
-- UPDATE / ALTER / TRUNCATE 目前**静默返回 ERROR**。应有一条 Java 集成测试断言 `StatusCode.ERROR` 而非 OK，避免将来改回静默 success 没人察觉。
+- `checkpoint` 的显式命令只在 `cpp.wal` 间接触发；没有 "发 1000 行 → 手动 checkpoint → 重启 → SELECT 行数一致" 的端到端回归。Java 侧 `MiniSqlProcessTest#checkpoint*` 单测已锁，集群层暂无对应。
+- UPDATE / ALTER / TRUNCATE 错误路径已被 `cluster.smoke` + `e2e.client/06` 锁死；后续若新增 Java 集成测试断言 `StatusCode.ERROR`，可视为加固层而不是 gap。

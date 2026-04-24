@@ -37,10 +37,30 @@ count_rows() {
     echo "${n:-0}"
 }
 
+wait_for_table() {
+    # Block until SELECT against $1 stops returning TABLE_NOT_FOUND. Without
+    # this, the bulk-import worker often fires its first INSERTs in the small
+    # window between master returning OK for CREATE TABLE and the table
+    # metadata being readable from the client's RouteCache → produces sporadic
+    # `Table not found: xxx (status=TABLE_NOT_FOUND, attempt=3/3)` errors and
+    # silently dropped rows. 30 retries × 1s is a comfortable upper bound.
+    local table=$1
+    local i out
+    for i in $(seq 1 30); do
+        out=$(run_sql "SELECT * FROM $table;")
+        if ! echo "$out" | grep -qE "TABLE_NOT_FOUND|Table not found"; then
+            return 0
+        fi
+        sleep 1
+    done
+    fail "table $table never became readable after 30s"
+}
+
 phase1_concurrent_insert() {
     local table="stress_conc_$(date +%s)"
     run_sql "CREATE TABLE $table(id int, worker int, primary key(id));" >/dev/null \
         || fail "create $table failed"
+    wait_for_table "$table"
 
     local pids=() tmpdir
     tmpdir=$(mktemp -d)
@@ -84,6 +104,7 @@ phase2_bulk_import() {
     local table="stress_bulk_$(date +%s)"
     run_sql "CREATE TABLE $table(id int, payload char(32), primary key(id));" >/dev/null \
         || fail "create $table failed"
+    wait_for_table "$table"
 
     local tmpfile
     tmpfile=$(mktemp)
@@ -128,7 +149,56 @@ phase2_bulk_import() {
     rm -f "$tmpfile"
 }
 
+phase3_index_delete_select() {
+    # Hits the §8.2 cluster.stress gaps: CREATE/DROP INDEX, DELETE,
+    # SELECT WHERE = (point lookup via index), SELECT range. Uses a small
+    # 200-row table because correctness, not throughput, is the goal.
+    local table="stress_idx_$(date +%s)"
+    run_sql "CREATE TABLE $table(id int, score int, primary key(id));" >/dev/null \
+        || fail "create $table failed"
+    wait_for_table "$table"
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    {
+        for i in $(seq 1 200); do
+            printf "INSERT INTO %s VALUES (%d, %d);\n" "$table" "$i" $((i * 5))
+        done
+        echo "exit;"
+    } > "$tmpfile"
+    run_sql_script "$tmpfile" > /tmp/idx_seed.log 2>&1 || fail "seed inserts failed"
+    rm -f "$tmpfile"
+
+    local before
+    before=$(count_rows "$table")
+    [[ "$before" -eq 200 ]] || fail "phase3 seed expected 200 observed=$before"
+
+    run_sql "CREATE INDEX idx_${table} ON $table(score);" >/dev/null \
+        || fail "create index failed"
+
+    # Point lookup via index (WHERE =)
+    local pt
+    pt=$(run_sql "SELECT * FROM $table WHERE score = 500;" | grep -oE '\([0-9]+ rows?\)' | tail -1 | grep -oE '[0-9]+')
+    [[ "${pt:-0}" -eq 1 ]] || fail "phase3 point-lookup expected 1 row observed=$pt"
+
+    # Range scan (WHERE >)
+    local rng
+    rng=$(run_sql "SELECT * FROM $table WHERE score > 500;" | grep -oE '\([0-9]+ rows?\)' | tail -1 | grep -oE '[0-9]+')
+    [[ "${rng:-0}" -eq 100 ]] || fail "phase3 range scan expected 100 rows observed=$rng"
+
+    # Delete a known slice and re-count
+    run_sql "DELETE FROM $table WHERE score > 500;" >/dev/null || fail "delete failed"
+    local after
+    after=$(count_rows "$table")
+    [[ "$after" -eq 100 ]] || fail "phase3 post-delete expected 100 observed=$after"
+
+    run_sql "DROP INDEX idx_${table} ON $table;" >/dev/null || true
+    run_sql "DROP TABLE $table;" >/dev/null || true
+    ok "phase3 index + delete + range/point select"
+}
+
 phase1_concurrent_insert
 phase2_bulk_import
+phase3_index_delete_select
 
 echo "[SUMMARY] cluster.stress PASS"

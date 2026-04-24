@@ -134,10 +134,40 @@ suite_cpp_stress() {
 
 suite_cpp_coverage() {
     precheck_cpp
-    local cmd='cd minisql/cpp-core && make clear_coverage >/dev/null 2>&1; make coverage'
+    # 必须 make clear 先把测试二进制全删掉，否则 make 会判定 test_basic 等
+    # 已经 up-to-date，不重新编译，也就不生成新的 gcno/gcda 文件，gcov 拿不到产物。
+    local cmd='cd minisql/cpp-core && make clear >/dev/null 2>&1; make clear_coverage >/dev/null 2>&1; make coverage'
     run_and_capture cpp.coverage "$cmd"
     local outdir="$ARTIFACTS_ROOT/cpp.coverage/$TS"
     mkdir -p "$outdir/coverage"
+    # BUG-10 workaround: cpp-core 的 Makefile coverage 目标用 `gcov basic.cc ...`
+    # 但每个 test target 实际产物是 `test_basic-basic.gcno` 这种带前缀的文件，
+    # gcov 找不到 → 不生成 *.gcov。这里按 target 逐个把 gcno/gcda 改名后跑 gcov，
+    # 再把结果归档到 artifacts/cpp.coverage/<ts>/coverage/<target>/<src>.gcov。
+    (
+        cd minisql/cpp-core || exit 0
+        local sources=(basic buffer_manager catalog_manager index_manager record_manager api log_manager)
+        local stem src
+        for stem in test_basic test_buffer_manager test_catalog_manager \
+                    test_index_manager test_record_manager test_api \
+                    test_exhaustive test_wal test_wal_crash_recovery \
+                    unit_test_for_basic unit_test_for_buffer_manager unit_test_for_record_manager; do
+            for src in "${sources[@]}"; do
+                local gcno="${stem}-${src}.gcno"
+                local gcda="${stem}-${src}.gcda"
+                [ -f "$gcno" ] || continue
+                cp -f "$gcno" "${src}.gcno"
+                [ -f "$gcda" ] && cp -f "$gcda" "${src}.gcda"
+                gcov -n "${src}.cc" >/dev/null 2>&1 || true
+                gcov "${src}.cc" >/dev/null 2>&1 || true
+                if [ -f "${src}.cc.gcov" ]; then
+                    mkdir -p "$outdir/coverage/${stem}"
+                    mv -f "${src}.cc.gcov" "$outdir/coverage/${stem}/${src}.cc.gcov"
+                fi
+                rm -f "${src}.gcno" "${src}.gcda"
+            done
+        done
+    )
     cp minisql/cpp-core/*.gcov "$outdir/coverage/" 2>/dev/null || true
 }
 

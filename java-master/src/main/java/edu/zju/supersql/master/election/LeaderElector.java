@@ -153,8 +153,10 @@ public class LeaderElector implements AutoCloseable {
     }
 
     private void ensurePath(String path) throws Exception {
-        if (zkClient.checkExists().forPath(path) == null) {
+        try {
             zkClient.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
+        } catch (org.apache.zookeeper.KeeperException.NodeExistsException ignore) {
+            // Concurrent master created it first — that is the desired end state.
         }
     }
 

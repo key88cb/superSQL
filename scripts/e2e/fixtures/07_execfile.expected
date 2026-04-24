@@ -1,0 +1,5 @@
+# execfile 加载内嵌脚本：CREATE + INSERT 三行；外层 SELECT 应看到 3 行
+# 客户端在执行完毕后打印 "execfile completed: executed N statements from <path>"
+execfile completed: executed [0-9]+ statements from /app/fixtures/_includes/07_execfile_inner.sql
+\(3 rows\)
+Table dropped: e2e_exf

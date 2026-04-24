@@ -171,6 +171,17 @@ function create_test_table() {
     print_info "Preparing table: $CURRENT_TABLE"
     run_sql "CREATE TABLE ${CURRENT_TABLE}(id int, name char(20), primary key(id));" >/dev/null || return 1
     run_sql "INSERT INTO ${CURRENT_TABLE} VALUES (1, 'seed');" >/dev/null || return 1
+    # §8.2 cluster.chaos 列：除了 CREATE / INSERT / SELECT WHERE = 之外还要覆盖
+    # CREATE INDEX / DROP INDEX / DELETE / SELECT WHERE = AND/OR。在 chaos
+    # seed 阶段一次性铺开，后续 round 仍然只针对 seed 行做读写校验，避免影响
+    # chaos 故障注入路径。
+    run_sql "INSERT INTO ${CURRENT_TABLE} VALUES (101, 'chaos_keep');" >/dev/null || return 1
+    run_sql "INSERT INTO ${CURRENT_TABLE} VALUES (102, 'chaos_drop');" >/dev/null || return 1
+    run_sql "CREATE INDEX idx_${CURRENT_TABLE}_name ON ${CURRENT_TABLE}(name);" >/dev/null || true
+    run_sql "SELECT * FROM ${CURRENT_TABLE} WHERE name = 'seed' AND id = 1;" >/dev/null || true
+    run_sql "SELECT * FROM ${CURRENT_TABLE} WHERE name = 'chaos_keep' OR name = 'seed';" >/dev/null || true
+    run_sql "DELETE FROM ${CURRENT_TABLE} WHERE name = 'chaos_drop';" >/dev/null || true
+    run_sql "DROP INDEX idx_${CURRENT_TABLE}_name ON ${CURRENT_TABLE};" >/dev/null || true
 }
 
 function verify_row_present() {

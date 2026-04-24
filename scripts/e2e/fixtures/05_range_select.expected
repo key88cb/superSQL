@@ -1,0 +1,12 @@
+# Range SELECT coverage (cpp engine BPlusTree range scan + table scan path)
+# scores: 10, 25, 50, 75, 90
+# WHERE < 50 → 2 rows (10, 25)
+# WHERE > 50 → 2 rows (75, 90)
+# WHERE <= 50 → 3 rows
+# WHERE >= 50 → 3 rows
+Table metadata created: e2e_rng
+\(2 rows\)
+\(2 rows\)
+\(3 rows\)
+\(3 rows\)
+Table dropped: e2e_rng

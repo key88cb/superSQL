@@ -1,0 +1,5 @@
+# cpp engine 不支持 UPDATE/ALTER/TRUNCATE。SqlClient 应明确返回 Error，
+# 而不是静默 OK。三条至少有一条出现 Error/ERROR 即视为契约满足。
+Table metadata created: e2e_unsupp
+Error
+Table dropped: e2e_unsupp

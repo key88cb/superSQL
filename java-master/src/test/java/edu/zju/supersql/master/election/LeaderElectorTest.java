@@ -132,6 +132,29 @@ class LeaderElectorTest {
     }
 
     @Test
+    void shouldStartWhenEnsuredPathsAlreadyExist() throws Exception {
+        // Regression for BUG-08: in production, /masters and /active-master are
+        // pre-created by MasterServer's bootstrap loop before LeaderElector runs.
+        // ensurePath previously did `checkExists() then create()`, which threw
+        // KeeperException.NodeExistsException whenever a concurrent master
+        // (or the bootstrap itself) had just created the same path. The
+        // exception escaped start() and the master never registered into the
+        // leader latch, leaving the cluster with a single participant.
+        // ensurePath must now swallow NodeExistsException and proceed.
+        Assertions.assertNotNull(zk1.checkExists().forPath("/masters"));
+        Assertions.assertNotNull(zk1.checkExists().forPath("/active-master"));
+
+        LeaderElector elector = new LeaderElector(zk1, "master-1", "master-1:8080");
+        try {
+            elector.start();
+            waitUntil(Duration.ofSeconds(5), elector::isLeader);
+            Assertions.assertTrue(elector.isLeader());
+        } finally {
+            elector.close();
+        }
+    }
+
+    @Test
     void shouldKeepMonotonicEpochAndSingleLeaderUnderRepeatedFlapping() throws Exception {
         LeaderElector[] electors = new LeaderElector[] {
                 new LeaderElector(zk1, "master-1", "master-1:8080"),
