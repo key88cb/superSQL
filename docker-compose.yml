@@ -125,6 +125,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.master
+      args:
+        UBUNTU_PORTS_MIRROR: ${UBUNTU_PORTS_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}
     container_name: master-1
     hostname: master-1
     restart: unless-stopped
@@ -162,6 +164,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.master
+      args:
+        UBUNTU_PORTS_MIRROR: ${UBUNTU_PORTS_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}
     container_name: master-2
     hostname: master-2
     restart: unless-stopped
@@ -199,6 +203,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.master
+      args:
+        UBUNTU_PORTS_MIRROR: ${UBUNTU_PORTS_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}
     container_name: master-3
     hostname: master-3
     restart: unless-stopped
@@ -238,6 +244,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.regionserver
+      args:
+        UBUNTU_PORTS_MIRROR: ${UBUNTU_PORTS_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}
     container_name: rs-1
     hostname: rs-1
     restart: unless-stopped
@@ -274,6 +282,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.regionserver
+      args:
+        UBUNTU_PORTS_MIRROR: ${UBUNTU_PORTS_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}
     container_name: rs-2
     hostname: rs-2
     restart: unless-stopped
@@ -310,6 +320,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.regionserver
+      args:
+        UBUNTU_PORTS_MIRROR: ${UBUNTU_PORTS_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}
     container_name: rs-3
     hostname: rs-3
     restart: unless-stopped
@@ -348,6 +360,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.client
+      args:
+        UBUNTU_PORTS_MIRROR: ${UBUNTU_PORTS_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}
     container_name: client
     hostname: client
     stdin_open: true

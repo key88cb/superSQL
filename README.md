@@ -213,10 +213,18 @@ sequenceDiagram
 ### 前置条件
 
 ```bash
-# 确认版本
+# 确认 Docker CLI / Compose 版本
 docker --version          # >= 24.0
 docker compose version    # >= 2.20
+
+# 确认 Docker Engine / daemon 已运行
+docker info
 ```
+
+如果 `docker info` 报错 `Cannot connect to the Docker daemon`：
+
+- **macOS / Windows（Docker Desktop）**：先启动 Docker Desktop。macOS 可执行 `docker desktop start`，也可以直接打开 Docker Desktop App；Windows 通常直接打开 Docker Desktop，或确认它已随开机自启。
+- **Linux**：启动 Docker 服务，例如 `sudo systemctl start docker`。
 
 ### 一键启动
 
