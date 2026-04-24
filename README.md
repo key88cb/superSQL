@@ -250,14 +250,18 @@ watch -n 2 'docker compose ps'
 # 查看 ZooKeeper 选举状态
 docker exec zk1 zkServer.sh status
 
-# 查看 Active Master
-docker exec zk1 zkCli.sh get /masters/active-heartbeat
+# 注意：所有 znode 都挂在 /supersql namespace 下（Curator 客户端在
+# SqlClient.java / MasterRuntimeContext 中设了 .namespace("supersql")），
+# 直接查根路径的 /region_servers、/meta/tables 等会看不到节点。
+
+# 查看 Active Master（由 LeaderElector 写入 /active-master）
+docker exec zk1 zkCli.sh -server localhost:2181 get /supersql/active-master
 
 # 查看已注册的 RegionServer
-docker exec zk1 zkCli.sh ls /region_servers
+docker exec zk1 zkCli.sh -server localhost:2181 ls /supersql/region_servers
 
-# 查看表路由元数据
-docker exec zk1 zkCli.sh ls /meta/tables
+# 查看表路由元数据（刚启动还没建表时为空）
+docker exec zk1 zkCli.sh -server localhost:2181 ls /supersql/meta/tables
 ```
 
 ### 进入客户端 REPL
