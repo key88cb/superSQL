@@ -92,4 +92,5 @@ prompt.md
 
 # ── Environment ──────────────────────────────────────────────────────
 .env
+.env.localminisql/cpp-core/nul
 .env.local
