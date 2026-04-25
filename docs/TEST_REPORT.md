@@ -71,7 +71,7 @@ mvn -q -B -ntp install -DskipTests      # 第一次运行 scripts/run_tests.sh j
 
 ## 2. 自动化入口
 
-### 2.1 现有统一入口
+### 2.1 统一入口 - 所有套件
 
 ```bash
 scripts/run_tests.sh <layer> <suite>          # 单套件
@@ -90,11 +90,12 @@ scripts/run_tests.sh all                       # 自底向上跑完 11 个套件
 
 每个套件产物路径：`artifacts/<suite>/<YYYYMMDD-HHMMSS>/{stdout.log, stderr.log, summary.json}`。`summary.json` 为结构化汇总（`result` 字段取 `PASS|FAIL`）。
 
-### 2.2 新增入口（本轮）
+### 2.2 统一入口2 - 断网测试
 
 ```bash
 scripts/chaos/network_disconnect.sh <scenario>
 # scenario: rs_isolated | master_isolated | zk_isolated | client_isolated | dual_rs_isolated | all
+scripts/chaos/network_disconnect.sh all
 ```
 
 使用 Docker 网络层断开替代 iptables。覆盖 5 种"拔网线"场景，详见 [§5.6](#56-拔网线场景docker-network-disconnect)。
