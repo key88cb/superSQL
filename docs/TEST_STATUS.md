@@ -141,8 +141,26 @@ Makefile 入口：`make test` 串行跑除 `test_pin_count` 外的 9 个 target 
 | R5 | `e2e.client` | PASS 6/7 (新增 fixture 05_range_select / 06_unsupported_sql / 07_execfile 全绿；04_delete 偶发 BUG-17 残留状态) | ~30 | 04_delete 偶发 `(3 rows)` 断言失败：BUG-17 DROP TABLE 数据残留 | `artifacts/e2e.client/` |
 | R4 | `cluster.chaos` | FAIL (Scenario 1 PASS — BUG-08 修复在集群中验证；Scenario 2/3 由于 Mac Docker rs 重启 health 慢于 60s 默认窗口出现级联 failure；4/5 SKIP) | ~400 | rs-1 restart timeout → 后续 round 在表元数据未恢复时 SELECT 报 TABLE_NOT_FOUND | `artifacts/cluster.chaos/` |
 | R4 | `cluster.smoke` (post-chaos) | PASS | ~6 | — | `artifacts/cluster.smoke/` |
+| R6 (manual) | `cpp.unit` | PASS | 16 | — | `artifacts/cpp.unit/20260425-032651/` |
+| R6 (manual) | `cpp.wal` | PASS | 10 | — | `artifacts/cpp.wal/20260425-032707/` |
+| R6 (manual) | `cpp.stress` | PASS | 20 | — | `artifacts/cpp.stress/20260425-032737/` |
+| R6 (manual) | `java.unit` | PASS | 41 | — | `artifacts/java.unit/20260425-032729/` (304/304) |
+| R6 (manual) | `java.integration` | PASS | 28 | — | `artifacts/java.integration/20260425-032846/` (80/80) |
+| R6 (manual) | `cluster.smoke` | PASS | 7 | — | `artifacts/cluster.smoke/20260425-032850/` |
+| R6 (manual) | `zk.topology` | PASS | 3 | — | `artifacts/zk.topology/20260425-032852/` |
+| R6 (manual) | `cluster.stress` | PASS | 185 | — | `artifacts/cluster.stress/20260425-033016/` (2×50 + 500 + 200) |
+| R6 (manual) | `cluster.chaos` | FAIL (5 assertions) | 206 | S1 PASS; S2 rs_crash + S3 random_rs×3 共 5 个 `missing row` / `seed unavailable` — 与 BUG-14 一致（run_sql 不识别 client stdout Error）；S4/S5 SKIP（BUG-09） | `artifacts/cluster.chaos/20260425-034246/` |
+| R6 (manual) | `cluster.smoke` (post-chaos) | PASS | 7 | — | `artifacts/cluster.smoke/20260425-034703/` |
+| R6 (manual) | `e2e.client` (dirty cluster) | FAIL 4/7 | 15 | 01/02/04/05 fixture 因 BUG-17 残留数据文件触发 `Table has existed` 级联 | `artifacts/e2e.client/20260425-033327/` |
+| R6 (manual) | `e2e.client` (after full wipe) | PASS 7/7 | 30 | — | `artifacts/e2e.client/20260425-034157/` (wipe 剧本见 MANUAL_TEST_REPORT §6) |
+| R6 (manual) | `chaos.net/rs_isolated` | PASS | 50 | 新增套件 — `docker network disconnect` 替代 iptables | `artifacts/chaos.net/rs_isolated.log` |
+| R6 (manual) | `chaos.net/master_isolated` | FAIL (1 assertion) | 140 | epoch 递增 OK；reconnect 后 master HTTP 不可达 — **BUG-19 新增** | `artifacts/chaos.net/master_isolated.log` |
+| R6 (manual) | `chaos.net/zk_isolated` | PASS | 45 | zk3 拔离期间 quorum 仍可写 | `artifacts/chaos.net/zk_isolated.log` |
+| R6 (manual) | `chaos.net/client_isolated` | PASS | 35 | RouteCache 重连自愈 | `artifacts/chaos.net/client_isolated.log` |
+| R6 (manual) | `chaos.net/dual_rs_isolated` | PASS | 100 | 2/3 RS 失联下读仍可用；恢复后一致 | `artifacts/chaos.net/dual_rs_isolated.log` |
 
 > R1 起由 agent 按计划填写。若同一套件出现两轮以上回归失败，在 §5 开新 bug。
+> R6 为手动端到端测试（见 `docs/MANUAL_TEST_REPORT.md`）。
 
 ---
 
@@ -183,6 +201,39 @@ Makefile 入口：`make test` 串行跑除 `test_pin_count` 外的 9 个 target 
 > - `复现`：单行命令，尽量最小化
 > - `根因` / `修复动作`：最多两行
 
+### 5.0 总览：按类型分组 + 未关闭清单
+
+**统计（截至 R6）**：FIXED 11 个，KNOWN_ISSUE 1 个，OPEN 4 个。
+
+#### 5.0.1 按 bug 类型分组
+
+| 类型 | 描述 | Bug ID |
+| --- | --- | --- |
+| **集群协调** | Master 选主、ZK bootstrap、DDL 编排 | BUG-01 (FIXED), BUG-08 (FIXED) |
+| **C++ 引擎集成** | Java↔miniSQL 子进程的 IO / 启动契约 | BUG-02 (FIXED), BUG-03 (FIXED) |
+| **副本同步 / 故障恢复** | 主副本切换、heal、catchup | BUG-07 (FIXED), BUG-11 (FIXED, 间接) |
+| **客户端路由** | RouteCache、master query 退避、sentinel 处理 | BUG-12 (FIXED) |
+| **数据生命周期** | DROP TABLE 在所有副本上的清理 | **BUG-17 (OPEN)** |
+| **测试基础设施 / 脚本** | shell 脚本兼容性、产物路径、链接命令、cold-start race | BUG-04 (FIXED), BUG-05 (FIXED), BUG-06 (FIXED), BUG-10 (FIXED), BUG-13 (FIXED), **BUG-14 (OPEN)** |
+| **Docker 环境** | 镜像缺工具、容器启动慢、network reconnect | **BUG-09 (KNOWN_ISSUE)**, **BUG-15 (OPEN)**, **BUG-19 (OPEN)** |
+
+#### 5.0.2 未关闭清单（共 5 个）
+
+| ID | 严重度 | 状态 | 类型 | 一句话现象 | 影响范围 | 应对 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **BUG-09** | P2 | KNOWN_ISSUE | Docker 环境 | RS 镜像未装 `iptables`，chaos S4/S5 无法注入分区 | `cluster.chaos` 的 network_partition / suspected_replica 场景 | 已用 `scripts/chaos/network_disconnect.sh` 替代；根治需 Dockerfile 加 `apt-get install iptables` |
+| **BUG-14** | P2 | OPEN | 测试脚本 | `chaos_test.sh#run_sql` 只看 docker exec 退出码，client stdout 的 `Error:` 被当成功 | `cluster.chaos` S2/S3 假阳性 5 处失败 | 改 `run_sql` 按 `Error\|ERROR` 关键字识别真实失败 + 加 `wait_for_table` |
+| **BUG-15** | P2 | OPEN | Docker 环境 | macOS Docker 下 RS 重启 health 慢于默认 60s，导致 chaos 后续 round 级联失败 | `cluster.chaos` 在 Mac 平台稳定性 | 默认 `CHAOS_RECOVERY_WAIT_SECONDS` 提升到 120 + 加 RS health grace |
+| **BUG-17** | **P1** | OPEN | 数据生命周期 | DROP TABLE 不清副本 RS 的 data 文件 → 累积孤儿；下轮 CREATE 同名表 `Table has existed` 级联 | `e2e.client` 反复跑会从 7/7 退到 4/7；`cluster.stress` 反复跑积累垃圾 | 全量 wipe 剧本（见 MANUAL_TEST_REPORT §6）；根治需 DROP 在所有副本删 `data/`+`index/`+`catalog/` 并 evict buffer pool |
+| **BUG-19** | P2 | OPEN | Docker 环境 | `docker network disconnect`+`connect` master 后 HTTP 管理端口不可达 | `chaos.net/master_isolated` 恢复段；生产很少触发 | `network_disconnect.sh` fallback 到 `docker restart`；根治需 master HTTP server 监听 NIC 变化或 `network_mode: host` |
+
+> 严重度阻塞分级：
+> - **BUG-17 (P1)** 是唯一阻塞性的未关闭 bug — 不修则 e2e/stress 反复跑会逐轮累积故障。短期靠 wipe 剧本可工作。
+> - 其余 4 个均 P2，定位在测试基础设施与 Docker 环境，不影响生产路径。
+
+---
+### 5.1. Bug明细
+
 | ID | 严重度 | 状态 | 位置 | 现象 | 复现 | 根因 / 修复动作 | artifacts |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | BUG-01 | **P0** | FIXED | `RegionServiceImpl#executeWrite`（`java-regionserver/src/main/java/edu/zju/supersql/regionserver/rpc/RegionServiceImpl.java:176-198`） | CREATE TABLE 通过 master 的 `regionDdlExecutor.execute` 下到每个 RS → RS 走 `executeWrite` → 读 `/supersql/assignments/<table>` 返回空（master 在 fan-out DDL 之后才写 assignments）→ `Insufficient replica targets: required=1, available=0`；链路上 client 最终看到 `Failed to create table on replica rs-3` | `printf "CREATE TABLE t1(id int, primary key(id));\nexit;\n" \| docker exec -i client java -jar /app/app.jar` | 根因：CREATE/DROP TABLE 是 master 编排的（已向每个副本独立下发 DDL），RS 侧再做副本同步会死等。修复：`executeWrite` 对 `WalOpType.CREATE_TABLE` / `WalOpType.DROP_TABLE` 跳过 replica-sync（本地 WAL + 本地执行仍保留） | `artifacts/cluster.smoke/` (before), `artifacts/cluster.smoke/` (after) |
@@ -200,13 +251,14 @@ Makefile 入口：`make test` 串行跑除 `test_pin_count` 外的 9 个 target 
 | BUG-13 | **P1** | FIXED | `scripts/cluster/stress.sh#phase1/phase2` | `cluster.stress` 时 phase1/phase2 在 `CREATE TABLE` 后立刻 `INSERT`，前几条 INSERT 会偶发 `Error: Table not found: stress_xxx (status=TABLE_NOT_FOUND, attempt=3/3)`，导致 phase2 期望 500 行实际只有 495；BUG-12 修过 sentinel 缓存但 client 端的 master query 退避（100/200/300ms 三次）在压测并发下仍不够 | `STRESS_CONCURRENCY=2 STRESS_ROWS_PER_WORKER=50 STRESS_BULK_ROWS=500 bash scripts/run_tests.sh cluster stress`（fresh cluster R4 第一次 PASS，其后偶发） | 根因：master 在 `CREATE TABLE` 完成后向 ZK 写 metadata 与 client 通过 `RouteCache` 看见之间存在毫秒级窗口；测试脚本不能假设 CREATE 返回即可立即 INSERT。修复：`stress.sh` 新增 `wait_for_table` 辅助，在 phase1/phase2 的 `run_sql "CREATE TABLE ..."` 之后**主动 SELECT 直到不再返回 TABLE_NOT_FOUND**（最多 30s），再启动 INSERT worker。 | `artifacts/cluster.stress/` (FAIL 495/500), `artifacts/cluster.stress/` (PASS) |
 | BUG-14 | P2 | OPEN | `scripts/chaos_test.sh#run_sql` + `create_test_table` | chaos Scenario 3 中 `Round N: missing row 'round_N_rs-X' after recovery` 与 `Table not found: chaos_test_random_rs_NNNNN` 的真实根因是 chaos `create_test_table` 在 cluster 退化时 CREATE 实际返回 `Error: Internal error processing createTable`，但 `run_sql ... \|\| return 1` 只检查 docker exec 退出码（client 一律 exit 0），因此把"创建失败"当成"创建成功"继续后续轮次 | R4 chaos Scenario 3 Round 1：`Preparing table: chaos_test_random_rs_29166` 后立即 `Round 1: seed row became unavailable during rs-2 outage`，master 三个节点的日志都查不到 `chaos_test_random_rs_29166` 字眼 → 表根本没建出来 | 待修：`run_sql` 的输出按 `Error:` 关键字判定真实失败、`create_test_table` 在 CREATE 之后调用类似 BUG-13 的 `wait_for_table` 等元数据可见再 INSERT seed 行；同时 Scenario 之间应清理上一轮 `chaos_test_*` 残留 ZK znode 避免 heal 干扰 | `artifacts/cluster.chaos/` |
 | BUG-15 | P2 | OPEN | docker `Dockerfile.regionserver`（不允许 agent 修改）+ chaos `RECOVERY_WAIT_SECONDS` 默认 60s | macOS Docker 下 RS 容器 stop 之后再 start，miniSQL C++ 进程冷启动 + Java RS 重新连 ZK 经常需要 90~120s，超过 chaos 默认 60s 的 health 等待窗口；R4 cluster.chaos Scenario 2 因此 fail（rs-1 timeout），后续 Scenario 3 在级联状态下进一步连锁 fail | `bash scripts/run_tests.sh cluster chaos` | 待评估：① 默认 `CHAOS_RECOVERY_WAIT_SECONDS` 提升到 120；② 增加 RS 镜像 health check 启动 grace；③ chaos 脚本失败前再额外检查 `docker exec rs-X curl -sf localhost:9190/health` 兜底 | `artifacts/cluster.chaos/` |
-| BUG-17 | **P1** | OPEN | client `DROP TABLE` → master `MetaManager.dropTable` → RS `DROP TABLE` 链路 | DROP TABLE 之后再次 CREATE 同名表，新表的 INSERT 出现 `Primary key conflict` 错误；SELECT 看到来自前一轮的旧行；DROP 没有真正擦除 RS 上的 `database/data/<name>` 文件，并且 C++ 引擎的 buffer pool 仍然缓存旧数据。具体表现见 `e2e.client/04_delete` 在多次复跑后偶发 `(3 rows)` 断言失败，实际首条 SELECT 返回 5 行但 row 2 的 tag 是上一轮残留的 `keep` 而非本轮 INSERT 的 `drop` | 反复跑 `bash scripts/run_tests.sh e2e client`，4-5 次后 `04_delete` 出现 `missing pattern: \(3 rows\)`；`docker exec rs-1 ls /data/db/database/data/` 在 DROP 后偶尔仍能看到表文件 | 待修：① DROP TABLE 链路在所有副本完成后才清空 ZK metadata；② RS 收到 DROP 必须删除 `data/`、`index/`、`catalog/` 三处文件并提示 C++ 引擎 evict 该表的 buffer pool；③ 在彻底修好之前 `scripts/e2e/run_sql_fixtures.sh` 已加预清理（ZK + 三个 RS 数据文件），可减少但不能消除偶发 | `artifacts/e2e.client/` |
+| BUG-17 | **P1** | OPEN | client `DROP TABLE` → master `MetaManager.dropTable` → RS `DROP TABLE` 链路 | DROP TABLE 之后再次 CREATE 同名表，新表的 INSERT 出现 `Primary key conflict` 错误；SELECT 看到来自前一轮的旧行；DROP 没有真正擦除 RS 上的 `database/data/<name>` 文件，并且 C++ 引擎的 buffer pool 仍然缓存旧数据。具体表现见 `e2e.client/04_delete` 在多次复跑后偶发 `(3 rows)` 断言失败，实际首条 SELECT 返回 5 行但 row 2 的 tag 是上一轮残留的 `keep` 而非本轮 INSERT 的 `drop` | 反复跑 `bash scripts/run_tests.sh e2e client`，4-5 次后 `04_delete` 出现 `missing pattern: \(3 rows\)`；`docker exec rs-1 ls /data/db/database/data/` 在 DROP 后偶尔仍能看到表文件 | 待修：① DROP TABLE 链路在所有副本完成后才清空 ZK metadata；② RS 收到 DROP 必须删除 `data/`、`index/`、`catalog/` 三处文件并提示 C++ 引擎 evict 该表的 buffer pool；③ 在彻底修好之前 `scripts/e2e/run_sql_fixtures.sh` 已加预清理（ZK + 三个 RS 数据文件），可减少但不能消除偶发。R6 进一步确认：连续 3 次 e2e 后 RS 磁盘累积 11 个孤儿 data 文件 + 残留 catalog 条目；只有「停 RS + 清 data/index/catalog_file + 重启 RS」的全量 wipe 才能恢复到 fixture 全绿，见 `docs/MANUAL_TEST_REPORT.md §6` | `artifacts/e2e.client/20260425-033327/` (dirty FAIL 4/7), `artifacts/e2e.client/20260425-034157/` (after-wipe PASS 7/7) |
+| BUG-19 | P2 | OPEN | `docker network disconnect/connect` + master 内嵌 HTTP server（本轮 R6 新增） | 把 ACTIVE master 从 docker network disconnect 后再 connect，容器 `healthy`、Java 进程未死，但 HTTP 管理端口（容器内 8080、host 8880/8881/8882）**无响应**；curl 从 host 打不开、在容器里打本地 localhost 也打不开。新主选举本身成功（epoch 递增），但旧主必须 `docker restart` 才能恢复可访问。 | `bash scripts/chaos/network_disconnect.sh master_isolated` | 推测：docker `network connect` 后容器拿到新 IP / iptables 映射未重建；Java 的 HTTP server 仍绑定在旧 interface 上。临时修复：`network_disconnect.sh` 在 master_isolated 恢复段 fallback 到 `docker restart`。根治需在 MasterServerHttp\* 监听 NetworkInterface 变化并重新 bind，或在 `docker-compose.yml` 里把 master 的 host 端口绑定用 `network_mode: host` 规避。 | `artifacts/chaos.net/master_isolated.log` |
 
 ### 5.1 已知待验证项（摘自 `UNFINISHED_FEATURES_IMPLEMENTATION_GUIDE.md`）
 
 以下为项目已自述「未完成」的条目，**agent 不可当作 bug 登记**，而要作为专项测试场景补齐数据：
 
-1. Master 选主与脑裂防护缺乏长时分区 / 抖动混沌验证。
+1. Master 选,主与脑裂防护缺乏长时分区 / 抖动混沌验证。
 2. RegionServer 副本追赶与迁移缺极端网络故障压测结论。
 3. Client 路由指标尚未接入统一监控，长期趋势缺失。
 
