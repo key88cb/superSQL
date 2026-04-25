@@ -12,6 +12,7 @@ import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -47,6 +48,16 @@ public class RegionServiceImpl implements RegionService.Iface {
     /** This RS's own address (host:port) — excluded from replica list to avoid self-sync. */
     private final String selfAddress;
     private final int minReplicaAcks;
+    /**
+     * Engine data root (typically `/data/db`). Used by the BUG-17 post-DROP
+     * cleanup path to remove `database/data/<table>` and matching index files
+     * after the C++ engine drops the table — without this, replica RSs that
+     * the C++ `remove(./database/data/<name>)` failed silently on (e.g. dirty
+     * buffer-pool page held an fd) accumulate orphan data files that cause
+     * `Table has existed!` on the next CREATE of the same name.
+     * May be {@code null} in unit tests that wire RegionServiceImpl directly.
+     */
+    private final String dataRootDir;
 
     public RegionServiceImpl(MiniSqlProcess miniSql,
                              WalManager walManager,
@@ -54,7 +65,7 @@ public class RegionServiceImpl implements RegionService.Iface {
                              WriteGuard writeGuard,
                              CuratorFramework zkClient,
                              String selfAddress) {
-        this(miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, 1);
+        this(miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, 1, null);
     }
 
     public RegionServiceImpl(MiniSqlProcess miniSql,
@@ -64,6 +75,17 @@ public class RegionServiceImpl implements RegionService.Iface {
                              CuratorFramework zkClient,
                              String selfAddress,
                              int minReplicaAcks) {
+        this(miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, minReplicaAcks, null);
+    }
+
+    public RegionServiceImpl(MiniSqlProcess miniSql,
+                             WalManager walManager,
+                             ReplicaManager replicaManager,
+                             WriteGuard writeGuard,
+                             CuratorFramework zkClient,
+                             String selfAddress,
+                             int minReplicaAcks,
+                             String dataRootDir) {
         this.miniSql        = miniSql;
         this.walManager     = walManager;
         this.replicaManager = replicaManager;
@@ -71,6 +93,7 @@ public class RegionServiceImpl implements RegionService.Iface {
         this.zkClient       = zkClient;
         this.selfAddress    = selfAddress;
         this.minReplicaAcks = Math.max(0, minReplicaAcks);
+        this.dataRootDir    = dataRootDir;
     }
 
     // ─────────────────────── RegionService.Iface ──────────────────────────────
@@ -221,6 +244,26 @@ public class RegionServiceImpl implements RegionService.Iface {
             // 4. Commit WAL entry locally after local execution succeeds
             walManager.commit(tableName, lsn);
 
+            // 4.5 BUG-17: belt-and-suspenders cleanup for DROP TABLE.
+            // The C++ engine's record_manager calls `remove("./database/data/<name>")`
+            // which can fail silently on a replica (dirty buffer-pool page holding
+            // an fd, or stale catalog entry that short-circuits before the file
+            // delete). Without this Java-side fallback the replica accumulates an
+            // orphan data file; the next CREATE of the same name then fails with
+            // "Table has existed!" on this replica, breaking the whole DDL fan-out.
+            // We trigger a checkpoint first (flush catalog tombstone), then
+            // best-effort delete `database/data/<table>` and any index file
+            // whose name starts with the table name.
+            if (opType == WalOpType.DROP_TABLE && dataRootDir != null) {
+                try {
+                    miniSql.checkpoint();
+                } catch (Exception ce) {
+                    log.warn("executeWrite: checkpoint after DROP TABLE failed table={} err={}",
+                            tableName, ce.getMessage());
+                }
+                cleanupDroppedTableFiles(tableName);
+            }
+
             // 5. Async commit on replicas
             if (!replicas.isEmpty()) {
                 replicaManager.commitOnReplicas(tableName, lsn, replicas);
@@ -323,5 +366,64 @@ public class RegionServiceImpl implements RegionService.Iface {
 
     public static long getExecutedSqlCountForMetrics() {
         return EXECUTED_SQL_COUNT.get();
+    }
+
+    /**
+     * BUG-17 fix: best-effort filesystem cleanup after a DROP TABLE.
+     *
+     * <p>Removes <code>database/data/&lt;table&gt;</code> and any index file in
+     * <code>database/index/</code> whose name starts with <code>&lt;table&gt;</code>
+     * (or <code>idx_&lt;table&gt;</code>). Idempotent — silent no-op if files
+     * are already gone (the common case when the C++ engine successfully
+     * deleted them).
+     *
+     * <p>Mirrors the file pattern used by
+     * {@link RegionAdminServiceImpl#deleteLocalTable(String)} so admin-driven
+     * cleanups and master-orchestrated DROPs converge on the same on-disk
+     * state.
+     */
+    private void cleanupDroppedTableFiles(String tableName) {
+        if (dataRootDir == null || tableName == null || tableName.isBlank()) {
+            return;
+        }
+        try {
+            File dataDir = new File(dataRootDir, "database/data");
+            int dataDeleted = bestEffortDeleteMatching(dataDir, tableName);
+
+            File indexDir = new File(dataRootDir, "database/index");
+            int indexDeleted = bestEffortDeleteMatching(indexDir, tableName);
+
+            if (dataDeleted + indexDeleted > 0) {
+                log.info("executeWrite: cleaned up {} data file(s) + {} index file(s) after DROP TABLE table={}",
+                        dataDeleted, indexDeleted, tableName);
+            }
+        } catch (Exception e) {
+            // Cleanup must never break the DROP itself.
+            log.warn("executeWrite: cleanup after DROP TABLE failed table={} err={}",
+                    tableName, e.getMessage());
+        }
+    }
+
+    private static int bestEffortDeleteMatching(File dir, String tableName) {
+        if (dir == null || !dir.exists() || !dir.isDirectory()) {
+            return 0;
+        }
+        File[] files = dir.listFiles(f -> {
+            if (f == null || f.getName() == null) return false;
+            String n = f.getName();
+            // exact match (heap file) | "<table>_*" (per-engine secondary)
+            // | "idx_<table>*" (CREATE INDEX default-style names)
+            return n.equals(tableName)
+                    || n.startsWith(tableName + "_")
+                    || n.startsWith("idx_" + tableName);
+        });
+        if (files == null) return 0;
+        int deleted = 0;
+        for (File f : files) {
+            if (f.delete()) {
+                deleted++;
+            }
+        }
+        return deleted;
     }
 }

@@ -277,6 +277,8 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    cap_add:
+      - NET_ADMIN     # BUG-09 fix: required for iptables-based partition tests in chaos_test.sh
 
   rs-2:
     build:
@@ -315,6 +317,8 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    cap_add:
+      - NET_ADMIN     # BUG-09 fix: required for iptables-based partition tests in chaos_test.sh
 
   rs-3:
     build:
@@ -353,6 +357,8 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    cap_add:
+      - NET_ADMIN     # BUG-09 fix: required for iptables-based partition tests in chaos_test.sh
 
 # ──────────────────────────── Client ──────────────────────────────
 

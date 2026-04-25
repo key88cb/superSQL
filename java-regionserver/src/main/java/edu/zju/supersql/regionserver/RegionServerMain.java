@@ -550,8 +550,12 @@ public class RegionServerMain {
         replicaSync.init();
         replicaSyncRef[0] = replicaSync;
         
+        // BUG-17: pass dataDir so DROP TABLE can run a best-effort cleanup of
+        // `database/data/<name>` + `database/index/<name>*` after the C++
+        // engine drop. Without this the replica accumulates orphan files that
+        // make subsequent CREATE of the same name fail with "Table has existed!".
         RegionServiceImpl regionService = new RegionServiceImpl(
-            miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, minReplicaAcks);
+            miniSql, walManager, replicaManager, writeGuard, zkClient, selfAddress, minReplicaAcks, dataDir);
         RegionAdminServiceImpl adminService = new RegionAdminServiceImpl(
                 writeGuard, zkClient, dataDir, rsId, miniSql);
         adminServiceRef[0] = adminService;

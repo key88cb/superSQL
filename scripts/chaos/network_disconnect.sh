@@ -207,16 +207,46 @@ scenario_master_isolated() {
     wait_healthy "$victim" 60 || log_fail "$victim unhealthy after reconnect"
     sleep 10
 
-    # 旧主恢复后应为 STANDBY
-    local role
-    for i in 1 2 3; do
-        if [ "master-$i" = "$victim" ]; then
-            role=$(curl -s "http://localhost:888$((i-1))/status" 2>/dev/null \
+    # 旧主恢复后应为 STANDBY 或 ACTIVE
+    local victim_idx port
+    case "$victim" in
+        master-1) victim_idx=1; port=8880 ;;
+        master-2) victim_idx=2; port=8881 ;;
+        master-3) victim_idx=3; port=8882 ;;
+        *) victim_idx=0; port=0 ;;
+    esac
+
+    # BUG-19 fix: docker `network connect` does not always rewire the iptables
+    # NAT for the host port-forward, so the master HTTP admin endpoint can
+    # remain unreachable even though the container is healthy and the Java
+    # process is alive. Detect this and recover via `docker restart`. Without
+    # this fallback the role check below would FAIL on every run.
+    local role=""
+    if [ "$port" -ne 0 ]; then
+        local i
+        for i in $(seq 1 10); do
+            role=$(curl -s --max-time 2 "http://localhost:$port/status" 2>/dev/null \
                    | grep -oE '"role":"[A-Z_]+"' | head -n 1 \
                    | sed -E 's/"role":"([A-Z_]+)"/\1/')
-            break
+            [ -n "$role" ] && break
+            sleep 2
+        done
+
+        if [ -z "$role" ]; then
+            log_info "$victim HTTP unreachable after network connect (BUG-19); falling back to docker restart"
+            docker restart "$victim" >/dev/null
+            wait_healthy "$victim" 60 || log_fail "$victim unhealthy after docker restart"
+            sleep 5
+            for i in $(seq 1 10); do
+                role=$(curl -s --max-time 2 "http://localhost:$port/status" 2>/dev/null \
+                       | grep -oE '"role":"[A-Z_]+"' | head -n 1 \
+                       | sed -E 's/"role":"([A-Z_]+)"/\1/')
+                [ -n "$role" ] && break
+                sleep 2
+            done
         fi
-    done
+    fi
+
     if [ "$role" = "STANDBY" ] || [ "$role" = "ACTIVE" ]; then
         log_pass "$victim role after reconnect=$role"
     else

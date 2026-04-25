@@ -78,8 +78,13 @@ LABEL component="regionserver"
 
 RUN sed -i "s|http://ports.ubuntu.com/ubuntu-ports|${UBUNTU_PORTS_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources \
     && apt-get update -o Acquire::Retries=5 \
-    && apt-get install -y --fix-missing libstdc++6 curl dnsutils \
+    && apt-get install -y --fix-missing libstdc++6 curl dnsutils iptables \
     && rm -rf /var/lib/apt/lists/*
+
+# BUG-09 fix: iptables installed so chaos_test.sh Scenario 4 (network_partition)
+# and Scenario 5 (suspected_replica) can inject inter-RS partitions natively.
+# Note: requires `--cap-add=NET_ADMIN` on the container (already configured in
+# docker-compose.yml).
 
 RUN groupadd -r supersql && useradd -r -g supersql supersql
 
